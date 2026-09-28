@@ -69,6 +69,7 @@ Open the **repository root** in Unity Hub with **6000.3.24f1**. This skeleton wa
    3. Project Settings > Graphics: assign `WastelandURP` as the default render pipeline.
    4. Project Settings > Quality: assign `WastelandURP` on every quality level.
 7. Enter Play Mode once on Bootstrap so Entities/Burst can JIT. There is no gameplay yet; `SimFixedUpdateDriver` is the presentation-clock example. Shader prototypes go in `Assets/_Project/Art/Shaders/`; the 5k-unit throwaway scene goes in `Assets/_Project/Prototypes/`.
+8. **Toon / VAT prototype (after packages import):** `Wasteland/Prototypes/Setup Toon Prototype (First Open)`. Then confirm `WastelandURP_Renderer` is **Forward+**, Project Settings > Graphics > Shader Stripping > **BatchRendererGroup Variants = Keep All**, shadow distance ~150 m, TAA and motion blur off. Open `Assets/_Project/Prototypes/FiveKToonTest.unity` and Play. VAT baker: `Wasteland/VAT/Baker` (or Generate Placeholder Sample).
 
 Do not treat `ProjectSettings/ProjectSettings.asset` as sacred after first open — Unity will fill in missing serialized fields. Keep `m_SerializationMode: 2` (Force Text) and Visible Meta Files.
 

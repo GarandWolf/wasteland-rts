@@ -20,7 +20,7 @@ Foundation only: Unity 6.3 LTS project skeleton, a deterministic simulation asse
 dotnet test Wasteland.Sim.sln
 ```
 
-Open this folder in the Unity Hub with 6000.3.24f1. First open downloads packages (Entities 1.4.8, Entities Graphics 1.4.21, URP 17.3.0, Burst, Collections, Mathematics, Test Framework; Shader Graph 17.3.0 comes in through URP) and regenerates editor files. Create and assign the Forward+ URP assets — see [CONTRIBUTING.md](CONTRIBUTING.md).
+Open this folder in the Unity Hub with 6000.3.24f1. First open downloads packages (Entities 1.4.8, Entities Graphics 1.4.21, URP 17.3.0, Burst, Collections, Mathematics, Test Framework; Shader Graph 17.3.0 comes in through URP) and regenerates editor files. Create and assign the Forward+ URP assets — see [CONTRIBUTING.md](CONTRIBUTING.md). After import, `Wasteland/Prototypes/Setup Toon Prototype (First Open)` builds the toon/VAT 5k test scene.
 
 ## Layout
 

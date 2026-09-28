@@ -2,7 +2,14 @@
   "name": "Wasteland.Presentation",
   "rootNamespace": "Wasteland.Presentation",
   "references": [
-    "Wasteland.Sim"
+    "Wasteland.Sim",
+    "Unity.Entities",
+    "Unity.Entities.Graphics",
+    "Unity.Transforms",
+    "Unity.Mathematics",
+    "Unity.Collections",
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.Universal.Runtime"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],
