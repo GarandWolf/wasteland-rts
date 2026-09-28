@@ -33,7 +33,7 @@ These are the Game Designer’s draft answers. They are **not final** until Gara
 | Topic | Draft position | AI consequence |
 | --- | --- | --- |
 | Scale | **Operational.** Each unit is a battalion or convoy. Players zoom from the strategic map down into fights. | AI commands **squads** (first-class sim entities that group battalions/convoys). It never commands individual units. Tactical layer is route, capture-zone, and supply behavior, not soldier spacing. |
-| Factions | **Not defined yet** (they depend on the apocalypse premise). | Keep Warlord / Settler / Raider as **parameter archetypes**. Each real faction will map onto one of them. Do not fork the planner. |
+| Factions | Working names: **Remnant**, **Compact**, **Clans**. Mapping onto archetypes is still designer + Garand. | Keep Warlord / Settler / Raider as **parameter archetypes**. Note the working names; do not fork the planner until mapping is signed off. |
 | Capture | Every town has a **capture zone** and a **garrison**. Clear all enemy combat units from the zone, then hold it uncontested for a timer (**60 s village, 120 s town, 180 s city**). An enemy combat unit in the zone **pauses** the timer; it does not reset. A territory belongs to whoever holds its **anchor town(s)**; some regions have several anchors and you need **all** of them. Fortified buildings **slow** capture; they do not block it. | Assault = clear then hold. Contest = park combat units in the zone to pause. Score multi-anchor regions as a set. Defend and reinforce capture zones first. |
 | Supply | Cutting roads **does** starve supply. Supply traces the **road graph** from depots and HQ to units. A segment is cut when an enemy **holds its node** or a **bridge is destroyed**. A unit is out of supply when it has no friendly road path back to a depot within a **short off-road** snap distance. Out-of-supply units stop refilling fuel and ammo. After ~**60 s** grace, fire rate and speed drop and they **cannot reinforce**. Off-road movement penalties are a separate rule. Supply is recomputed on a **fixed tick** with integer graph math. | Raid/cut enemy roads and bridges, guard own lines, do not over-extend, bake supply into routes and assault timing, value bridges and junctions. Read supply from sim hooks. |
 | Fog | Vision is **per player**, from **units and buildings**, with **terrain LoS** from the heightmap (high ground sees further, ridges block). Recon units get extra range. Explored enemy structures persist as **last-seen snapshots**. **No** global reveal of own territory. | AI **never** cheats fog. Scout with recon and high ground. Memory = snapshots + confidence decay. Own empty ground is fog unless a unit or building sees it. |
@@ -62,15 +62,16 @@ These are **decisions**, not drafts. They lock the sim seams the AI is written a
 | Tick | **20 Hz (50 ms)**, locked. |
 | Command delay | `commandDelayTicks` is a **match-setup constant** shared by player and AI. Default **2 ticks (100 ms)** in single-player; higher in multiplayer. **Never hardcoded.** Commands are stamped `executeTick = issuedTick + commandDelayTicks`. Difficulty may add `ReactionExtraTicks` on top for Easy/Normal/Hard; that is a difficulty parameter, not a substitute for the match delay. |
 | Numeric types | Sim state: **integer cm**, `int32` per axis; **`int64`** for squared distances and path costs; ratios as **int ppt**. Core has **Fixed64 (Q32.32)** for internal math only (sqrt, movement stepping, angles); results are always stored back as cm or ppt. **Nothing** in sim state, hashes, or events is Fixed. **Q16.16 in int32 is ruled out** (cannot cover a 200-mile map). |
-| Road A\* | **Core sim owns it.** `PathOnRoads` and `EstimateTravelTicks` are sim services. `PathRequestsPerTick` and the unreachable cache keyed on `(from, to, weightKey, graphVersion)` live in that service. `costWeights` are integer ppt. |
+| Road A\* | **Core sim owns it.** `PathOnRoads` and `EstimateTravelTicks` are sim services. Both take a **movement class** (`wheeled`, `tracked`, `foot`, `air`) per the designer’s movement table v0.1. `PathRequestsPerTick` and the unreachable cache keyed on `(from, to, weightKey, graphVersion, movementClass)` live in that service. `costWeights` are integer ppt. Per-class edge costs are computed at **match load**, not bake. |
+| Axes | Sim **x = east** (Unity +X), sim **y = north** (Unity +Z), elevation = Unity +Y. Origin is the **SW corner**. Sim stays in **absolute int cm**; rendering uses a floating origin. |
 | Entity model | **Squads are first-class** sim entities. Orders target squads. Sim handles unit movement, formation, and target selection within a squad. AI never commands individual units. |
 | Command queue | The lead engineer’s in-progress foundation PR defines the first command queue. The AI **plugs into it**. |
 | Threading | Launch: **fixed-step sim on the main thread**. A dedicated sim thread comes later. The AI stays **inside the sim tick** either way. |
 | Core / headless | Core is **pure C# with no `UnityEngine`**. Headless runs via `dotnet test` or a console host in GitHub Actions. |
-| Blobs | Map and AI blobs: **custom versioned little-endian binary**. Arrays sorted by id. Variable-length fields are `(offset, count)` into shared pools. **No hash-set rebuild on load.** |
+| Blobs | **WRMB** is the single map format (Map Pipeline Engineer’s versioned little-endian container, directory-by-tag, per-section CRCs). Layout spec: `blob-layout-v0.md` (map pipeline). Arrays sorted by id. Variable-length fields are `(offset, count)` into shared pools. **No hash-set rebuild on load.** Terrain is a **second WRMB**; each file stores the other’s `contentHash`. |
 | Hash / PRNG | **xxHash64** and **PCG32**, both in-repo with golden tests. `hash64` means xxHash64 over the listed fields. |
 | Perf targets | **1.5 ms AI** and **8 ms sim** are the accepted targets. The wall-clock **ship gate waits for a vertical slice**. The **AI work-unit cap alone** governs behavior. |
-| Per-PR CI | Frozen golden **100×100** map, **2 AI** factions, **12,000 ticks** (10 game minutes), run **twice** with the same seed, identical hashes every **200** ticks, finish in **under 5 minutes**. |
+| Per-PR CI | Frozen golden **100×100** map under `data/golden/` (Git LFS + SHA-256), **2 AI** factions, **12,000 ticks** (10 game minutes), run **twice** with the same seed, identical hashes every **200** ticks, finish in **under 5 minutes**. |
 | Nightly soak | Starts at about **200** matches and grows toward **1,000** once there are perf numbers. |
 | Cross-check | Windows-vs-Linux hash-stream check is added **later, before multiplayer**. |
 | Headless speed | Goal (not a commitment): at least **50× realtime** on 100×100 with 2 AIs. |
@@ -79,18 +80,18 @@ These are **decisions**, not drafts. They lock the sim seams the AI is written a
 
 ## Map pipeline decisions
 
-Accepted field-level contract for §3. The CI golden map is **approved (Sep 28, 2026)**; soak regions are still pending Garand. The blob **section layout still needs the Lead Engineer’s schema spec or approval** (§9.3).
+Accepted field-level contract for §3. The CI golden map is **approved (Sep 28, 2026)**; soak regions are still pending Garand. **WRMB** (including section layout) is approved; see `blob-layout-v0.md`.
 
 | Topic | Decision |
 | --- | --- |
 | When derived | Chokepoints, territories, `strategicValue`, and neighbour lists are computed **after** the post-apocalyptic transform. Destroyed bridges are already gone from the passable graph. |
-| Chokepoints | Record in §3.1. AI scores with **`defensibility` and `detourRatioPpt`**. |
+| Chokepoints | Record in §3.1. AI scores with **`defensibility` and `detourRatioPpt`**. Flag **`wheeledOnly`** (road pass whose off-road slopes on both sides exceed the wheeled limit): prioritize for defense and raids. |
 | `strategicValue` | 0–1000 from per-map percentile ranks: population 40%, road connectivity 25%, chokepoint proximity 15%, high ground 10%, resources 10%, plus a `populationClass` absolute anchor. **Designer owns the weights.** Per-town components go in optional `TDBG` for the overlay. |
 | Road budget | ~**8k nodes / 12k edges** on 200×200; ~**2k / 3k** on 100×100. Towns collapse to a gate plus **exit edges**. Edge geometry is a polyline. **Over-budget bake fails** (never truncates). |
-| AI grid | **1-mile cells** (`cellSizeCm = 160934`). `ElevationCell` plus `CellExt` (`territoryId`, water/steep/cover fractions, `edgeBlockMask`). |
-| Format | Lead Engineer’s **little-endian** versioned binary. Variable-length fields are `(offset, count)` into shared int32 / point / string pools. JSON/GeoJSON debug export with a **binary → JSON → binary** round-trip test. |
+| AI grid | Coarse **AI cells** from META `cellSizeCm` — **never assume a round mile**. **18** terrain cells (89 m slope‰ + land-cover grid) make one 1-mile AI cell. Gorge terrain WRMB is **1,800×1,800**. `ElevationCell` plus `CellExt` on the AI grid. |
+| Format | **WRMB** (approved): versioned little-endian, directory-by-tag, per-section CRCs. Spec: `blob-layout-v0.md`. Variable-length fields are `(offset, count)` into shared int32 / point / string pools. JSON/GeoJSON debug export with a **binary → JSON → binary** round-trip test. Map + terrain are **two WRMB files** that record each other’s `contentHash`. |
 | Gameplay fields | `supplyCapacity`, `fortificationSlots`, `defaultFortification`, `resourceYield` are **not** in the map blob. Designer table, applied at load (keyed by `populationClass`). |
-| Golden maps | CI: **Mid-Columbia Gorge** 100×100 (`golden-ci-columbia-gorge-100`), committed under `tests/golden/` with checksum, **approved Sep 28, 2026**. Soak: **Illinois–Iowa** and **Central Alps** at 200×200. |
+| Golden maps | CI: **Mid-Columbia Gorge** 100×100 (`golden-ci-columbia-gorge-100`), committed under `data/golden/` via **Git LFS** with SHA-256 files, **approved Sep 28, 2026**. Soak: **Illinois–Iowa** and **Central Alps** at 200×200. |
 
 ---
 
@@ -104,7 +105,7 @@ Launch is single-player against AI opponents. The AI *is* the opposing side of t
 | --- | --- |
 | Credible opponent | An AI faction takes anchor towns by clearing and holding capture zones, fortifies, cuts or guards supply, and assaults neighbors on a cadence a player can read and counter. |
 | Fair information | The AI only knows what its units and buildings see, plus last-seen snapshots of explored structures. It never cheats fog. Own territory is not auto-revealed. |
-| Personality | Real factions share one brain and map onto Warlord / Settler / Raider parameter profiles. Those three archetypes should not play the same match. |
+| Personality | Working names **Remnant**, **Compact**, **Clans** share one brain and map onto Warlord / Settler / Raider parameter profiles (mapping still designer + Garand). Those three archetypes should not play the same match. |
 | Terrain literacy | The AI uses roads, supply, chokepoints, bridges, high ground (movement **and** vision), rivers, and town/anchor value — not a Euclidean rush. |
 | Deterministic sim | Same match seed + same inputs → identical AI decisions. Required for headless test, later replays, later lockstep netcode. |
 | Tunable difficulty | Easy through Brutal are parameter sets, not separate AIs. Brutal’s only numeric advantage is `EconomyBonusPpt`. |
@@ -260,17 +261,17 @@ All terms are `int32` millipoints. Features are already in parts-per-thousand (p
 | `anchorBonus` | Extra if the town is an anchor; larger if we already hold `anchorsHeld / anchorsRequired − 1` of that territory. |
 | `territoryValue` | Value of the territory **if this capture would complete its anchor set**; otherwise a fraction. Non-anchors do not flip ownership. |
 | `captureProgressPpt` | Ours: finish a ticking hold. Enemy: contest a high-progress timer (pause is high value per unit). |
-| `threatOnTarget` | Threat map sample at the capture zone. |
+| `threatOnTarget` | Threat map sample at the capture zone, using the **assigned movement class**’s sim costs. |
 | `ownInfluenceNearTarget` | Influence map sample. |
 | `forceRatioPpt` | Estimated own committed strength / estimated defenders in the zone. |
 | `defenderSupplyPpt` | Low if we have cut their road to the town — assault sooner. High if they are supplied — isolate first. |
 | `ownSupplySafetyPpt` | Penalty if the assigned force would go OOS on the approach or during the hold timer. |
 | `roadAccessPpt` | 1000 if a friendly-controlled, supplied road reaches it; less if off-graph. |
-| `chokepointBonus` | `defensibility * detourRatioPpt / 1000` (both 0–1000 / 1000–10000). Prefer cuts that disconnect (`detourRatioPpt` near 10000). |
+| `chokepointBonus` | `defensibility * detourRatioPpt / 1000` (both 0–1000 / 1000–10000). Prefer cuts that disconnect (`detourRatioPpt` near 10000). Extra weight if `flags.wheeledOnly` (defense and raids). |
 | `bridgeJunctionValue` | Extra for bridge **edges** and high-flag junctions (cut or guard). |
 | `visionGroundBonus` | High-ground / ridge cells (`elevationCm`, `CellExt.coverPpt`) that would reveal a road or zone. |
 | `economyNeedPpt` | High when income < upkeep + planned spend. |
-| `distanceCost` | From sim `EstimateTravelTicks`, not raw `travelCost`. Staging town must be in supply. |
+| `distanceCost` | From sim `EstimateTravelTicks(from, to, movementClass)`, not raw `travelCost`. Staging town must be in supply. Plan **per movement class**. |
 | `fogUncertainty` | Penalty (or scout bonus) when confidence is low; never treated as vision. |
 | `recentFailurePenalty` | Same goal type+target failed within `FailureMemoryTicks`. |
 
@@ -329,7 +330,13 @@ cost(e, dir) =
 
 `wouldBreakSupply` is 1 when occupying or traversing `e` (or a planned off-road snap) would leave the squad with no path to a depot. Raids that *intend* to cut may pay this; assaults and holds may not. Directional slope/high-ground terms are computed from `climbCmAB` / `climbCmBA` / `elevDeltaCm`; they are **not** stored as undirected bonuses.
 
-Weights come from personality + current order type. `costWeights` passed to `PathOnRoads` are integer ppt; the service returns an `int64` cost. If the road graph cannot reach the target (`offRoadDistanceCm > 0`, or no passable edge), fall back to a coarse-grid corridor that **honours `CellExt.edgeBlockMask`** (no walking a `blocksLand` river, lake/sea edge, or cliff band without a bridge) and rejoin the road graph at the nearest node **within `SupplySnapCm`**. Last-mile into a capture zone is a short operational path on a local integer grid provided by sim, not Unity NavMesh. Off-road movement penalties are sim rules; the AI only chooses when a snap is worth it.
+Weights come from personality + current order type. `PathOnRoads` / `EstimateTravelTicks` take a **movement class** (`wheeled`, `tracked`, `foot`, `air`). The sim applies designer movement table v0.1 at **match load**:
+
+```
+speed = floor(base * surfacePpt * slopePpt / 1000000)   // 0 = impassable
+```
+
+Wheeled units cannot go off-road above a **299‰** grade. The AI must plan routes and estimate threat **per movement class**, using those sim costs — never a private speed table. `costWeights` are integer ppt; the service returns an `int64` cost. If the road graph cannot reach the target (`offRoadDistanceCm > 0`, or no passable edge for that class), fall back to a coarse-grid corridor that **honours `CellExt.edgeBlockMask`** (no walking a `blocksLand` river, lake/sea edge, or cliff band without a bridge) and rejoin the road graph at the nearest node **within `SupplySnapCm`**. Last-mile into a capture zone is a short operational path on a local integer grid provided by sim, not Unity NavMesh. Off-road movement penalties are sim rules; the AI only chooses when a snap is worth it.
 
 **Movement postures** (operational, not fire-team formations).
 
@@ -429,11 +436,11 @@ Maps are not handmade. The AI cannot be given designer ink. It needs a **stable,
 
 ### 3.1 Map pipeline contract (match-static)
 
-Pipeline bakes one blob at match start. Format: the Lead Engineer’s **custom versioned little-endian binary**. Records are fixed-size with explicit zero padding. Variable-length arrays are `{uint32 offset, uint32 count}` into shared pools (`I32P` int32 ids, `PTSP` int32 x/y points, `STRP` UTF-8). Arrays and pool spans are pre-sorted by id. Load memory-maps or copies arrays; **no hash-set rebuild**. No floats in the file. `bool` is `uint8` 0/1.
+Pipeline bakes **two WRMB files** at match start (map + terrain). Format: **WRMB**, the Map Pipeline Engineer’s versioned little-endian container with directory-by-tag section lookup and per-section CRCs. Layout: map pipeline spec **`blob-layout-v0.md`**. Records are fixed-size with explicit zero padding. Variable-length arrays are `{uint32 offset, uint32 count}` into shared pools (`I32P` int32 ids, `PTSP` int32 x/y points, `STRP` UTF-8). Arrays and pool spans are pre-sorted by id. Load memory-maps or copies arrays; **no hash-set rebuild**. No floats in the file. `bool` is `uint8` 0/1. Each WRMB stores the other’s `contentHash` in META.
 
 Debug next to every blob (game never loads these): `<map>.debug.json` and `<map>.geojson`. CI **round-trip**: binary → JSON → binary must be byte-identical.
 
-A **frozen golden 100×100** blob is required for per-PR CI (§8). Over-budget road graphs **fail the bake**; they are never truncated.
+A **frozen golden 100×100** map + terrain WRMB pair is required for per-PR CI (§8). Over-budget road graphs **fail the bake**; they are never truncated.
 
 Ids are dense `int32` starting at 1. Chokepoints, territories, `strategicValue`, and neighbour lists are computed **after** the post-apocalyptic transform.
 
@@ -526,20 +533,21 @@ RoadEdge
   geometry              (off,count)        // PTSP polyline; overlay/render only, not A*
 ```
 
-A\* uses `travelCost` plus AI/sim directional terms from `climbCm*` / `elevDeltaCm`. `distanceCost` scoring uses `EstimateTravelTicks`, not raw `travelCost`. Destroyed edges stay in the blob with `condition = 3` for debug; they are skipped for pathing. In-match demolition/repair is sim-owned and bumps `graphVersion` (designer+lead still decide whether that exists).
+A\* uses per-**movement-class** costs from the sim (match load, designer table v0.1), plus AI/sim directional terms from `climbCm*` / `elevDeltaCm`. `distanceCost` scoring uses `EstimateTravelTicks(..., movementClass)`, not raw `travelCost`. Destroyed edges stay in the blob with `condition = 3` for debug; they are skipped for pathing. In-match demolition/repair is sim-owned and bumps `graphVersion` (designer+lead still decide whether that exists).
 
 A node is **held** (supply cut) at runtime when an enemy combat unit occupies it.
 
 #### Chokepoints
 
-Computed on the **post-transform** passable graph. AI scoring uses `defensibility` and `detourRatioPpt`.
+Computed on the **post-transform** passable graph. AI scoring uses `defensibility` and `detourRatioPpt`. **`wheeledOnly`**: a road pass whose off-road slopes on both sides exceed the wheeled limit (299‰). The AI **prioritizes** these for `HoldChokepoint` and `Raid` / `CutSupply`.
 
 ```
 ChokepointRecord                           // fixed size; arrays via (offset,count) → I32P
   id                    int32
   kind                  int8               // 0 Bridge, 1 Pass, 2 Causeway, 3 Dam, 4 Gap, 5 Tunnel, 6 Junction
   flags                 uint8              // bit0 inferredBridge, bit1 onlyCrossing,
-                                           // bit2 destroyedByTransform, bit3 roadless
+                                           // bit2 destroyedByTransform, bit3 roadless,
+                                           // bit4 wheeledOnly
   widthClass            int8               // 0..3, same scale as RoadEdge
   _pad                  int8
   positionCm            int32 x, y
@@ -561,7 +569,9 @@ ChokepointRecord                           // fixed size; arrays via (offset,cou
 
 #### Elevation, cells, CellExt
 
-**1 mile** cells. `cellSizeCm = 160934`. Map extent is exactly `gridWidth × cellSizeCm` (100 cells → 16,093,400 cm; 200 → 32,186,800 cm). Index = `xCm / cellSizeCm`, row-major `y * gridWidth + x`. `elevationCm` = **median** of 90 m samples; `slopePpt` = median Horn slope; `class` from sub-cell fractions (not the mean).
+Terrain (89 m slope‰ + land-cover grid) lives in a **separate WRMB**. On the Gorge that grid is **1,800×1,800**. **18** terrain cells make one 1-mile **AI** cell. The AI reads **`cellSizeCm` from META** and **never assumes** a round mile (do not hardcode 160934). Map extent is `gridWidth × cellSizeCm`. Index = `xCm / cellSizeCm` (integer division), row-major `y * gridWidth + x`. Each WRMB records the other’s `contentHash`.
+
+AI-grid `elevationCm` = **median** of the terrain samples in the cell; `slopePpt` from those samples; `class` from sub-cell fractions (not the mean).
 
 ```
 ElevationCell                              // packed ~7–8 B
@@ -623,11 +633,15 @@ MapAiHeader
   formatVersion         uint16
   schemaVersion         uint16             // this doc: 1
   pipelineVersion       // semver + git sha
-  contentHash           uint8[32]          // SHA-256
-  mapWidthCm, mapHeightCm  int32           // = gridWidth/Height × cellSizeCm exactly
-  cellSizeCm            int32              // 160934
+  contentHash           uint8[32]          // SHA-256 of this file
+  companionHash         uint8[32]          // SHA-256 of the other WRMB (map ↔ terrain)
+  mapWidthCm, mapHeightCm  int32           // = gridWidth/Height × cellSizeCm (from META)
+  cellSizeCm            int32              // AI grid; read this, never assume a round mile
   gridWidth, gridHeight int32
-  projection            // TM centre lat/lon micro-degrees + type; origin SW, x east, y north
+  projection            // TM centre lat/lon micro-degrees + type
+                                           // origin SW; sim x east = Unity +X;
+                                           // sim y north = Unity +Z; elevation = Unity +Y
+                                           // sim: absolute int cm; render: floating origin
   verticalDatum         // EGM2008 (Copernicus) or NAVD88 (3DEP)
   transformSeed         uint64
   transformVersion
@@ -639,7 +653,7 @@ MapAiHeader
                         // rivers, bridges, water bodies, cells
 ```
 
-Section directory (proposed; **Lead Engineer must spec/approve**): `META`, `TOWN`, `TERR`, `RNOD`, `REDG`, `CHOK`, `RIVR`, `BRDG`, `WATR`, `CELL`, `CELX`, `I32P`, `PTSP`, `STRP`, optional `TDBG`.
+Section directory (locked; `blob-layout-v0.md`): `META`, `TOWN`, `TERR`, `RNOD`, `REDG`, `CHOK`, `RIVR`, `BRDG`, `WATR`, `CELL`, `CELX`, `I32P`, `PTSP`, `STRP`, optional `TDBG`. Terrain WRMB holds the 89 m slope‰ + land-cover grid (Gorge: 1,800×1,800).
 
 #### Golden maps
 
@@ -649,7 +663,7 @@ Section directory (proposed; **Lead Engineer must spec/approve**): `META`, `TOWN
 | `golden-soak-illinois-iowa-200` | 200×200 | Soak | Mississippi / Quad Cities grid |
 | `golden-soak-central-alps-200` | 200×200 | Soak | Tyrol / South Tyrol / Trentino |
 
-CI map: inputs frozen; blob + manifest + `.sha256` committed under **`tests/golden/`**. CI verifies checksum before the determinism run. Regenerate only on explicit `schemaVersion` / `formatVersion` bump.
+CI map: inputs frozen; map WRMB + terrain WRMB + manifest + SHA-256 files under **`data/golden/`** via **Git LFS**. CI verifies checksums before the determinism run. Regenerate only on explicit `schemaVersion` / `formatVersion` bump.
 
 ### 3.2 AI-derived maps
 
@@ -664,7 +678,7 @@ Per faction, on the same coarse grid:
 
 **Structure snapshots** (side table, not a grid): every enemy building/town this faction has **ever** seen keeps a last-seen record until match end (or a designer-set TTL, default: persist). Fields: `id`, `kind`, `lastOwner`, `lastFortLevel`, `lastCaptureProgressPpt`, `lastSeenTick`. Confidence for the *cell* still decays; the snapshot remains queryable so the AI can plan against a town it explored even when fogged. Snapshots are **not** live truth — owner and garrison may have changed.
 
-Enemy units the faction cannot see do not write into Threat as truth; they write into **unit memory** at last-seen strength and decay with `MemoryDecayPerCadence`. Easy decays faster than Brutal. Structures do not use that decay to vanish.
+Enemy units the faction cannot see do not write into Threat as truth; they write into **unit memory** at last-seen strength and decay with `MemoryDecayPerCadence`. Easy decays faster than Brutal. Structures do not use that decay to vanish. When scoring approach or raid threat, sample with the **squad’s movement class** via sim `EstimateTravelTicks` / `PathOnRoads` — do not treat all classes as equally fast.
 
 **Stamps (integer, saturating).**
 
@@ -673,7 +687,7 @@ Enemy units the faction cannot see do not write into Threat as truth; they write
 - Owned or snapshotted town: add `town.strategicValue` into Value, plus `anchorBonus`, plus `fortificationLevel * FortValueMul` (from snapshot if fogged).
 - Capture zone currently ticking (visible): add `captureProgressPpt` into Value for both the attacker’s finish-hold and the defender’s contest.
 - Bridges and high-degree junctions: add `bridgeJunctionValue` into Value if they sit on a known supply path (own: guard; enemy: cut).
-- Pipeline chokepoint: add `defensibility * detourRatioPpt / 1000` if we own or contest a gated territory (`gatesTerritoryIds` / `sideA/BTerritoryId`) or supply path.
+- Pipeline chokepoint: add `defensibility * detourRatioPpt / 1000` if we own or contest a gated territory (`gatesTerritoryIds` / `sideA/BTerritoryId`) or supply path. Extra stamp if `flags.wheeledOnly` (defense / raid priority).
 - Ridge / high-elevation cells (`ridgeHint`, `CellExt.coverPpt`) that LoS-hint a fogged road: scout value, not threat.
 
 **Incremental update.** Full-grid rebuilds are forbidden on 200×200 (40,000 cells × 4 layers × N factions).
@@ -699,7 +713,7 @@ Value map additionally refreshes on plan ticks for cells that overlap active ord
 - Player-only markers, unrevealed resource nodes outside fog rules, or debug gizmos.
 - Heightmap LoS via Unity raycasts. Vision is a sim query; the coarse elevation grid and `CellExt` are **hints** for scout placement and corridor blocks.
 - Live enemy structure/unit state that has never been seen this match, including in owned-but-unseen territory.
-- Floating-point GIS source data, OSM ids, or the JSON/GeoJSON debug export. The game loads only the little-endian blob.
+- Floating-point GIS source data, OSM ids, or the JSON/GeoJSON debug export. The game loads only the WRMB pair (map + terrain).
 
 ---
 
@@ -717,7 +731,7 @@ The core sim is **pure C# with no `UnityEngine`**. Launch runs a **fixed-step si
 | Tick-only | AI runs in `AiOnTick(tick)`, never in `Update` / `FixedUpdate` / jobs that read presentation. |
 | No wall-clock | No `DateTime`, `Stopwatch`, `Time.realtimeSinceStartup`, frame index, or “we’re running late so skip.” |
 | No Unity | Core has no `UnityEngine`. No `Raycast`, `Overlap`, `NavMesh.CalculatePath`, `Rigidbody` reads. Sim provides integer queries, including vision/LoS. |
-| Numeric types | Positions: **integer cm**, `int32` per axis. Squared distances and path costs: **`int64`**. Ratios: **int ppt**. AI decision code uses those integers only — no `float`/`double`/`Vector3` in scoring, path cost, supply, or PRNG. |
+| Numeric types | Positions: **integer cm**, `int32` per axis (**x east** = Unity +X, **y north** = Unity +Z, elevation = Unity +Y; origin SW). Squared distances and path costs: **`int64`**. Ratios: **int ppt**. Sim stays in absolute int cm; rendering uses a floating origin. AI decision code uses those integers only — no `float`/`double`/`Vector3` in scoring, path cost, supply, or PRNG. |
 | Fixed64 | Core **Fixed64 (Q32.32)** is for **internal math only** (sqrt, movement stepping, angles). Results are always stored back as cm or ppt. **Nothing** in sim state, hashes, or events is Fixed. **Q16.16 in int32 is ruled out** (cannot cover a 200-mile map). |
 | Ids only | Across ticks the AI keeps **ids only**, never references to sim objects. Re-query by id each tick. |
 | Seeded PRNG | **PCG32**, in-repo with golden tests. Per-faction streams derived with **xxHash64**. Never `UnityEngine.Random`. |
@@ -772,14 +786,14 @@ The foundation PR owns the command queue. The AI enqueues onto it; it does not i
 | `GetWaterBodies()` | Read-only | Static, public |
 | `GetRoadGraph()` | Read-only view of pipeline blob | Static, public |
 | `GetGraphVersion()` | `int32` (destroyed/repaired bridges, `condition` changes) | Public |
-| `PathOnRoads(fromNode, toNode, costWeights)` | Node list + `int64` total cost **or** unreachable | Sim-owned A\*. `costWeights` are **integer ppt**. Threat/held-node samples must be fog-filtered |
-| `EstimateTravelTicks(from, to, costWeights)` | `int32` | Same service |
+| `PathOnRoads(fromNode, toNode, movementClass, costWeights)` | Node list + `int64` total cost **or** unreachable | Sim-owned A\*. `movementClass`: `wheeled` / `tracked` / `foot` / `air`. `costWeights` are **integer ppt**. Per-class costs at **match load**. Threat/held-node samples must be fog-filtered |
+| `EstimateTravelTicks(from, to, movementClass, costWeights)` | `int32` | Same service. Speed = `floor(base * surfacePpt * slopePpt / 1_000_000)`; 0 = impassable. Wheeled off-road blocked above **299‰** |
 | `GetChokepoints()` | Read-only | Static, public |
 | `GetAdjacency(territoryId)` | Neighbor ids | Static, public |
 | `GetAnchors(territoryId)` | Sorted anchor town ids | Static, public |
 | `HashWorldSlice(factionId)` | `uint64` (**xxHash64**) | Own known state |
 
-`PathOnRoads` and `EstimateTravelTicks` are **core sim services**. The sim owns road A\*, the `PathRequestsPerTick` cap, and the unreachable cache keyed on `(from, to, weightKey, graphVersion)`. Player UI path preview may call the same service; the AI must. `costWeights` are integer ppt. Path costs in the result are `int64`.
+`PathOnRoads` and `EstimateTravelTicks` are **core sim services**. The sim owns road A\*, the `PathRequestsPerTick` cap, and the unreachable cache keyed on `(from, to, weightKey, graphVersion, movementClass)`. Player UI path preview may call the same service; the AI must. `costWeights` are integer ppt. Path costs in the result are `int64`. The AI plans and estimates threat **per movement class**.
 
 #### Supply queries (sim-owned, integer, fog-filtered)
 
@@ -910,7 +924,7 @@ Retreat mistakes: if `d2 < MistakeRatePpt / 2`, Easy/Normal may ignore a single 
 
 Personality is a **parameter profile** layered on the same core. It is not a second AI.
 
-**Draft (pending Garand sign-off):** real factions are not named yet. They depend on the apocalypse premise. **Warlord, Settler, and Raider stay as archetypes**; each real faction maps onto **one** of them (schema unchanged). Do not replace this table with per-faction code.
+**Draft (pending Garand sign-off):** working faction names are **Remnant**, **Compact**, and **Clans**. Mapping those names onto Warlord / Settler / Raider is still for the designer and Garand. **Warlord, Settler, and Raider stay as archetypes**; each named faction will map onto **one** of them (schema unchanged). Do not replace this table with per-faction code.
 
 Shared fields (all ppt unless noted):
 
@@ -921,7 +935,7 @@ Shared fields (all ppt unless noted):
 | `weightThreat` | Reacting to threat map |
 | `weightForceRatio` | Patience before entering a capture zone |
 | `weightEconomy` | ExpandEconomy vs army |
-| `weightChokepoint` | Hold/take gates |
+| `weightChokepoint` | Hold/take gates; extra on `wheeledOnly` passes |
 | `weightSupplyCut` | Raiding nodes/bridges vs frontal assault |
 | `weightSupplyGuard` | Protecting own depot paths |
 | `weightDistance` | Preference for nearby goals (higher = more local) |
@@ -1014,7 +1028,7 @@ Strategic plans already fire only when `planThisTick(faction)` is true. If two f
 
 Each subsystem stops when `workUnits` hits the cap and resumes at the next assigned slot, iterating from the **next id** (cell index, squad id, candidate index), which is stored in sim state as ids.
 
-**Path requests.** A\* is sim-owned. The AI calls `PathOnRoads`; the service applies `PathRequestsPerTick` = **8** match-wide and caches unreachables at `(from, to, weightKey, graphVersion)`. Squads keep their last path until the new one commits. `graphVersion` bumps on held nodes, destroyed bridges, and town control of edges. `costWeights` are integer ppt; path cost is `int64`.
+**Path requests.** A\* is sim-owned. The AI calls `PathOnRoads` with a **movement class**; the service applies `PathRequestsPerTick` = **8** match-wide and caches unreachables at `(from, to, weightKey, graphVersion, movementClass)`. Squads keep their last path until the new one commits. `graphVersion` bumps on held nodes, destroyed bridges, and town control of edges. `costWeights` are integer ppt; path cost is `int64`. Per-class costs are computed at match load.
 
 ### 7.3 What we will not do for speed
 
@@ -1033,7 +1047,7 @@ The core is pure C# (`no UnityEngine`). Headless runs via **`dotnet test`** or a
 
 ### 8.1 Headless AI-vs-AI
 
-A playerless sim host loads a baked map blob, N AI factions, a seed, a tick limit, and writes:
+A playerless sim host loads a baked map + terrain WRMB pair, N AI factions, a seed, a tick limit, and writes:
 
 - Per-town owner and capture progress over time
 - Per-territory owner (anchor-complete)
@@ -1041,7 +1055,7 @@ A playerless sim host loads a baked map blob, N AI factions, a seed, a tick limi
 - Final score / winner
 - `HashWorld` (**xxHash64**) every `HashPeriodTicks` (**200**)
 
-**Per-PR CI (locked):** frozen golden **`golden-ci-columbia-gorge-100`** (Mid-Columbia Gorge, 100×100 miles, Hood River to The Dalles — **approved Sep 28, 2026**), **2 AI** factions, **12,000 ticks**, run **twice** with the same seed, assert identical hashes every 200 ticks, finish in **under 5 minutes**. Blob + manifest + checksum live under **`tests/golden/`**. CI verifies the checksum before the run.
+**Per-PR CI (locked):** frozen golden **`golden-ci-columbia-gorge-100`** (Mid-Columbia Gorge, 100×100 miles, Hood River to The Dalles — **approved Sep 28, 2026**), **2 AI** factions, **12,000 ticks**, run **twice** with the same seed, assert identical hashes every 200 ticks, finish in **under 5 minutes**. Map WRMB + terrain WRMB + manifest + SHA-256 files live under **`data/golden/`** (Git LFS). CI verifies the checksums before the run.
 
 **Nightly soak:** start at about **200** matches; grow toward **1,000** once there are perf numbers. Soak maps: **`golden-soak-illinois-iowa-200`** and **`golden-soak-central-alps-200`**. Fail the soak on crash, deadlock, or hash mismatch — not on “AI played poorly.”
 
@@ -1110,18 +1124,17 @@ Still open:
 7. Territory counts / generated travel-cost partitions vs any designer overlay for anchors.
 8. In-match demolish/repair of roads and bridges (`graphVersion`), or initial state only?
 9. **Garand:** approve soak golden regions (Illinois–Iowa and Central Alps).
+10. Map working names **Remnant / Compact / Clans** onto Warlord / Settler / Raider archetypes.
 
 ### 9.2 Lead engineer
 
-All previous items are **decided**. See [Lead engineer decisions](#lead-engineer-decisions). The map-blob **section layout** still needs a schema spec or approval (listed under §9.3).
+All previous items are **decided**, including WRMB as the single map format (`blob-layout-v0.md`). See [Lead engineer decisions](#lead-engineer-decisions).
 
 ### 9.3 Map pipeline engineer
 
-Answered items (chokepoints, `strategicValue` formula, road LOD budget, 1-mile cells + `CellExt`, rivers/lakes, territories, neighbour lists, `areaCells`, bridges-as-edges, surface/condition split, golden maps) are recorded as [Map pipeline decisions](#map-pipeline-decisions).
+Answered items (chokepoints including `wheeledOnly`, `strategicValue` formula, road LOD budget, AI cells + `cellSizeCm` from META, terrain WRMB split, rivers/lakes, territories, neighbour lists, `areaCells`, bridges-as-edges, surface/condition split, golden maps under `data/golden/`, **WRMB section layout**) are recorded as [Map pipeline decisions](#map-pipeline-decisions). Layout spec: **`blob-layout-v0.md`**.
 
-Still open:
-
-1. Blob **section layout** (`META` / `TOWN` / … tags, header packing) needs the **Lead Engineer’s schema spec or approval**. Pipeline proposes the directory in §3.1; it is not locked until that spec exists.
+Nothing remaining in this section. Soak golden regions stay under §9.1 (Garand).
 
 ---
 
@@ -1132,9 +1145,9 @@ No Unity scaffolding in this PR. Milestones assume the sim and map blob exist or
 | Milestone | Deliverable | Exit |
 | --- | --- | --- |
 | **M0 — Seams** | Plug into the foundation command queue. `AiMatchInit` / `AiOnTick` stubs, PCG32 + xxHash64, empty squad order tables, ids-only across ticks. | Determinism check on empty match (hash stable over 10k ticks). |
-| **M1 — Map ingest + derived maps** | Load schema v1 little-endian blob + pools; `CellExt` / `WaterBody`; influence maps; `TDBG` overlay. | Overlay matches stamped squads; corridor fallback respects `edgeBlockMask`; binary→JSON→binary round-trip; reconcile hash. |
+| **M1 — Map ingest + derived maps** | Load WRMB pair (map + terrain, mutual `contentHash`) per `blob-layout-v0.md`; `cellSizeCm` from META; `CellExt` / `WaterBody`; influence maps; `TDBG` overlay. | Overlay matches stamped squads; corridor fallback respects `edgeBlockMask`; binary→JSON→binary round-trip; companion hashes match; reconcile hash. |
 | **M2 — Strategy** | Posture, candidate generation (including Contest/HoldCapture/CutSupply/GuardSupply), utility selection, spend envelope, anchor-set scoring. | In AI-vs-AI on the golden 100×100 blob, factions issue `HoldCaptureZone` / `Fortify` / `AssaultTown` / `CutSupply` with stable hashes. |
-| **M3 — Tactical movement** | Squads call sim `PathOnRoads` (ppt weights, `int64` cost); column vs deployed; reports flow back; `executeTick = issuedTick + commandDelayTicks`. | A squad given `AssaultTown` reaches staging via **supplied** roads, not crow-flies; held-node / destroyed-bridge repath works. |
+| **M3 — Tactical movement** | Squads call sim `PathOnRoads` (movement class, ppt weights, `int64` cost); column vs deployed; reports flow back; `executeTick = issuedTick + commandDelayTicks`. | A squad given `AssaultTown` reaches staging via **supplied** roads, not crow-flies; held-node / destroyed-bridge repath works; wheeled refuses >299‰ off-road. |
 | **M4 — Capture, supply, reinforce, retreat** | Clear/hold/contest phases; isolate by cutting nodes/bridges; contest pauses timers; OOS blocks reinforce after grace. | Fixtures: zone-clear starts timer; enemy combat unit pauses it; multi-anchor territory flips only when all anchors held; OOS past grace cannot reinforce. |
 | **M5 — Difficulty + personality** | Parameter tables as data; Easy/Normal/Hard/Brutal; three archetypes; `EconomyBonusPpt` as the sole numeric cheat. | Same seed, different difficulty → different hashes (expected) but each pair of reruns matches; Brutal income +10% visible in economy log; vision queries never return fogged live enemies. |
 | **M6 — Harness** | `dotnet test` / console host. Per-PR: golden 100×100, 2 AI, 12,000 ticks × 2, hash every 200 ticks. Nightly soak from ~200 matches. | CI finishes in under 5 minutes; identical hash streams; forbidden-iterate canary. |
@@ -1142,7 +1155,7 @@ No Unity scaffolding in this PR. Milestones assume the sim and map blob exist or
 
 **Suggested sequence with the rest of the project.** M0 can land against dummy queries. M1 wants one real (or synthetic) map blob. M2–M4 are the vertical slice of “AI cuts supply, takes a neighboring **anchor**, and contests the player’s timer.” M5–M7 are launch quality. Multiplayer/replay work should consume M0’s command stream unchanged.
 
-**Out of milestone on purpose.** Real faction identities (pending premise + Garand), ML, naval graphs, soldier micro, fog cheats, and a live tuner.
+**Out of milestone on purpose.** Faction → archetype mapping (Remnant / Compact / Clans pending designer + Garand), ML, naval graphs, soldier micro, fog cheats, and a live tuner.
 
 ---
 
@@ -1155,7 +1168,8 @@ Locked values from lead-engineer decisions are marked **locked**. The rest are p
 | `SimTickHz` | 20 | Hz (**locked**) |
 | `TickDurationMs` | 50 | ms (**locked**) |
 | `commandDelayTicks` | 2 in SP; higher in MP | ticks (**locked as match-setup**; never hardcoded) |
-| `CellSizeCm` | 160934 | cm (1 mile) |
+| `CellSizeCm` | from META | cm (never assume a round mile; 18 terrain cells = 1 AI cell) |
+| `WheeledOffRoadMaxSlopePpt` | 299 | ppt (wheeled impassable off-road above this) |
 | `StrategicCadenceTicks` | 40 | ticks |
 | `FactionPlanOffsetTicks` | 3 | ticks |
 | `MaxCandidateGoals` | 64 | count |
@@ -1200,4 +1214,4 @@ If a programmer is tempted to “just for now” do any of the following, that c
 
 ---
 
-*End of proposed contract. Designer positions are draft pending Garand sign-off. Lead-engineer seams and map-pipeline field contract above are **decisions** (CI golden map approved Sep 28, 2026; soak regions still pending Garand). Next step: M0 against the foundation command queue, Lead Engineer blob schema approval, and `golden-ci-columbia-gorge-100` under `tests/golden/`.*
+*End of proposed contract. Designer positions are draft pending Garand sign-off. Lead-engineer seams and map-pipeline field contract above are **decisions** (WRMB approved; CI golden map approved Sep 28, 2026; soak regions still pending Garand). Next step: M0 against the foundation command queue, and `golden-ci-columbia-gorge-100` under `data/golden/`.*
