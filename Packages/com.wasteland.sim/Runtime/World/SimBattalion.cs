@@ -1,10 +1,11 @@
 namespace Wasteland.Sim.World
 {
     /// <summary>
-    /// First-class sim entity. Move commands target squads, not units.
-    /// Positions are integer centimeters.
+    /// First-class sim entity. Move commands target battalions, not units.
+    /// Positions are integer centimeters. A group of battalions managed by the
+    /// AI is a task force (AI-owned, not sim state).
     /// </summary>
-    public struct SimSquad
+    public struct SimBattalion
     {
         public int Id;
         public int OwnerId;

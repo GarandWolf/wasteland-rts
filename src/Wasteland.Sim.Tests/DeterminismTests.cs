@@ -46,10 +46,10 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void MoveCommand_ReachesSquadTarget()
+        public void MoveCommand_ReachesBattalionTarget()
         {
             SimWorld world = new SimWorld(new MatchConfig(1UL, commandDelayTicks: 0));
-            world.Submit(SimCommand.SpawnSquad(0, Issuer, 1, xCm: 0, yCm: 0, speedCmPerSecond: 2000));
+            world.Submit(SimCommand.SpawnBattalion(0, Issuer, 1, xCm: 0, yCm: 0, speedCmPerSecond: 2000));
             world.Submit(SimCommand.Move(0, Issuer, 1, xCm: 300, yCm: 400));
 
             for (int i = 0; i < 20; i++)
@@ -57,11 +57,11 @@ namespace Wasteland.Sim.Tests
                 world.Step();
             }
 
-            SimSquad squad = world.GetSquad(1);
-            Assert.Equal(300, squad.PositionXCm);
-            Assert.Equal(400, squad.PositionYCm);
-            Assert.False(squad.HasTarget);
-            Assert.Equal(1, world.GetUnit(1).SquadId);
+            SimBattalion battalion = world.GetBattalion(1);
+            Assert.Equal(300, battalion.PositionXCm);
+            Assert.Equal(400, battalion.PositionYCm);
+            Assert.False(battalion.HasTarget);
+            Assert.Equal(1, world.GetUnit(1).BattalionId);
         }
 
         [Fact]
@@ -69,21 +69,21 @@ namespace Wasteland.Sim.Tests
         {
             SimWorld world = new SimWorld(MatchConfig.Default(1UL));
             Assert.Equal(2, world.CommandDelayTicks);
-            world.Submit(SimCommand.SpawnSquad(0, Issuer, 1, 0, 0, 100));
+            world.Submit(SimCommand.SpawnBattalion(0, Issuer, 1, 0, 0, 100));
 
             world.Step();
-            Assert.Equal(0, world.SquadCount);
+            Assert.Equal(0, world.BattalionCount);
             world.Step();
-            Assert.Equal(0, world.SquadCount);
+            Assert.Equal(0, world.BattalionCount);
             world.Step();
-            Assert.Equal(1, world.SquadCount);
+            Assert.Equal(1, world.BattalionCount);
         }
 
         [Fact]
         public void SubmitOrder_AcrossIssuers_DoesNotAffectHash()
         {
-            SimCommand spawnA = SimCommand.SpawnSquad(0, issuerId: 1, squadId: 1, 0, 500, 400);
-            SimCommand spawnB = SimCommand.SpawnSquad(0, issuerId: 9, squadId: 2, 500, 0, 400);
+            SimCommand spawnA = SimCommand.SpawnBattalion(0, issuerId: 1, battalionId: 1, 0, 500, 400);
+            SimCommand spawnB = SimCommand.SpawnBattalion(0, issuerId: 9, battalionId: 2, 500, 0, 400);
 
             SimWorld worldAB = new SimWorld(new MatchConfig(11UL, 0));
             worldAB.Submit(spawnA);
@@ -94,15 +94,15 @@ namespace Wasteland.Sim.Tests
             worldBA.Submit(spawnA);
 
             Assert.Equal(worldAB.Step(), worldBA.Step());
-            Assert.Equal(worldAB.GetSquad(1).PositionYCm, worldBA.GetSquad(1).PositionYCm);
-            Assert.Equal(worldAB.GetSquad(2).PositionXCm, worldBA.GetSquad(2).PositionXCm);
+            Assert.Equal(worldAB.GetBattalion(1).PositionYCm, worldBA.GetBattalion(1).PositionYCm);
+            Assert.Equal(worldAB.GetBattalion(2).PositionXCm, worldBA.GetBattalion(2).PositionXCm);
         }
 
         [Fact]
-        public void MoveUnknownSquad_EmitsCommandRejected()
+        public void MoveUnknownBattalion_EmitsCommandRejected()
         {
             SimWorld world = new SimWorld(new MatchConfig(1UL, 0));
-            world.Submit(SimCommand.Move(0, Issuer, squadId: 99, 1, 1));
+            world.Submit(SimCommand.Move(0, Issuer, battalionId: 99, 1, 1));
             world.Step();
 
             SimEvent ev = Assert.Single(world.Events);
@@ -110,15 +110,15 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(0, ev.Tick);
             Assert.Equal(SimEventKind.CommandRejected, ev.Kind);
             Assert.Equal(99, ev.SubjectId);
-            Assert.Equal(CommandRejectReason.UnknownSquad, ev.RejectReason);
-            Assert.Equal(0, world.SquadCount);
+            Assert.Equal(CommandRejectReason.UnknownBattalion, ev.RejectReason);
+            Assert.Equal(0, world.BattalionCount);
         }
 
         [Fact]
         public void Events_AreMonotonicByEventId()
         {
             SimWorld world = new SimWorld(new MatchConfig(1UL, 0));
-            world.Submit(SimCommand.SpawnSquad(0, Issuer, 1, 0, 0, 100));
+            world.Submit(SimCommand.SpawnBattalion(0, Issuer, 1, 0, 0, 100));
             world.Submit(SimCommand.Move(0, Issuer, 1, 0, 0));
             world.Step();
 
@@ -132,8 +132,8 @@ namespace Wasteland.Sim.Tests
         {
             return new List<SimCommand>
             {
-                SimCommand.SpawnSquad(0, Issuer, 1, 0, 0, speedCmPerSecond: 1000),
-                SimCommand.SpawnSquad(0, Issuer, 2, 10000, 0, speedCmPerSecond: 500),
+                SimCommand.SpawnBattalion(0, Issuer, 1, 0, 0, speedCmPerSecond: 1000),
+                SimCommand.SpawnBattalion(0, Issuer, 2, 10000, 0, speedCmPerSecond: 500),
                 SimCommand.Move(1, Issuer, 1, 5000, 5000),
                 SimCommand.Move(5, Issuer, 2, 0, 8000),
                 SimCommand.Move(30, Issuer, 1, 2000, 1000),

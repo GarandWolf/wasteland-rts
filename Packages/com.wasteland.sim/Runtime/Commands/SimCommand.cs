@@ -13,7 +13,7 @@ namespace Wasteland.Sim.Commands
         public readonly int ExecuteTick;
         public readonly int IssuerId;
         public readonly int Sequence;
-        public readonly int SquadId;
+        public readonly int BattalionId;
         public readonly CommandKind Kind;
         public readonly int Arg0;
         public readonly int Arg1;
@@ -22,7 +22,7 @@ namespace Wasteland.Sim.Commands
         public SimCommand(
             int issuedTick,
             int issuerId,
-            int squadId,
+            int battalionId,
             CommandKind kind,
             int arg0,
             int arg1,
@@ -39,26 +39,26 @@ namespace Wasteland.Sim.Commands
             ExecuteTick = executeTick;
             IssuerId = issuerId;
             Sequence = sequence;
-            SquadId = squadId;
+            BattalionId = battalionId;
             Kind = kind;
             Arg0 = arg0;
             Arg1 = arg1;
             Arg2 = arg2;
         }
 
-        public static SimCommand SpawnSquad(int issuedTick, int issuerId, int squadId, int xCm, int yCm, int speedCmPerSecond)
+        public static SimCommand SpawnBattalion(int issuedTick, int issuerId, int battalionId, int xCm, int yCm, int speedCmPerSecond)
         {
-            return new SimCommand(issuedTick, issuerId, squadId, CommandKind.SpawnSquad, xCm, yCm, speedCmPerSecond);
+            return new SimCommand(issuedTick, issuerId, battalionId, CommandKind.SpawnBattalion, xCm, yCm, speedCmPerSecond);
         }
 
-        public static SimCommand Move(int issuedTick, int issuerId, int squadId, int xCm, int yCm)
+        public static SimCommand Move(int issuedTick, int issuerId, int battalionId, int xCm, int yCm)
         {
-            return new SimCommand(issuedTick, issuerId, squadId, CommandKind.Move, xCm, yCm, 0);
+            return new SimCommand(issuedTick, issuerId, battalionId, CommandKind.Move, xCm, yCm, 0);
         }
 
         public SimCommand WithSchedule(int executeTick, int sequence)
         {
-            return new SimCommand(IssuedTick, IssuerId, SquadId, Kind, Arg0, Arg1, Arg2, executeTick, sequence);
+            return new SimCommand(IssuedTick, IssuerId, BattalionId, Kind, Arg0, Arg1, Arg2, executeTick, sequence);
         }
 
         public int CompareTo(SimCommand other)
@@ -84,7 +84,7 @@ namespace Wasteland.Sim.Commands
                 && ExecuteTick == other.ExecuteTick
                 && IssuerId == other.IssuerId
                 && Sequence == other.Sequence
-                && SquadId == other.SquadId
+                && BattalionId == other.BattalionId
                 && Kind == other.Kind
                 && Arg0 == other.Arg0
                 && Arg1 == other.Arg1
@@ -104,7 +104,7 @@ namespace Wasteland.Sim.Commands
                 hash = (hash * 397) ^ ExecuteTick;
                 hash = (hash * 397) ^ IssuerId;
                 hash = (hash * 397) ^ Sequence;
-                hash = (hash * 397) ^ SquadId;
+                hash = (hash * 397) ^ BattalionId;
                 hash = (hash * 397) ^ (byte)Kind;
                 hash = (hash * 397) ^ Arg0;
                 hash = (hash * 397) ^ Arg1;

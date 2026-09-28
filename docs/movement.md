@@ -92,7 +92,7 @@ At match load, 16 farthest-from-farthest landmarks per class store Dijkstra tick
 - `PathRequestsPerTick` (default 8) is the cap on **completions**. Cache hits do not consume either budget.
 - A search that exhausts the expansion cap leaves an in-flight heap/HPA phase in the service and resumes next `ProcessQueue`. `PathResult.CommitTick` is the tick it finishes (`ProcessQueue` increments `Tick` from 0). Commit tick is **not** in the xxHash payload.
 - Direct `Path*` methods still run to completion (tests / UI preview) and do not debit the tick budgets.
-- Callers keep the previously committed path until `TryGetResult` succeeds — the AI doc's "squads hold the last path" rule.
+- Callers keep the previously committed path until `TryGetResult` succeeds — the AI doc's "battalions hold the last path" rule.
 
 `CutSpan` still bumps `graphVersion`, clears the cache, and aborts an in-flight road/combined search back onto the FIFO head.
 
@@ -157,4 +157,4 @@ Each `PathResult` carries `xxHash64` over kind, cost, graph version, and every w
 
 ## What this service does not do
 
-It does not steer squads. `SimWorld` still integrates Move as a straight cm line. Wiring `Move` to follow a `PathResult` is a later PR so existing command-log hashes stay intact until that integration is intentional.
+It does not steer battalions. `SimWorld` still integrates Move as a straight cm line. Wiring `Move` to follow a `PathResult` is a later PR so existing command-log hashes stay intact until that integration is intentional.
