@@ -127,15 +127,11 @@ namespace Wasteland.Sim.Movement
                 scratch = clusterCells;
             }
 
-            bool anyExact = false;
+            bool smallMap = terrain.Width <= config.ClusterSize && terrain.Height <= config.ClusterSize;
             int maxAbs = 0;
             for (int c = 0; c < hierarchies.Length; c++)
             {
-                if (hierarchies[c] == null)
-                {
-                    anyExact = true;
-                }
-                else if (hierarchies[c].NodeCount + 2 > maxAbs)
+                if (hierarchies[c] != null && hierarchies[c].NodeCount + 2 > maxAbs)
                 {
                     maxAbs = hierarchies[c].NodeCount + 2;
                 }
@@ -146,7 +142,7 @@ namespace Wasteland.Sim.Movement
                 scratch = maxAbs;
             }
 
-            if (anyExact && terrain.CellCount > scratch)
+            if (smallMap && terrain.CellCount > scratch)
             {
                 scratch = terrain.CellCount;
             }

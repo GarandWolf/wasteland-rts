@@ -461,12 +461,12 @@ namespace Wasteland.Sim.Movement
                         int tx = toCell % width;
                         int ty = toCell / width;
                         int local = (tx - x0) + (ty - y0) * localW;
-                        if (scratch.Gen[local] != scratch.SearchId || scratch.G[local] >= Inf)
+                        if (scratch.Gen[local] != scratch.SearchId)
                         {
                             continue;
                         }
 
-                        int cost = scratch.G[local] > int.MaxValue ? int.MaxValue : (int)scratch.G[local];
+                        int cost = scratch.G[local];
                         if (cost < 1)
                         {
                             cost = 1;
@@ -811,11 +811,11 @@ namespace Wasteland.Sim.Movement
             }
 
             int searchId = scratch.SearchId;
-            long[] g = scratch.G;
+            int[] g = scratch.G;
             int[] gen = scratch.Gen;
             int[] closed = scratch.Closed;
             int[] mark = scratch.Mark;
-            MinHeap heap = scratch.Heap;
+            ClusterHeap heap = scratch.Heap;
             heap.Clear();
 
             int remaining = 0;
@@ -839,9 +839,13 @@ namespace Wasteland.Sim.Movement
             int fromLocal = (fx - x0) + (fy - y0) * localW;
             g[fromLocal] = 0;
             gen[fromLocal] = searchId;
-            heap.Push(0, fromLocal, fromLocal);
+            heap.Push(0, fromLocal);
 
-            while (heap.TryPop(out int current, out long popped))
+            int x1 = x0 + localW;
+            int y1 = y0 + localH;
+            int[] dirX = GridDirs.X;
+            int[] dirY = GridDirs.Y;
+            while (heap.TryPop(out int current, out int popped))
             {
                 if (gen[current] != searchId || closed[current] == searchId)
                 {
@@ -867,9 +871,9 @@ namespace Wasteland.Sim.Movement
                 int cy = y0 + current / localW;
                 for (int d = 0; d < 8; d++)
                 {
-                    int nx = cx + GridDirs.X[d];
-                    int ny = cy + GridDirs.Y[d];
-                    if (nx < x0 || ny < y0 || nx >= x0 + localW || ny >= y0 + localH)
+                    int nx = cx + dirX[d];
+                    int ny = cy + dirY[d];
+                    if (nx < x0 || ny < y0 || nx >= x1 || ny >= y1)
                     {
                         continue;
                     }
@@ -887,7 +891,7 @@ namespace Wasteland.Sim.Movement
                         continue;
                     }
 
-                    bool diagonal = GridDirs.X[d] != 0 && GridDirs.Y[d] != 0;
+                    bool diagonal = dirX[d] != 0 && dirY[d] != 0;
                     if (diagonal)
                     {
                         int orthoA = cy * width + nx;
@@ -904,12 +908,17 @@ namespace Wasteland.Sim.Movement
                         }
                     }
 
-                    long ng = g[current] + step;
+                    int ng = g[current] + step;
+                    if (ng < 0)
+                    {
+                        ng = int.MaxValue;
+                    }
+
                     if (gen[nextLocal] != searchId || ng < g[nextLocal])
                     {
                         gen[nextLocal] = searchId;
                         g[nextLocal] = ng;
-                        heap.Push(ng, nextLocal, nextLocal);
+                        heap.Push(ng, nextLocal);
                     }
                 }
             }
@@ -1006,12 +1015,12 @@ namespace Wasteland.Sim.Movement
 
         private sealed class ClusterScratch
         {
-            public readonly long[] G;
+            public readonly int[] G;
             public readonly int[] Gen;
             public readonly int[] Closed;
             public readonly int[] Mark;
             public readonly int[] Targets;
-            public readonly MinHeap Heap;
+            public readonly ClusterHeap Heap;
             public readonly List<int> EdgeFrom;
             public readonly List<int> EdgeTo;
             public readonly List<int> EdgeCost;
@@ -1019,16 +1028,154 @@ namespace Wasteland.Sim.Movement
 
             public ClusterScratch(int clusterCells)
             {
-                G = new long[clusterCells];
+                G = new int[clusterCells];
                 Gen = new int[clusterCells];
                 Closed = new int[clusterCells];
                 Mark = new int[clusterCells];
                 Targets = new int[clusterCells];
-                Heap = new MinHeap(clusterCells);
+                Heap = new ClusterHeap(clusterCells);
                 EdgeFrom = new List<int>(64);
                 EdgeTo = new List<int>(64);
                 EdgeCost = new List<int>(64);
             }
+        }
+    }
+
+    /// <summary>4-ary min-heap of (f, index) for intra-cluster Dijkstra. Ties do not affect costs.</summary>
+    internal sealed class ClusterHeap
+    {
+        private int[] _f;
+        private int[] _index;
+        private int _count;
+
+        public ClusterHeap(int capacity)
+        {
+            int cap = System.Math.Max(capacity, 8);
+            _f = new int[cap];
+            _index = new int[cap];
+        }
+
+        public void Clear()
+        {
+            _count = 0;
+        }
+
+        public void Push(int f, int index)
+        {
+            if (_count == _f.Length)
+            {
+                Grow();
+            }
+
+            int i = _count++;
+            _f[i] = f;
+            _index[i] = index;
+            SiftUp(i);
+        }
+
+        public bool TryPop(out int index, out int f)
+        {
+            if (_count == 0)
+            {
+                index = 0;
+                f = 0;
+                return false;
+            }
+
+            index = _index[0];
+            f = _f[0];
+            _count--;
+            if (_count > 0)
+            {
+                _f[0] = _f[_count];
+                _index[0] = _index[_count];
+                SiftDown(0);
+            }
+
+            return true;
+        }
+
+        private void Grow()
+        {
+            int cap = _f.Length * 2;
+            int[] nf = new int[cap];
+            int[] ni = new int[cap];
+            Array.Copy(_f, 0, nf, 0, _count);
+            Array.Copy(_index, 0, ni, 0, _count);
+            _f = nf;
+            _index = ni;
+        }
+
+        private void SiftUp(int i)
+        {
+            while (i > 0)
+            {
+                int p = (i - 1) >> 2;
+                if (!Less(i, p))
+                {
+                    break;
+                }
+
+                Swap(i, p);
+                i = p;
+            }
+        }
+
+        private void SiftDown(int i)
+        {
+            while (true)
+            {
+                int c0 = (i << 2) + 1;
+                if (c0 >= _count)
+                {
+                    break;
+                }
+
+                int smallest = c0;
+                int last = c0 + 3;
+                if (last >= _count)
+                {
+                    last = _count - 1;
+                }
+
+                for (int c = c0 + 1; c <= last; c++)
+                {
+                    if (Less(c, smallest))
+                    {
+                        smallest = c;
+                    }
+                }
+
+                if (!Less(smallest, i))
+                {
+                    break;
+                }
+
+                Swap(i, smallest);
+                i = smallest;
+            }
+        }
+
+        private bool Less(int a, int b)
+        {
+            int fa = _f[a];
+            int fb = _f[b];
+            if (fa != fb)
+            {
+                return fa < fb;
+            }
+
+            return _index[a] < _index[b];
+        }
+
+        private void Swap(int a, int b)
+        {
+            int f = _f[a];
+            _f[a] = _f[b];
+            _f[b] = f;
+            int idx = _index[a];
+            _index[a] = _index[b];
+            _index[b] = idx;
         }
     }
 

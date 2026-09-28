@@ -43,10 +43,13 @@ namespace Wasteland.Sim.Benchmarks
                 s.ScratchBytes / 1048576.0,
                 (s.CostGridBytesPerClass * 4 + s.HierarchyBytesPerClass * 4 + s.LandmarkBytesPerClass * 4 + s.ScratchBytes) / 1048576.0);
             Process proc = Process.GetCurrentProcess();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
             Console.WriteLine(
                 "  process: workingSet={0:F1} MB  gcHeap={1:F1} MB",
                 proc.WorkingSet64 / 1048576.0,
-                GC.GetTotalMemory(false) / 1048576.0);
+                GC.GetTotalMemory(true) / 1048576.0);
         }
 
         private static void BenchmarkRoads(MovementTables tables)
@@ -129,6 +132,9 @@ namespace Wasteland.Sim.Benchmarks
 
         private static void BenchmarkGrid(MovementTables tables, int side, string cacheDir)
         {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
             int cell = MovementConfig.ProductionCellSizeCm;
             Console.WriteLine(
                 "Building {0}×{0} mixed terrain ({1} cells, cellSizeCm={2}, field/forest bands + river)...",
@@ -198,7 +204,11 @@ namespace Wasteland.Sim.Benchmarks
                 mix);
 
             MovementService queued = svc;
-            int qid = queued.Enqueue(PathRequest.OffRoad(fromX, fromY, toX, toY, MovementClass.Foot));
+            int sliceFromX = svc.Terrain.CellCenterXCm(1);
+            int sliceFromY = svc.Terrain.CellCenterYCm(1);
+            int sliceToX = svc.Terrain.CellCenterXCm(side - 2);
+            int sliceToY = svc.Terrain.CellCenterYCm(side - 2);
+            int qid = queued.Enqueue(PathRequest.OffRoad(sliceFromX, sliceFromY, sliceToX, sliceToY, MovementClass.Foot));
             int ticks = 0;
             long maxExp = 0;
             long maxTickMs = 0;

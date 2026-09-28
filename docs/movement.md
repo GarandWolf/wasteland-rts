@@ -111,30 +111,34 @@ Road travel **does not** pay the terrain cells under the polyline: the unit is o
 
 ## Micro-benchmark (not a CI gate)
 
-`dotnet run -c Release --project src/Wasteland.Sim.Benchmarks` on the Cloud Agent VM (.NET 8.0.425, linux-x64, 4 cores). Road mesh still uses 10,000 cm synthetic cells. Grid load uses **production `cellSizeCm` = 8941** (~89.4 m) on mixed cover (16-cell field/forest bands so every 32-cluster has two costs, plus a 2-cell water river with fords). That forces HPA* for wheeled/tracked/foot; Air is uniform and skips. Memory: per-class estimates plus process working set / GC heap.
+`dotnet run -c Release --project src/Wasteland.Sim.Benchmarks` on the Cloud Agent VM (.NET 8.0.425, linux-x64, 4 cores). Road mesh still uses 10,000 cm synthetic cells. Grid load uses **production `cellSizeCm` = 8941** (~89.4 m) on mixed cover (16-cell field/forest bands so every 32-cluster has two costs, plus a 2-cell water river with fords). That forces HPA* for wheeled/tracked/foot; Air is uniform and skips. Memory: per-class estimates plus process working set / GC heap after `GC.Collect`.
 
-Load-time targets (all movement classes, cold, no cache): **< ~5 s at 1800×1800** (100 mi) and **< ~20 s at 3600×3600** (200 mi). Repeat loads with WHPA cache should be near-instant versus the cold HPA* build.
+Load-time targets (all movement classes, cold, no cache): **< ~5 s at 1800×1800** (100 mi) and **< ~20 s at 3600×3600** (200 mi). Two Release runs on this VM: **4.8–5.3 s** and **19.1–20.5 s**. WHPA cache reload is **0.14–0.18 s** / **0.49–0.54 s**.
 
 | Workload | Result |
 | --- | --- |
-| 90×90 road graph (8,100 nodes, 16,020 edges) load | 240 ms; 16 landmarks, 1.0 MB/class |
+| 90×90 road graph (8,100 nodes, 16,020 edges) load | 149–167 ms; 16 landmarks, 1.0 MB/class; HPA* skipped (uniform field) |
 | First `PathOnRoads` corner-to-corner | 3 ms, 179 expansions |
-| 40 unique `PathOnRoads` | **0.45 ms/query**, 112 expansions/query (was 2.10 ms) |
-| 1800×1800 mixed (3.24M cells, 8941 cm) cold load | *pending VM bench* |
-| 1800×1800 WHPA cache reload | *pending* |
-| 3600×3600 mixed (12.96M cells, 8941 cm) cold load | *pending VM bench* |
-| 3600×3600 WHPA cache reload | *pending* |
+| 40 unique `PathOnRoads` | **0.42–0.52 ms/query**, 112 expansions/query (was 2.10 ms) |
+| 1800×1800 mixed (3.24M cells, 8941 cm) cold load | **4.8–5.3 s** (cost grid 21–31 ms, HPA* 4.7–5.2 s); 3,249 clusters of 32; 51,296 abs nodes / 837,888 directed edges / class (3 ground classes; Air skipped) |
+| 1800×1800 memory | 12.4 MB cost grid / class, 7.8 MB hierarchy / class, 1.0 MB scratch shared; live ≈ 82 MB; GC heap 105 MB; RSS 308–335 MB |
+| 1800×1800 WHPA cache reload | **136–175 ms**, hash-verified hit |
+| 1800 sliced foot corner (`ExpansionsPerTick` 4096) | 9 ticks, max 4,096 expansions/tick, worst tick 2–3 ms |
+| 3600×3600 mixed (12.96M cells, 8941 cm) cold load | **19.1–20.5 s** (cost grid 97–295 ms, HPA* 18.8–19.6 s); 12,769 clusters; 202,720 abs nodes / 3,322,586 directed edges / class |
+| 3600×3600 memory | 49.4 MB cost grid / class, 30.9 MB hierarchy / class, 3.9 MB scratch shared; live ≈ 325 MB; GC heap 417 MB; RSS 1.3–1.4 GB (process does not return the 1800 heap to the OS) |
+| 3600×3600 WHPA cache reload | **492–543 ms**, hash-verified hit |
+| 3600 sliced foot corner | 33 ticks, max 4,096 expansions/tick, worst tick 8–9 ms |
 
-Query-time (open-field 1600/3200, previous pass; 0.45 ms road is accepted given the expansion cap):
+Query-time on **open field** (previous pass; mixed-cover queries cannot use the octile line, so they are slower and not the gate):
 
 | Workload | Result |
 | --- | --- |
-| 8 unique wheeled `PathOffRoad` 1600 | **0.40 ms/query**, 1,067 expansions/query (was 32.64 ms) |
+| 8 unique wheeled `PathOffRoad` 1600 open field | **0.40 ms/query**, 1,067 expansions/query (was 32.64 ms) |
 | 1600 sliced corner (`ExpansionsPerTick` 4096) | 1 tick, max 1,599 expansions, worst tick 1 ms |
-| 8 unique wheeled `PathOffRoad` 3200 | **0.62 ms/query**, 2,132 expansions/query |
+| 8 unique wheeled `PathOffRoad` 3200 open field | **0.62 ms/query**, 2,132 expansions/query |
 | 3200 sliced corner | 1 tick, max 3,199 expansions (cap 4,096), worst tick < 1 ms |
 
-Targets: amortized **< 1 ms** per off-road request on 1,600×1,600 (**met**, 0.40 ms) and **< 0.2 ms** per road request on the 8,100-node mesh (**0.45 ms** — accepted). Per-tick path work is bounded by `ExpansionsPerTick`. Match-load numbers above replace the old 24 s/class @ 1600 and 106 s/class @ 3200 open-field Dijkstra.
+Targets: amortized **< 1 ms** per off-road request on open 1,600×1,600 (**met**, 0.40 ms) and **< 0.2 ms** per road request (**0.42–0.52 ms** — accepted given the expansion cap). Per-tick path work is bounded by `ExpansionsPerTick`. Match load replaces the old 24 s/class @ 1600 and 106 s/class @ 3200 open-field Dijkstra.
 
 Re-run locally after table or heuristic changes; do not treat these numbers as a pass/fail gate. Bump `HierarchyAlgorithmVersion` if entrance placement, intra costs, or CSR order change — the WHPA cache key includes it.
 
