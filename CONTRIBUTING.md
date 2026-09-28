@@ -19,7 +19,7 @@ One assembly definition per module. No cross-talk except downward:
 
 | Asmdef | Namespace | UnityEngine | Notes |
 | --- | --- | --- | --- |
-| `Wasteland.Sim` | `Wasteland.Sim.*` | **Forbidden** (`noEngineReferences`) | Commands, Fix64, world, hash |
+| `Wasteland.Sim` | `Wasteland.Sim.*` | **Forbidden** (`noEngineReferences`) | Commands, squads, cm state, PCG32, xxHash64 |
 | `Wasteland.Presentation` | `Wasteland.Presentation` | Allowed | View, interpolation, UI |
 
 Future modules follow the same pattern: `Wasteland.Sim.Pathing`, `Wasteland.Presentation.Ui`, each with its own asmdef. Editor-only code lives in `*.Editor.asmdef` with `"includePlatforms": ["Editor"]`.
@@ -35,12 +35,13 @@ Root namespace for Unity-generated scripts is `Wasteland` (see Editor Settings).
 
 ## Simulation rules (non-negotiable)
 
-1. No `float` / `double` in sim state. Use `Fix64`.
-2. No `UnityEngine` in `Wasteland.Sim`.
-3. All state changes go through `SimCommand` scheduled for a tick.
-4. Iterate units in `UnitId` order. Do not rely on dictionary enumeration order.
-5. RNG is `SimRandom` only.
-6. If two runs with the same seed and command log disagree on `HashState()`, it is a bug.
+1. Sim **state**, **hashes**, and **events** are integers: centimeters (`int32`), squared distances (`int64`), parts-per-thousand. No `float` / `double` / `Fixed64` stored there.
+2. `Fixed64` is internal math only (sqrt, stepping, angles). Convert to cm before writing state.
+3. No `UnityEngine` in `Wasteland.Sim`.
+4. All state changes go through `SimCommand` (`issuedTick + commandDelayTicks`). Move targets **squads**.
+5. Iterate squads/units in id order. Do not rely on dictionary enumeration.
+6. RNG is PCG32 (`SimRandom`). Hashing is xxHash64. Both have golden tests.
+7. If two runs with the same `MatchConfig` and command log disagree on `HashState()`, it is a bug.
 
 Read [ARCHITECTURE.md](docs/ARCHITECTURE.md) before adding systems.
 

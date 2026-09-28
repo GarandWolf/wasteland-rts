@@ -2,149 +2,150 @@
 
 Working title. PC/Steam first. Single-player vs AI at launch; lockstep multiplayer after launch, without rewriting the simulation.
 
+Locked with the enemy AI design (`docs/ai/enemy-ai-design.md` §4.3): **20 Hz**, shared **`commandDelayTicks`**, integer **centimeters + parts-per-thousand** in sim state, **PCG32** + **xxHash64**, **squads** as first-class Move targets, events in **eventId** order.
+
 ## Separation of simulation and presentation
 
 | Layer | Assembly | May use | Owns |
 | --- | --- | --- | --- |
-| Simulation | `Wasteland.Sim` (`noEngineReferences`) | Plain C#, integer/fixed-point only | Authoritative game state, commands, RNG, hashes |
+| Simulation | `Wasteland.Sim` (`noEngineReferences`) | Plain C#, integers, `Fixed64` for internal math only | Authoritative state, commands, RNG, hashes, events |
 | Presentation | `Wasteland.Presentation` | UnityEngine, Entities.Graphics, UI | Cameras, meshes, interpolation, audio, HUD |
 | Bridge (future) | DOTS systems that *read* sim snapshots | Both, but write only commands | Spawning view entities, culling |
 
 Rules:
 
 - The simulation never reads `Time.deltaTime`, `UnityEngine.Random`, `float` physics, or input devices.
-- The only way to mutate sim state is to enqueue a `SimCommand` for a specific tick.
+- The only way to mutate sim state is to enqueue a `SimCommand`. Player and AI use the **same** command types.
 - Presentation is allowed to be lossy, threaded, and floating-point. If the renderer hiccups, the sim does not.
 
 `SimFixedUpdateDriver` is the first example of the presentation clock: it accumulates render time and calls `SimWorld.Step()` at a fixed rate.
 
 ## Tick rate
 
-**20 Hz simulation** (`SimConfig.TickRateHz`), 50 ms per tick.
+**20 Hz** (`SimConfig.TickRateHz`), 50 ms per tick (`SimConfig.TickDurationMs`). This is locked with the AI design, not a suggestion.
 
-Why 20, not 10 or 60:
-
-- RTS lockstep historically lives in the 10–24 Hz band. 20 Hz is enough for movement and combat resolution on a map measured in miles, and cheap enough that tens of thousands of units can step in a budget.
-- Render interpolation at 60/120 Hz hides the 50 ms cadence.
-- Once lockstep lands, a 50 ms command delay is a natural quantum (two ticks of buffer ≈ 100 ms, typical for LAN/near play). 10 Hz makes units feel sticky; 30+ Hz doubles CPU for little gameplay gain at this scale.
-
-Presentation interpolates between the **previous** and **current** committed sim snapshots using a 0..1 alpha (`elapsed / TickDuration`). Do not lerp inside the sim.
+Presentation interpolates between the **previous** and **current** committed sim snapshots using a 0..1 alpha (`elapsed / tickDuration`). Do not lerp inside the sim.
 
 ## Input-command model
 
 ```
-player/AI intent → SimCommand(tick, playerId, unitId, kind, args)
-                 → CommandQueue (keyed by tick, canonical sort)
-                 → SimWorld.Step() applies that tick's batch, then integrates
+intent (player or AI)
+  → SimCommand(issuedTick, issuerId, squadId, kind, cm args)
+  → executeTick = issuedTick + commandDelayTicks
+  → CommandQueue ordered by (executeTick, issuerId, sequence)
+  → SimWorld.Step() validates at execute time, then integrates
 ```
 
-- Commands are **data**. They are the network payload, the replay log, and the save-game delta.
-- A command's `Tick` is the sim tick on which it becomes visible. Submitting a command for a tick that has already executed throws — history is immutable.
-- Same-tick commands are ordered by `(PlayerId, UnitId, Kind, args)`, not by enqueue order, so two machines that receive the same set produce the same sequence.
-- Single-player can schedule commands for `world.Tick` (immediate) or `world.Tick + 1`. Multiplayer will schedule for `world.Tick + commandDelayTicks` once a lockstep session exists. The world does not know the difference.
+- **`commandDelayTicks`** is a **match-setup constant** (`MatchConfig`, default **2**). Shared by player and AI. Commands execute at `issuedTick + delay`. Difficulty may add extra delay on the AI *issue* side later; the sim delay itself stays this constant.
+- **`issuerId`** is a player or AI faction id (one id space).
+- **`sequence`** is stamped on submit, per issuer, so same-tick order is `(executeTick, issuerId, sequence)` regardless of enqueue order across issuers.
+- **Validation is authoritative at execute time.** Illegal commands do not throw out of `Step`; they emit `CommandRejected` with a `CommandRejectReason`. The AI must handle reject, not retry in a tight loop.
+- Commands whose `executeTick` is already in the past are not queued (`TooLate`).
+- Command payloads are **integer centimeters** (and integer counts). No `Fixed64` on the wire.
 
-AI is just another `PlayerId` that submits commands. It must be deterministic (seeded from `SimRandom` or from a dedicated AI stream) so a replay of the command log is sufficient. If an AI is later allowed to be non-deterministic locally, it still has to emit commands; peers execute those commands, not the AI itself.
+AI is another `issuerId`. It must be deterministic (PCG32 streams derived with `XxHash64.Mix`) so a replay of the command log is sufficient.
 
-## Fixed-point math
+## Sim state: centimeters and ppt
 
-All sim quantities that participate in state use `Fix64` (signed **Q31.32** in a `long`):
+| Quantity | Type | Notes |
+| --- | --- | --- |
+| Position / target | `int32` cm per axis | 200 miles ≈ 3.22×10⁹ mm still fits in int32 cm |
+| Squared distance / path cost | `int64` | `(long)dx * dx + (long)dy * dy` |
+| Ratios (strength, scores) | `int32` parts-per-thousand | `SimConfig.PptScale` = 1000 |
+| Speed | `int32` cm/s | Stepping uses `Fixed64` internally, writes cm back |
 
-- Range ≈ ±2.147×10⁹
-- Precision 2⁻³² ≈ 2.33×10⁻¹⁰
-- World units are **meters**. A 200-mile map is ~3.22×10⁵ m; positions fit with orders of magnitude of headroom.
+**Never store `Fixed64` in sim state, hashes, or events.** `Fixed64` (Q32.32 in a `long`) exists only for internal math: hypot, step along a heading, future angles. Convert to cm with `ToIntTowardZero()` before writing state.
 
-`Fix64Vec2.Length` does **not** compute `sqrt(x*x + y*y)` in Q31.32 (that overflowed on a 200-mile diagonal). It takes the integer hypot of the raw values via 128-bit intermediates, which is the representation-correct length.
+## Squads
 
-Floating-point is forbidden in sim state and sim operators. `Fix64.ToDouble()` exists for debug drawing and tests only — never write it back.
+A **squad** is a first-class sim entity with a stable `Id`. Units **belong** to squads (`SimUnit.SquadId`). `Move` targets a squad, not a unit. This skeleton spawns a one-unit squad (unit id = squad id) so the command log stays small; later composition will add more units per squad without changing the Move target.
+
+Iterate squads and units in **id order**. Do not rely on dictionary enumeration.
 
 ## Deterministic RNG
 
-`SimRandom` is PCG-XSH-RR (32-bit output, 64-bit state). Same seed + same stream ⇒ same sequence on every runtime we care about. The world hashes RNG state every tick so a silent extra `NextUInt` is a desync, not a mystery.
+`SimRandom` is **PCG32** (XSH-RR), matching `pcg32_srandom_r` in pcg-c-basic. Golden test: seed 42, stream 54 → `0xa15c02b7, 0x7b47f409, …`.
 
-Do not use `System.Random` or `UnityEngine.Random` in sim code. They are not portable across BCL/Unity versions.
+Faction streams (AI design §4.2) will be `XxHash64.Mix(matchSeed, factionId, streamTag)`. Do not use `System.Random` or `UnityEngine.Random` in sim code.
 
-## Deterministic iteration
+## Hashing
 
-- Units live in a list ordered by `Id`. Systems iterate `0..n-1`.
-- Lookups go through an id→index map; they must not iterate `Dictionary` (hash order is not a sim-facing contract we want to depend on).
-- Command batches are sorted before apply (see above).
-- No `foreach` over unordered collections in the hot path; when a dictionary must be enumerated for tools, sort the keys first.
+`SimWorld.HashState()` is **xxHash64** (in-repo, golden-tested) over little-endian integers:
 
-When this core moves onto DOTS, the same rule becomes: stable entity order (creation order is not enough — use a sim `UnitId` component and sort, or a dense array indexed by id).
+1. Tick, seed, `commandDelayTicks`
+2. RNG state + stream
+3. Each squad in id order: id, owner, position/target **cm**, speed cm/s, strength ppt, `HasTarget`
+4. Each unit in id order: id, squadId, owner
 
-## State hashing
+No floats, no `Fixed64` raw bits. In single-player this is a regression tripwire. In multiplayer it is the desync detector.
 
-`SimWorld.HashState()` runs FNV-1a 64 over, in order:
+## Events
 
-1. Tick
-2. Seed
-3. RNG state + stream
-4. Unit count
-5. Each unit in id order: id, player, position/target raw bits, speed, `HasTarget`
+`SimEvent` values are appended with monotonic `eventId`. Consumers (AI tactical, tests) read them **in eventId order**. Payloads are **ids and ticks only** (plus an integer reason code on reject).
 
-Bytes are little-endian so hashes match across host endianness.
-
-In single-player this is a regression tripwire. In multiplayer it is the desync detector: after each tick, peers (or a replay checker) compare hashes. On mismatch, dump the command log and the two state snapshots.
+This skeleton emits `SquadSpawned`, `SquadArrived`, and `CommandRejected`. The AI design lists further kinds (`TownOwnerChanged`, `SquadSpotted`, …) to be added with those systems.
 
 ## Save, load, and replays
 
-Because the world is a pure function of `(seed, command log)`:
+The world is a pure function of `(MatchConfig, command log)`:
 
 | Feature | Mechanism |
 | --- | --- |
-| Replay | Store seed + the command log. Re-step. |
-| Save (compact) | Seed + log + current tick. Load by replaying. |
-| Save (fast) | Serialize the hashed state (units, RNG, tick) **and** keep the log for that match so you can still verify. |
-| Spectate / desync dump | Same as replay, plus per-tick hashes as a checksum track. |
+| Replay | Store config + the command log. Re-step. |
+| Save (compact) | Config + log + current tick. Load by replaying. |
+| Save (fast) | Serialize hashed integer state **and** keep the log. |
+| Spectate / desync dump | Replay plus per-tick xxHash64. |
 
-Do not serialize presentation state (camera, selection, particles) into a sim save.
+Do not serialize presentation state into a sim save. Version the command envelope (`schema` byte) before shipping a replay.
 
 ## Mapping onto DOTS / ECS
 
-The current `SimWorld` is an intentional **headless prototype**: a list of units and a command queue, fully testable with `dotnet test`. The lockstep contract it defines is what DOTS must preserve.
-
-Planned mapping:
+The current `SimWorld` is a headless prototype. The lockstep contract it defines is what DOTS must preserve.
 
 | Today | DOTS later |
 | --- | --- |
-| `SimUnit` struct | `IComponentData` (`UnitId`, `SimPosition`, `SimTarget`, `SimSpeed`) on sim entities |
-| `List<SimUnit>` scan | `ISystem` / `IJobEntity` over a sim-only `World` (or a sim `EntityQuery` with a stable sort by `UnitId`) |
-| `CommandQueue` | Singleton `DynamicBuffer<SimCommand>` or a native queue consumed by a command-apply system scheduled first in the sim group |
-| `Fix64` / `Fix64Vec2` | Blittable `IComponentData` fields. Burst-compile **only** integer code paths |
-| Presentation | A second world, or view entities with `LinkedEntityGroup`, interpolating `SimPosition` from the last two snapshots |
+| `SimSquad` / `SimUnit` | `IComponentData` with integer cm fields and stable ids |
+| `List<T>` scan in id order | `ISystem` / `IJobEntity` sorted by sim id, never `Entity` |
+| `CommandQueue` | Buffer consumed first in the sim group |
+| `Fixed64` | Burst-compile **only** integer/`Fixed64` paths; never persist it |
+| Presentation | View entities interpolating the last two **cm** snapshots |
 
-Unity Entities 1.4 is already in `Packages/manifest.json` so baking, subscenes, and jobs can come in without a package shuffle. **Do not** put sim state on presentation entities, and **do not** let a `SystemBase` that reads `SystemAPI.Time.DeltaTime` write sim components.
+Netcode for Entities is not the lockstep path. Lockstep exchanges `SimCommand` batches and compares hashes. `com.unity.netcode` would be lobby/transport at most.
 
-Netcode for Entities is *not* the default path for this game. Its model is client/server ghost replication, not lockstep. Lockstep will be a thin layer that exchanges `SimCommand` batches and compares hashes. If we ever use `com.unity.netcode`, it will be for lobby/transport, not for sim authority.
+## Road pathfinding (`PathOnRoads`)
+
+**Sim-owned service, not implemented in this PR.**
+
+AI design §4.3: `PathOnRoads(fromNode, toNode, costWeights)` returns a node list + integer total cost, or unreachable. Both player UI path preview and AI call the same function. Costs are `int64`; threat samples that feed weights are fog-filtered integers. Do **not** put a private float A* inside the AI module.
+
+Until the road graph exists, no caller should invent a parallel pathfinder. Local formation following around a squad stays in the sim (integer/fixed internal math, cm state).
+
+Unity NavMesh is presentation/authoring only.
+
+## Headless AI-vs-AI runner
+
+`dotnet test` on `Wasteland.Sim.sln` is the current headless proof (math goldens + scripted-match hashes).
+
+A dedicated host (`Wasteland.Sim.Headless` or equivalent, AI design §8.1) will load a baked map blob, N AI factions, a seed, and a tick limit, then write per-tick `HashState()` every `HashPeriodTicks`. That runner is **not** in this PR. When it exists, CI will run AI-vs-AI determinism soaks on it (crash / deadlock / hash mismatch fail the build; poor play is a dashboard, not a red X). It stays separate from GameCI so it needs no Unity license.
 
 ## Open risks
 
 ### Burst and float determinism
 
-Burst can generate different float results across compiler versions, CPU ISAs, and `FloatMode`. We do not Burst-compile floating-point sim. If a sim job is Burst-compiled later, it must stick to integers/`Fix64` and avoid `float`/`Unity.Mathematics` float types. `FloatMode.Deterministic` is **not** a cross-platform IEEE guarantee.
+Do not Burst-compile floating-point sim. `FloatMode.Deterministic` is not a cross-platform IEEE guarantee. Integer cm + `Fixed64` internals only.
 
 ### Physics
 
-Unity Physics and PhysX are float, SIMD-sensitive, and not lockstep-safe. They are presentation and authoring tools only (placement probes, debris). Sim combat/collision will be discrete (grid, swept AABB, or integer GJK) run at tick rate.
+Unity Physics / PhysX are presentation. Sim collision will be discrete integer queries.
 
-### Pathfinding on huge terrain
+### Terrain scale
 
-A 200×200 mile map at soldier scale cannot be a uniform navmesh in memory. Direction of travel:
+A 200×200 mile map cannot be a uniform navmesh. Hierarchical **integer-cost** road graph + local cm steering. DEM elevation quantized to cm at import.
 
-- Sim pathfinding on a hierarchical graph (roads / towns / coarse cells) with **integer costs**.
-- Local steering on a fine patch around the unit, still fixed-point.
-- Unity NavMesh is for editor visualization and maybe presentation crowding — not the authority path.
+### Identity
 
-Elevation from real DEM data should be quantized to a deterministic grid (e.g. centimeters) at import time, not sampled as float at runtime.
-
-### DOTS structural changes
-
-`Entity` ids are not stable across editor domain reloads or different worlds. Sim identity is `UnitId` (and later `PlayerId`), never `Entity`. Command logs refer to those ids.
+`Entity` ids are not stable. Sim identity is `SquadId` / `UnitId` / `issuerId`. Command logs refer to those.
 
 ### Time sources
 
-`Time.unscaledDeltaTime` is fine for the presentation accumulator. Do not use `fixedDeltaTime` as a hidden second sim. There is one sim cadence: `SimConfig.TickRateHz`.
-
-### Save compatibility
-
-The command binary layout is a public format the moment we ship a replay. Version the command envelope early (a `schema` byte on the log header) even while the set of `CommandKind` values is tiny.
+One cadence: `SimConfig.TickRateHz`. Do not use `fixedDeltaTime` as a second sim.

@@ -4,7 +4,11 @@
 
 `.github/workflows/simulation.yml` restores the headless solution and runs `dotnet test Wasteland.Sim.sln` on every push and pull request. No Unity editor, no license.
 
-This is the gate for the lockstep contract: fixed-point math, command logs, and per-tick hashes.
+This is the gate for the lockstep contract: `Fixed64` internals, integer-cm state, PCG32 / xxHash64 goldens, delayed command logs, and per-tick hashes.
+
+## Headless AI-vs-AI (later)
+
+A `Wasteland.Sim.Headless` (or equivalent) host will run playerless matches for the soak described in the AI design: seed × difficulty × personality, `HashState()` every N ticks. Wire that into this workflow (or a sibling `simulation-soak.yml`) once the AI and map blob exist. It still needs **no Unity license**. Fail the job on crash, deadlock, or hash mismatch — not on poor play.
 
 ## Unity builds (later)
 
@@ -18,4 +22,4 @@ When we add it, the expected shape is a second workflow (e.g. `.github/workflows
 1. Uses a Unity 6.3 LTS image matching `ProjectSettings/ProjectVersion.txt`
 2. Runs EditMode tests under `Assets/_Project/Tests`
 3. Optionally builds a Linux dedicated/headless player for smoke
-4. Stays separate from `simulation.yml` so math regressions still fail fast without consuming a license minute
+4. Stays separate from `simulation.yml` so math / AI-vs-AI regressions still fail fast without consuming a license minute

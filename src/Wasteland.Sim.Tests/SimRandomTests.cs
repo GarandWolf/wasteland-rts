@@ -1,4 +1,3 @@
-using Wasteland.Sim.Math;
 using Wasteland.Sim.Random;
 using Xunit;
 
@@ -6,6 +5,27 @@ namespace Wasteland.Sim.Tests
 {
     public sealed class SimRandomTests
     {
+        [Fact]
+        public void Golden_Pcg32_Seed42_Stream54()
+        {
+            // pcg-c-basic demo: pcg32_srandom_r(&rng, 42u, 54u)
+            SimRandom rng = new SimRandom(42UL, 54UL);
+            uint[] expected =
+            {
+                0xA15C02B7u,
+                0x7B47F409u,
+                0xBA1D3330u,
+                0x83D2F293u,
+                0xBFA4784Bu,
+                0xCBED606Eu
+            };
+
+            for (int i = 0; i < expected.Length; i++)
+            {
+                Assert.Equal(expected[i], rng.NextUInt());
+            }
+        }
+
         [Fact]
         public void SameSeed_SameSequence()
         {
@@ -33,20 +53,6 @@ namespace Wasteland.Sim.Tests
             {
                 int value = rng.NextInt(-3, 7);
                 Assert.InRange(value, -3, 6);
-            }
-        }
-
-        [Fact]
-        public void NextFix64_StaysInRange()
-        {
-            SimRandom rng = new SimRandom(7UL);
-            Fix64 min = Fix64.FromInt(-2);
-            Fix64 max = Fix64.FromInt(5);
-            for (int i = 0; i < 256; i++)
-            {
-                Fix64 value = rng.NextFix64(min, max);
-                Assert.True(value >= min);
-                Assert.True(value < max);
             }
         }
     }

@@ -24,7 +24,7 @@ Open this folder in the Unity Hub with 6000.3.24f1. First open downloads package
 
 ## Layout
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — sim/presentation split, ticks, commands, fixed-point, hashing, DOTS mapping, risks
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — 20 Hz lockstep, delayed commands, cm state, squads, PCG32/xxHash64, DOTS mapping
 - [`Packages/com.wasteland.sim/`](Packages/com.wasteland.sim/) — simulation core
 - [`Assets/_Project/`](Assets/_Project/) — presentation
 - [`src/Wasteland.Sim.Tests/`](src/Wasteland.Sim.Tests/) — xUnit

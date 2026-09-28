@@ -1,97 +1,94 @@
 using System;
-using Wasteland.Sim.Math;
 
 namespace Wasteland.Sim.Commands
 {
     /// <summary>
-    /// Player or AI intent, scheduled for an exact simulation tick.
+    /// Player or AI intent. Executes at <c>issuedTick + commandDelayTicks</c>.
     /// Presentation never mutates sim state except by enqueueing one of these.
+    /// Integer centimeters only — no <c>Fixed64</c> on the wire.
     /// </summary>
     public readonly struct SimCommand : IEquatable<SimCommand>, IComparable<SimCommand>
     {
-        public readonly int Tick;
-        public readonly int PlayerId;
-        public readonly int UnitId;
+        public readonly int IssuedTick;
+        public readonly int ExecuteTick;
+        public readonly int IssuerId;
+        public readonly int Sequence;
+        public readonly int SquadId;
         public readonly CommandKind Kind;
-        public readonly Fix64 Arg0;
-        public readonly Fix64 Arg1;
-        public readonly Fix64 Arg2;
+        public readonly int Arg0;
+        public readonly int Arg1;
+        public readonly int Arg2;
 
-        public SimCommand(int tick, int playerId, int unitId, CommandKind kind, Fix64 arg0, Fix64 arg1, Fix64 arg2)
+        public SimCommand(
+            int issuedTick,
+            int issuerId,
+            int squadId,
+            CommandKind kind,
+            int arg0,
+            int arg1,
+            int arg2,
+            int executeTick = 0,
+            int sequence = 0)
         {
-            if (tick < 0)
+            if (issuedTick < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(tick));
+                throw new ArgumentOutOfRangeException(nameof(issuedTick));
             }
 
-            Tick = tick;
-            PlayerId = playerId;
-            UnitId = unitId;
+            IssuedTick = issuedTick;
+            ExecuteTick = executeTick;
+            IssuerId = issuerId;
+            Sequence = sequence;
+            SquadId = squadId;
             Kind = kind;
             Arg0 = arg0;
             Arg1 = arg1;
             Arg2 = arg2;
         }
 
-        public static SimCommand Spawn(int tick, int playerId, int unitId, Fix64Vec2 position, Fix64 speed)
+        public static SimCommand SpawnSquad(int issuedTick, int issuerId, int squadId, int xCm, int yCm, int speedCmPerSecond)
         {
-            if (speed.Raw < 0)
-            {
-                throw new ArgumentOutOfRangeException(nameof(speed), "Speed must be non-negative.");
-            }
-
-            return new SimCommand(tick, playerId, unitId, CommandKind.Spawn, position.X, position.Y, speed);
+            return new SimCommand(issuedTick, issuerId, squadId, CommandKind.SpawnSquad, xCm, yCm, speedCmPerSecond);
         }
 
-        public static SimCommand Move(int tick, int playerId, int unitId, Fix64Vec2 target)
+        public static SimCommand Move(int issuedTick, int issuerId, int squadId, int xCm, int yCm)
         {
-            return new SimCommand(tick, playerId, unitId, CommandKind.Move, target.X, target.Y, Fix64.Zero);
+            return new SimCommand(issuedTick, issuerId, squadId, CommandKind.Move, xCm, yCm, 0);
+        }
+
+        public SimCommand WithSchedule(int executeTick, int sequence)
+        {
+            return new SimCommand(IssuedTick, IssuerId, SquadId, Kind, Arg0, Arg1, Arg2, executeTick, sequence);
         }
 
         public int CompareTo(SimCommand other)
         {
-            int c = Tick.CompareTo(other.Tick);
+            int c = ExecuteTick.CompareTo(other.ExecuteTick);
             if (c != 0)
             {
                 return c;
             }
 
-            c = PlayerId.CompareTo(other.PlayerId);
+            c = IssuerId.CompareTo(other.IssuerId);
             if (c != 0)
             {
                 return c;
             }
 
-            c = UnitId.CompareTo(other.UnitId);
-            if (c != 0)
-            {
-                return c;
-            }
-
-            c = ((byte)Kind).CompareTo((byte)other.Kind);
-            if (c != 0)
-            {
-                return c;
-            }
-
-            c = Arg0.Raw.CompareTo(other.Arg0.Raw);
-            if (c != 0)
-            {
-                return c;
-            }
-
-            c = Arg1.Raw.CompareTo(other.Arg1.Raw);
-            if (c != 0)
-            {
-                return c;
-            }
-
-            return Arg2.Raw.CompareTo(other.Arg2.Raw);
+            return Sequence.CompareTo(other.Sequence);
         }
 
         public bool Equals(SimCommand other)
         {
-            return CompareTo(other) == 0;
+            return IssuedTick == other.IssuedTick
+                && ExecuteTick == other.ExecuteTick
+                && IssuerId == other.IssuerId
+                && Sequence == other.Sequence
+                && SquadId == other.SquadId
+                && Kind == other.Kind
+                && Arg0 == other.Arg0
+                && Arg1 == other.Arg1
+                && Arg2 == other.Arg2;
         }
 
         public override bool Equals(object obj)
@@ -103,13 +100,15 @@ namespace Wasteland.Sim.Commands
         {
             unchecked
             {
-                int hash = Tick;
-                hash = (hash * 397) ^ PlayerId;
-                hash = (hash * 397) ^ UnitId;
+                int hash = IssuedTick;
+                hash = (hash * 397) ^ ExecuteTick;
+                hash = (hash * 397) ^ IssuerId;
+                hash = (hash * 397) ^ Sequence;
+                hash = (hash * 397) ^ SquadId;
                 hash = (hash * 397) ^ (byte)Kind;
-                hash = (hash * 397) ^ Arg0.Raw.GetHashCode();
-                hash = (hash * 397) ^ Arg1.Raw.GetHashCode();
-                hash = (hash * 397) ^ Arg2.Raw.GetHashCode();
+                hash = (hash * 397) ^ Arg0;
+                hash = (hash * 397) ^ Arg1;
+                hash = (hash * 397) ^ Arg2;
                 return hash;
             }
         }

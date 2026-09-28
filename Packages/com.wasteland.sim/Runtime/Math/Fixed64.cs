@@ -4,52 +4,53 @@ using System.Globalization;
 namespace Wasteland.Sim.Math
 {
     /// <summary>
-    /// Signed Q31.32 fixed-point number stored in a <see cref="long"/>.
-    /// Range is about ±2.147e9 with 2^-32 ≈ 2.33e-10 precision. World units
-    /// are meters: a 200-mile map fits with huge headroom.
+    /// Signed Q32.32 fixed-point number stored in a <see cref="long"/>
+    /// (1 sign bit + 31 integer bits + 32 fractional bits).
     /// </summary>
     /// <remarks>
+    /// Internal math only: sqrt, stepping, angles. Never store a
+    /// <see cref="Fixed64"/> in sim state, hashes, or events — those use
+    /// integer centimeters and parts-per-thousand.
     /// Multiplication and division use 128-bit intermediates. Division rounds
-    /// toward zero. No floating-point is used in any operator — presentation
-    /// code may call <see cref="ToDouble"/> for debug drawing only.
+    /// toward zero. <see cref="ToDouble"/> is debug/presentation only.
     /// </remarks>
-    public readonly struct Fix64 : IEquatable<Fix64>, IComparable<Fix64>
+    public readonly struct Fixed64 : IEquatable<Fixed64>, IComparable<Fixed64>
     {
         public const int FractionalBits = 32;
         public const long OneRawValue = 1L << FractionalBits;
 
-        public static readonly Fix64 Zero = new Fix64(0);
-        public static readonly Fix64 One = new Fix64(OneRawValue);
-        public static readonly Fix64 Half = new Fix64(OneRawValue >> 1);
-        public static readonly Fix64 MinusOne = new Fix64(-OneRawValue);
-        public static readonly Fix64 MaxValue = new Fix64(long.MaxValue);
-        public static readonly Fix64 MinValue = new Fix64(long.MinValue);
+        public static readonly Fixed64 Zero = new Fixed64(0);
+        public static readonly Fixed64 One = new Fixed64(OneRawValue);
+        public static readonly Fixed64 Half = new Fixed64(OneRawValue >> 1);
+        public static readonly Fixed64 MinusOne = new Fixed64(-OneRawValue);
+        public static readonly Fixed64 MaxValue = new Fixed64(long.MaxValue);
+        public static readonly Fixed64 MinValue = new Fixed64(long.MinValue);
 
         public readonly long Raw;
 
-        private Fix64(long raw)
+        private Fixed64(long raw)
         {
             Raw = raw;
         }
 
-        public static Fix64 FromRaw(long raw)
+        public static Fixed64 FromRaw(long raw)
         {
-            return new Fix64(raw);
+            return new Fixed64(raw);
         }
 
-        public static Fix64 FromInt(int value)
+        public static Fixed64 FromInt(int value)
         {
-            return new Fix64((long)value << FractionalBits);
+            return new Fixed64((long)value << FractionalBits);
         }
 
         /// <summary>Constructs a value equal to <paramref name="milli"/> / 1000.</summary>
-        public static Fix64 FromMilli(int milli)
+        public static Fixed64 FromMilli(int milli)
         {
             return FromInt(milli) / FromInt(1000);
         }
 
         /// <summary>Constructs a value equal to <paramref name="numerator"/> / <paramref name="denominator"/>.</summary>
-        public static Fix64 FromRatio(int numerator, int denominator)
+        public static Fixed64 FromRatio(int numerator, int denominator)
         {
             if (denominator == 0)
             {
@@ -64,6 +65,12 @@ namespace Wasteland.Sim.Math
             return (int)(Raw >> FractionalBits);
         }
 
+        /// <summary>Truncates toward zero. Used when writing stepped positions back to centimeters.</summary>
+        public int ToIntTowardZero()
+        {
+            return (int)(Raw / OneRawValue);
+        }
+
         /// <summary>
         /// Debug/presentation helper. Never feed the result back into sim state.
         /// </summary>
@@ -72,27 +79,27 @@ namespace Wasteland.Sim.Math
             return Raw / (double)OneRawValue;
         }
 
-        public static Fix64 operator +(Fix64 a, Fix64 b)
+        public static Fixed64 operator +(Fixed64 a, Fixed64 b)
         {
-            return new Fix64(checked(a.Raw + b.Raw));
+            return new Fixed64(checked(a.Raw + b.Raw));
         }
 
-        public static Fix64 operator -(Fix64 a, Fix64 b)
+        public static Fixed64 operator -(Fixed64 a, Fixed64 b)
         {
-            return new Fix64(checked(a.Raw - b.Raw));
+            return new Fixed64(checked(a.Raw - b.Raw));
         }
 
-        public static Fix64 operator -(Fix64 value)
+        public static Fixed64 operator -(Fixed64 value)
         {
             if (value.Raw == long.MinValue)
             {
-                throw new OverflowException("Negating Fix64.MinValue overflows.");
+                throw new OverflowException("Negating Fixed64.MinValue overflows.");
             }
 
-            return new Fix64(-value.Raw);
+            return new Fixed64(-value.Raw);
         }
 
-        public static Fix64 operator *(Fix64 a, Fix64 b)
+        public static Fixed64 operator *(Fixed64 a, Fixed64 b)
         {
             // Two's-complement 64×64 → 128, then arithmetic shift right 32.
             Int128Math.Mul64((ulong)a.Raw, (ulong)b.Raw, out ulong hi, out ulong lo);
@@ -113,18 +120,18 @@ namespace Wasteland.Sim.Math
             long result = unchecked((long)shifted);
 
             // Bits 64..95 of (product >> 32) must be the sign extension of the
-            // 64-bit Q31.32 result. Anything else is out of range.
+            // 64-bit Q32.32 result. Anything else is out of range.
             long actualTop = unchecked((long)hi) >> FractionalBits;
             long expectedTop = result >> 63;
             if (actualTop != expectedTop)
             {
-                throw new OverflowException("Fix64 multiply overflowed Q31.32 range.");
+                throw new OverflowException("Fixed64 multiply overflowed Q32.32 range.");
             }
 
-            return new Fix64(result);
+            return new Fixed64(result);
         }
 
-        public static Fix64 operator /(Fix64 a, Fix64 b)
+        public static Fixed64 operator /(Fixed64 a, Fixed64 b)
         {
             if (b.Raw == 0)
             {
@@ -141,7 +148,7 @@ namespace Wasteland.Sim.Math
             ulong quot = Int128Math.Div128By64(nHi, nLo, absB);
             if (quot > (ulong)long.MaxValue)
             {
-                throw new OverflowException("Fix64 divide overflowed Q31.32 range.");
+                throw new OverflowException("Fixed64 divide overflowed Q32.32 range.");
             }
 
             long raw = (long)quot;
@@ -150,40 +157,40 @@ namespace Wasteland.Sim.Math
                 raw = -raw;
             }
 
-            return new Fix64(raw);
+            return new Fixed64(raw);
         }
 
-        public static bool operator ==(Fix64 a, Fix64 b)
+        public static bool operator ==(Fixed64 a, Fixed64 b)
         {
             return a.Raw == b.Raw;
         }
 
-        public static bool operator !=(Fix64 a, Fix64 b)
+        public static bool operator !=(Fixed64 a, Fixed64 b)
         {
             return a.Raw != b.Raw;
         }
 
-        public static bool operator <(Fix64 a, Fix64 b)
+        public static bool operator <(Fixed64 a, Fixed64 b)
         {
             return a.Raw < b.Raw;
         }
 
-        public static bool operator >(Fix64 a, Fix64 b)
+        public static bool operator >(Fixed64 a, Fixed64 b)
         {
             return a.Raw > b.Raw;
         }
 
-        public static bool operator <=(Fix64 a, Fix64 b)
+        public static bool operator <=(Fixed64 a, Fixed64 b)
         {
             return a.Raw <= b.Raw;
         }
 
-        public static bool operator >=(Fix64 a, Fix64 b)
+        public static bool operator >=(Fixed64 a, Fixed64 b)
         {
             return a.Raw >= b.Raw;
         }
 
-        public static Fix64 Abs(Fix64 value)
+        public static Fixed64 Abs(Fixed64 value)
         {
             if (value.Raw >= 0)
             {
@@ -193,17 +200,17 @@ namespace Wasteland.Sim.Math
             return -value;
         }
 
-        public static Fix64 Min(Fix64 a, Fix64 b)
+        public static Fixed64 Min(Fixed64 a, Fixed64 b)
         {
             return a.Raw <= b.Raw ? a : b;
         }
 
-        public static Fix64 Max(Fix64 a, Fix64 b)
+        public static Fixed64 Max(Fixed64 a, Fixed64 b)
         {
             return a.Raw >= b.Raw ? a : b;
         }
 
-        public static Fix64 Clamp(Fix64 value, Fix64 min, Fix64 max)
+        public static Fixed64 Clamp(Fixed64 value, Fixed64 min, Fixed64 max)
         {
             if (min.Raw > max.Raw)
             {
@@ -225,13 +232,13 @@ namespace Wasteland.Sim.Math
 
         /// <summary>
         /// Floor of the square root. Negative inputs throw.
-        /// Implemented as integer sqrt of (raw &lt;&lt; 32) so the result stays Q31.32.
+        /// Implemented as integer sqrt of (raw &lt;&lt; 32) so the result stays Q32.32.
         /// </summary>
-        public static Fix64 Sqrt(Fix64 value)
+        public static Fixed64 Sqrt(Fixed64 value)
         {
             if (value.Raw < 0)
             {
-                throw new ArgumentOutOfRangeException(nameof(value), "Cannot take the square root of a negative Fix64.");
+                throw new ArgumentOutOfRangeException(nameof(value), "Cannot take the square root of a negative Fixed64.");
             }
 
             if (value.Raw == 0)
@@ -242,22 +249,22 @@ namespace Wasteland.Sim.Math
             ulong nHi = (ulong)value.Raw >> FractionalBits;
             ulong nLo = (ulong)value.Raw << FractionalBits;
             ulong root = Int128Math.IntegerSqrt(nHi, nLo);
-            return new Fix64((long)root);
+            return new Fixed64((long)root);
         }
 
-        public int CompareTo(Fix64 other)
+        public int CompareTo(Fixed64 other)
         {
             return Raw.CompareTo(other.Raw);
         }
 
-        public bool Equals(Fix64 other)
+        public bool Equals(Fixed64 other)
         {
             return Raw == other.Raw;
         }
 
         public override bool Equals(object obj)
         {
-            return obj is Fix64 other && Equals(other);
+            return obj is Fixed64 other && Equals(other);
         }
 
         public override int GetHashCode()

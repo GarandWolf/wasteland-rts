@@ -8,3 +8,5 @@ Compiled two ways:
 2. **Headless** — `src/Wasteland.Sim/Wasteland.Sim.csproj` (netstandard2.1) included by `Wasteland.Sim.sln`
 
 There is no `UnityEngine` using-directive anywhere in this package. Keep it that way.
+
+Sim state is integer centimeters and parts-per-thousand. `Fixed64` is internal math only. Move commands target squads.

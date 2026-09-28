@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 using Wasteland.Sim.Commands;
-using Wasteland.Sim.Math;
+using Wasteland.Sim.Events;
 using Wasteland.Sim.World;
 using Xunit;
 
@@ -10,6 +10,7 @@ namespace Wasteland.Sim.Tests
     {
         private const ulong MatchSeed = 0xC0FFEEUL;
         private const int MatchTicks = 120;
+        private const int Issuer = 1;
 
         [Fact]
         public void SameSeedAndCommandLog_ProducesIdenticalHashesEveryTick()
@@ -28,7 +29,7 @@ namespace Wasteland.Sim.Tests
             List<SimCommand> log = new List<SimCommand>(ScriptedMatch());
             List<ulong> baseline = Run(MatchSeed, log);
 
-            log.Add(SimCommand.Move(40, playerId: 1, unitId: 1, Fix64Vec2.FromInts(10, 90)));
+            log.Add(SimCommand.Move(40, Issuer, 1, xCm: 1000, yCm: 9000));
             List<ulong> mutated = Run(MatchSeed, log);
 
             Assert.NotEqual(baseline[baseline.Count - 1], mutated[mutated.Count - 1]);
@@ -41,60 +42,107 @@ namespace Wasteland.Sim.Tests
             IReadOnlyList<SimCommand> log = ScriptedMatch();
             List<ulong> a = Run(MatchSeed, log);
             List<ulong> b = Run(MatchSeed + 1UL, log);
-            Assert.NotEqual(a[0], b[0]);
+            Assert.NotEqual(a[a.Count - 1], b[b.Count - 1]);
         }
 
         [Fact]
-        public void MoveCommand_ReachesTarget()
+        public void MoveCommand_ReachesSquadTarget()
         {
-            SimWorld world = new SimWorld(1UL);
-            world.Submit(SimCommand.Spawn(0, 1, 1, Fix64Vec2.Zero, Fix64.FromInt(20)));
-            world.Submit(SimCommand.Move(0, 1, 1, Fix64Vec2.FromInts(3, 4)));
+            SimWorld world = new SimWorld(new MatchConfig(1UL, commandDelayTicks: 0));
+            world.Submit(SimCommand.SpawnSquad(0, Issuer, 1, xCm: 0, yCm: 0, speedCmPerSecond: 2000));
+            world.Submit(SimCommand.Move(0, Issuer, 1, xCm: 300, yCm: 400));
 
             for (int i = 0; i < 20; i++)
             {
                 world.Step();
             }
 
-            SimUnit unit = world.GetUnit(1);
-            Assert.Equal(Fix64Vec2.FromInts(3, 4), unit.Position);
-            Assert.False(unit.HasTarget);
+            SimSquad squad = world.GetSquad(1);
+            Assert.Equal(300, squad.PositionXCm);
+            Assert.Equal(400, squad.PositionYCm);
+            Assert.False(squad.HasTarget);
+            Assert.Equal(1, world.GetUnit(1).SquadId);
         }
 
         [Fact]
-        public void SubmitOrder_DoesNotAffectSameTickResult()
+        public void DefaultDelay_ExecutesTwoTicksLater()
         {
-            SimCommand spawnB = SimCommand.Spawn(0, 1, 2, Fix64Vec2.FromInts(5, 0), Fix64.FromInt(4));
-            SimCommand spawnA = SimCommand.Spawn(0, 1, 1, Fix64Vec2.FromInts(0, 5), Fix64.FromInt(4));
+            SimWorld world = new SimWorld(MatchConfig.Default(1UL));
+            Assert.Equal(2, world.CommandDelayTicks);
+            world.Submit(SimCommand.SpawnSquad(0, Issuer, 1, 0, 0, 100));
 
-            SimWorld worldAB = new SimWorld(11UL);
+            world.Step();
+            Assert.Equal(0, world.SquadCount);
+            world.Step();
+            Assert.Equal(0, world.SquadCount);
+            world.Step();
+            Assert.Equal(1, world.SquadCount);
+        }
+
+        [Fact]
+        public void SubmitOrder_AcrossIssuers_DoesNotAffectHash()
+        {
+            SimCommand spawnA = SimCommand.SpawnSquad(0, issuerId: 1, squadId: 1, 0, 500, 400);
+            SimCommand spawnB = SimCommand.SpawnSquad(0, issuerId: 9, squadId: 2, 500, 0, 400);
+
+            SimWorld worldAB = new SimWorld(new MatchConfig(11UL, 0));
             worldAB.Submit(spawnA);
             worldAB.Submit(spawnB);
 
-            SimWorld worldBA = new SimWorld(11UL);
+            SimWorld worldBA = new SimWorld(new MatchConfig(11UL, 0));
             worldBA.Submit(spawnB);
             worldBA.Submit(spawnA);
 
             Assert.Equal(worldAB.Step(), worldBA.Step());
-            Assert.Equal(worldAB.GetUnit(1).Position, worldBA.GetUnit(1).Position);
-            Assert.Equal(worldAB.GetUnit(2).Position, worldBA.GetUnit(2).Position);
+            Assert.Equal(worldAB.GetSquad(1).PositionYCm, worldBA.GetSquad(1).PositionYCm);
+            Assert.Equal(worldAB.GetSquad(2).PositionXCm, worldBA.GetSquad(2).PositionXCm);
+        }
+
+        [Fact]
+        public void MoveUnknownSquad_EmitsCommandRejected()
+        {
+            SimWorld world = new SimWorld(new MatchConfig(1UL, 0));
+            world.Submit(SimCommand.Move(0, Issuer, squadId: 99, 1, 1));
+            world.Step();
+
+            SimEvent ev = Assert.Single(world.Events);
+            Assert.Equal(0, ev.EventId);
+            Assert.Equal(0, ev.Tick);
+            Assert.Equal(SimEventKind.CommandRejected, ev.Kind);
+            Assert.Equal(99, ev.SubjectId);
+            Assert.Equal(CommandRejectReason.UnknownSquad, ev.RejectReason);
+            Assert.Equal(0, world.SquadCount);
+        }
+
+        [Fact]
+        public void Events_AreMonotonicByEventId()
+        {
+            SimWorld world = new SimWorld(new MatchConfig(1UL, 0));
+            world.Submit(SimCommand.SpawnSquad(0, Issuer, 1, 0, 0, 100));
+            world.Submit(SimCommand.Move(0, Issuer, 1, 0, 0));
+            world.Step();
+
+            for (int i = 0; i < world.Events.Count; i++)
+            {
+                Assert.Equal(i, world.Events[i].EventId);
+            }
         }
 
         private static List<SimCommand> ScriptedMatch()
         {
             return new List<SimCommand>
             {
-                SimCommand.Spawn(0, 1, 1, Fix64Vec2.FromInts(0, 0), Fix64.FromInt(10)),
-                SimCommand.Spawn(0, 1, 2, Fix64Vec2.FromInts(100, 0), Fix64.FromInt(5)),
-                SimCommand.Move(1, 1, 1, Fix64Vec2.FromInts(50, 50)),
-                SimCommand.Move(5, 1, 2, Fix64Vec2.FromInts(0, 80)),
-                SimCommand.Move(30, 1, 1, Fix64Vec2.FromInts(20, 10)),
+                SimCommand.SpawnSquad(0, Issuer, 1, 0, 0, speedCmPerSecond: 1000),
+                SimCommand.SpawnSquad(0, Issuer, 2, 10000, 0, speedCmPerSecond: 500),
+                SimCommand.Move(1, Issuer, 1, 5000, 5000),
+                SimCommand.Move(5, Issuer, 2, 0, 8000),
+                SimCommand.Move(30, Issuer, 1, 2000, 1000),
             };
         }
 
         private static List<ulong> Run(ulong seed, IReadOnlyList<SimCommand> log)
         {
-            SimWorld world = new SimWorld(seed);
+            SimWorld world = new SimWorld(MatchConfig.Default(seed));
             for (int i = 0; i < log.Count; i++)
             {
                 world.Submit(log[i]);

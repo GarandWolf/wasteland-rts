@@ -1,9 +1,8 @@
 namespace Wasteland.Sim.Random
 {
     /// <summary>
-    /// PCG-XSH-RR 32-bit generator (O'Neill). Integer-only, portable, and
-    /// deterministic given the same seed and stream. Hash the 64-bit state
-    /// when computing a tick checksum.
+    /// PCG32 (XSH-RR, O'Neill). Integer-only, portable, deterministic given
+    /// the same seed and stream. Matches pcg-c-basic <c>pcg32_srandom_r</c>.
     /// </summary>
     public struct SimRandom
     {
@@ -12,6 +11,10 @@ namespace Wasteland.Sim.Random
         private ulong _state;
         private ulong _inc;
 
+        /// <summary>
+        /// Seeds the generator the same way as <c>pcg32_srandom_r(state, stream)</c>.
+        /// Stream 54 with seed 42 is the published golden sequence.
+        /// </summary>
         public SimRandom(ulong seed, ulong stream = 1UL)
         {
             _state = 0;
@@ -21,7 +24,6 @@ namespace Wasteland.Sim.Random
             NextUInt();
         }
 
-        /// <summary>Full internal state for desync hashes and save games.</summary>
         public ulong State
         {
             get { return _state; }
@@ -48,8 +50,8 @@ namespace Wasteland.Sim.Random
                 throw new System.ArgumentOutOfRangeException(nameof(maxExclusive), "maxExclusive must be greater than minInclusive.");
             }
 
-            uint range = (uint)(maxExclusive - minInclusive);
-            uint threshold = unchecked((uint)(-range)) % range;
+            uint range = (uint)((long)maxExclusive - (long)minInclusive);
+            uint threshold = unchecked(0u - range) % range;
             uint x;
             do
             {
@@ -58,19 +60,6 @@ namespace Wasteland.Sim.Random
             while (x < threshold);
 
             return minInclusive + (int)(x % range);
-        }
-
-        public Math.Fix64 NextFix64(Math.Fix64 minInclusive, Math.Fix64 maxExclusive)
-        {
-            if (minInclusive.Raw >= maxExclusive.Raw)
-            {
-                throw new System.ArgumentOutOfRangeException(nameof(maxExclusive), "maxExclusive must be greater than minInclusive.");
-            }
-
-            ulong span = (ulong)(maxExclusive.Raw - minInclusive.Raw);
-            // 32 bits of randomness is enough for this prototype; map uniformly into [0, span).
-            ulong scaled = ((ulong)NextUInt() * span) >> 32;
-            return Math.Fix64.FromRaw(minInclusive.Raw + (long)scaled);
         }
     }
 }

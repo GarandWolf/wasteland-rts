@@ -3,7 +3,7 @@ using System;
 namespace Wasteland.Sim.Math
 {
     /// <summary>
-    /// Portable 128-bit unsigned helpers for Q31.32 arithmetic.
+    /// Portable 128-bit unsigned helpers for Q32.32 arithmetic.
     /// All operations are integer-only so they are bit-identical across runtimes.
     /// </summary>
     internal static class Int128Math
