@@ -7,7 +7,7 @@
 
 This is the working contract for enemy AI. Numbers marked **placeholder** are starting values for the first playable; they are not balance commitments.
 
-Designer answers in [Draft designer positions](#draft-designer-positions-pending-garand-sign-off) are **draft pending Garand’s sign-off**. The rest of this doc treats them as the current spec for AI behavior.
+Designer answers in [Draft designer positions](#draft-designer-positions-pending-garand-sign-off) are **draft pending Garand’s sign-off**. Lead-engineer answers in [Lead engineer decisions](#lead-engineer-decisions) are **locked decisions**, not drafts.
 
 ---
 
@@ -32,7 +32,7 @@ These are the Game Designer’s draft answers. They are **not final** until Gara
 
 | Topic | Draft position | AI consequence |
 | --- | --- | --- |
-| Scale | **Operational.** Each unit is a battalion or convoy. Players zoom from the strategic map down into fights. | AI commands battalions/convoys grouped into **task forces**. No company-level micro. Tactical layer is route, capture-zone, and supply behavior, not soldier spacing. |
+| Scale | **Operational.** Each unit is a battalion or convoy. Players zoom from the strategic map down into fights. | AI commands **squads** (first-class sim entities that group battalions/convoys). It never commands individual units. Tactical layer is route, capture-zone, and supply behavior, not soldier spacing. |
 | Factions | **Not defined yet** (they depend on the apocalypse premise). | Keep Warlord / Settler / Raider as **parameter archetypes**. Each real faction will map onto one of them. Do not fork the planner. |
 | Capture | Every town has a **capture zone** and a **garrison**. Clear all enemy combat units from the zone, then hold it uncontested for a timer (**60 s village, 120 s town, 180 s city**). An enemy combat unit in the zone **pauses** the timer; it does not reset. A territory belongs to whoever holds its **anchor town(s)**; some regions have several anchors and you need **all** of them. Fortified buildings **slow** capture; they do not block it. | Assault = clear then hold. Contest = park combat units in the zone to pause. Score multi-anchor regions as a set. Defend and reinforce capture zones first. |
 | Supply | Cutting roads **does** starve supply. Supply traces the **road graph** from depots and HQ to units. A segment is cut when an enemy **holds its node** or a **bridge is destroyed**. A unit is out of supply when it has no friendly road path back to a depot within a **short off-road** snap distance. Out-of-supply units stop refilling fuel and ammo. After ~**60 s** grace, fire rate and speed drop and they **cannot reinforce**. Off-road movement penalties are a separate rule. Supply is recomputed on a **fixed tick** with integer graph math. | Raid/cut enemy roads and bridges, guard own lines, do not over-extend, bake supply into routes and assault timing, value bridges and junctions. Read supply from sim hooks. |
@@ -45,11 +45,35 @@ These are the Game Designer’s draft answers. They are **not final** until Gara
 
 | Term | Meaning |
 | --- | --- |
-| **Unit** | A battalion or convoy — the selectable operational piece. |
-| **Task force** | One or more units under a single `StrategicOrder`. This is the AI’s tactical actor (not a 10-person squad). |
+| **Unit** | A battalion or convoy. Lives inside a squad. The AI never issues commands to unit ids. |
+| **Squad** | First-class sim entity with a stable id and its own order table. Operational grouping of units (not a 10-person fire team). Orders target squads. The sim moves, forms, and picks targets inside the squad. Player **form / split / merge** are also commands. |
 | **Capture zone** | The town volume that must be empty of enemy combat units, then held, to capture. |
 | **Anchor** | A town that must be held to own its territory. Some territories have several; all are required. |
 | **Depot / HQ** | Supply sources. Units need a friendly road path to one (plus a short off-road snap). |
+
+---
+
+## Lead engineer decisions
+
+These are **decisions**, not drafts. They lock the sim seams the AI is written against. Names of hooks may still be bikeshed; the behavior must not drift.
+
+| Topic | Decision |
+| --- | --- |
+| Tick | **20 Hz (50 ms)**, locked. |
+| Command delay | `commandDelayTicks` is a **match-setup constant** shared by player and AI. Default **2 ticks (100 ms)** in single-player; higher in multiplayer. **Never hardcoded.** Commands are stamped `executeTick = issuedTick + commandDelayTicks`. Difficulty may add `ReactionExtraTicks` on top for Easy/Normal/Hard; that is a difficulty parameter, not a substitute for the match delay. |
+| Numeric types | Sim state: **integer cm**, `int32` per axis; **`int64`** for squared distances and path costs; ratios as **int ppt**. Core has **Fixed64 (Q32.32)** for internal math only (sqrt, movement stepping, angles); results are always stored back as cm or ppt. **Nothing** in sim state, hashes, or events is Fixed. **Q16.16 in int32 is ruled out** (cannot cover a 200-mile map). |
+| Road A\* | **Core sim owns it.** `PathOnRoads` and `EstimateTravelTicks` are sim services. `PathRequestsPerTick` and the unreachable cache keyed on `(from, to, weightKey, graphVersion)` live in that service. `costWeights` are integer ppt. |
+| Entity model | **Squads are first-class** sim entities. Orders target squads. Sim handles unit movement, formation, and target selection within a squad. AI never commands individual units. |
+| Command queue | The lead engineer’s in-progress foundation PR defines the first command queue. The AI **plugs into it**. |
+| Threading | Launch: **fixed-step sim on the main thread**. A dedicated sim thread comes later. The AI stays **inside the sim tick** either way. |
+| Core / headless | Core is **pure C# with no `UnityEngine`**. Headless runs via `dotnet test` or a console host in GitHub Actions. |
+| Blobs | Map and AI blobs: **custom versioned little-endian binary**. Arrays sorted by id. **No hash-set rebuild on load.** |
+| Hash / PRNG | **xxHash64** and **PCG32**, both in-repo with golden tests. `hash64` means xxHash64 over the listed fields. |
+| Perf targets | **1.5 ms AI** and **8 ms sim** are the accepted targets. The wall-clock **ship gate waits for a vertical slice**. The **AI work-unit cap alone** governs behavior. |
+| Per-PR CI | Frozen golden **100×100** map, **2 AI** factions, **12,000 ticks** (10 game minutes), run **twice** with the same seed, identical hashes every **200** ticks, finish in **under 5 minutes**. |
+| Nightly soak | Starts at about **200** matches and grows toward **1,000** once there are perf numbers. |
+| Cross-check | Windows-vs-Linux hash-stream check is added **later, before multiplayer**. |
+| Headless speed | Goal (not a commitment): at least **50× realtime** on 100×100 with 2 AIs. |
 
 ---
 
@@ -76,7 +100,7 @@ The player should be able to answer, after a loss: “they cut the bridge, starv
 - Player-vs-player, co-op, or any networked lockstep session.
 - Replay file format, spectator desync UI, or checksum negotiation.
 - Machine-learned policies, behavior cloning, or runtime training.
-- Company- or soldier-level micro (stutter-step, ability weaving, pixel kiting). The player may zoom into a fight; the AI still issues **operational** commands to battalions and convoys.
+- Company- or soldier-level micro (stutter-step, ability weaving, pixel kiting). The player may zoom into a fight; the AI still issues **operational** commands to **squads** only.
 - Hand-authored per-map scripts, waypoints, or trigger chains. Maps come from the pipeline; the AI must generalize.
 - Naval, air, or subterranean layers unless design later adds them as first-class movement graphs.
 - Diplomacy, trading, or more than one relationship to the player (hostile). Neutral towns are world state, not AI actors.
@@ -94,9 +118,9 @@ Two layers, one command pipe.
 
 The **strategic layer** thinks in towns, anchors, territories, supply, economy, and posture. It runs on a fixed cadence of simulation ticks (a few seconds of game time) and emits orders.
 
-The **tactical layer** thinks in **task forces** (groups of battalions/convoys). It runs every tick (time-sliced) and turns orders into the same commands a player issues.
+The **tactical layer** thinks in **squads**. It runs every tick (time-sliced) and turns orders into the same commands a player issues.
 
-Neither layer moves units by writing transforms. Both go through the shared command interface (§4.3). Zooming the camera into a fight is presentation; it does not unlock a second AI.
+Neither layer moves units by writing transforms. Both go through the shared command interface (§4.3). The sim moves, forms, and selects targets **inside** a squad. Zooming the camera into a fight is presentation; it does not unlock a second AI.
 
 ```mermaid
 flowchart TB
@@ -123,7 +147,7 @@ flowchart TB
   end
 
   subgraph Tact["Tactical layer — every tick, time-sliced"]
-    Tf["Task-force controllers"]
+    Squads["Squad controllers"]
     Route["Road graph + supply + high-ground costs"]
     Fight["Capture clear/hold/contest, cut/guard supply, retreat"]
   end
@@ -143,10 +167,10 @@ flowchart TB
   Posture --> Cands
   Cands --> Score
   Score --> Alloc
-  Alloc -->|"StrategicOrder"| Tf
-  Tf -->|"TaskForceReport"| Alloc
+  Alloc -->|"StrategicOrder"| Squads
+  Squads -->|"SquadReport"| Alloc
   Fight --> Cmd
-  Tf --> Cmd
+  Squads --> Cmd
 ```
 
 ### 2.1 Strategic layer
@@ -165,10 +189,10 @@ planThisTick(faction) =
 - Static map contract (§3.1), including anchors and capture-zone radii.
 - Derived maps (§3.2), last fully committed slice, plus last-seen structure snapshots.
 - Own economy snapshot: resources, build queues, upkeep.
-- Own army snapshot: task forces, unit supply state, strength, orders, recovery.
+- Own army snapshot: squads, unit supply state, strength, orders, recovery.
 - Own supply graph view: depots, HQ, held nodes, intact bridges, units at risk of OOS.
 - Observed enemy: towns, units, and threats inside fog-honest vision plus memory with a TTL / snapshots.
-- Recent `TaskForceReport`s since the last plan tick.
+- Recent `SquadReport`s since the last plan tick.
 - Capture-zone timers the faction can see (own zones always; enemy zones only if currently visible or last-seen as capturing).
 
 **Posture.** A faction is in exactly one posture. Posture is itself a scored choice with hysteresis so it does not chatter.
@@ -192,7 +216,7 @@ Hysteresis: a new posture must beat the current score by `PostureSwitchMarginPpt
 | `ContestCapture` | town whose enemy timer is ticking | Any visible (or last-seen-in-progress) enemy capture of a town we care about. Cheap: one combat unit in the zone pauses the timer. |
 | `HoldCaptureZone` | town we are capturing, or an owned zone under threat | After the zone is cleared, until the timer completes; or garrison an owned anchor. |
 | `Raid` / `CutSupply` | enemy road node, junction, or bridge | Attack/BuildUp; holding the node or destroying the bridge cuts a path from their depot to a town or field force. |
-| `GuardSupply` | own depot-path node or bridge | Degree ≥ 2 junction, bridge, or the last path to an exposed task force / anchor. |
+| `GuardSupply` | own depot-path node or bridge | Degree ≥ 2 junction, bridge, or the last path to an exposed squad / anchor. |
 | `HoldChokepoint` | chokepoint id | Controls access to a valued town we own or want, or sits on a supply path. |
 | `ScoutRegion` | coarse-grid region or ridge cell | Confidence stale; fog-honest; prefer high ground that LoS-covers a road or capture zone. |
 | `ExpandEconomy` | build slot / town | BuildUp or Turtle with spare income. |
@@ -258,17 +282,17 @@ Brutal’s `EconomyBonusPpt` is applied by the **sim economy**, not by the AI in
 
 ### 2.2 Tactical layer
 
-The tactical layer owns **task forces**. A task force is the smallest AI-controlled force: a stable id, one or more battalions/convoys, a movement posture, an assigned `OrderId` (or idle), a route, and a supply flag copied from sim.
+The tactical layer issues orders to **squads**. A squad is a first-class sim entity: stable id, its own order table, one or more battalions/convoys, a movement posture, a route, and a supply flag copied from sim. The sim moves units, holds formation, and picks targets **inside** the squad. The AI never commands individual units. Player form / split / merge are commands on the same queue.
 
-The strategic layer assigns *orders to task forces*, not to soldiers. The player may zoom into the fight those battalions are in; the AI does not switch layers.
+The player may zoom into the fight those battalions are in; the AI does not switch layers.
 
-**Task-force controller, every tick it is scheduled.**
+**Squad controller, every tick it is scheduled.**
 
 1. Apply incoming order (new, updated, or cancel).
 2. Refresh route if the order target, threat on the current path, a blocked/held edge, a destroyed bridge, or **supply connectivity** changed.
 3. Choose movement posture from context (road column vs deployed at the zone).
 4. Issue commands: move, attack-move, hold (in capture zone or on a node), destroy-bridge (if the order says so), retreat.
-5. Evaluate reinforce / retreat / contest rules. **Do not request reinforce if the task force is past supply grace** — the sim will reject it.
+5. Evaluate reinforce / retreat / contest rules. **Do not request reinforce if the squad is past supply grace** — the sim will reject it.
 6. Emit a report if status, objective, supply, or intel changed.
 
 **Route choice.** Operational movement is A\* on the **road graph**, not a unit mesh.
@@ -286,9 +310,9 @@ cost(e) =
   − VisionWeight * e.visionFromHighGround  // scout / overwatch orders
 ```
 
-`wouldBreakSupply` is 1 when occupying or traversing `e` (or a planned off-road snap) would leave the task force with no path to a depot. Raids that *intend* to cut may pay this; assaults and holds may not.
+`wouldBreakSupply` is 1 when occupying or traversing `e` (or a planned off-road snap) would leave the squad with no path to a depot. Raids that *intend* to cut may pay this; assaults and holds may not.
 
-Weights come from personality + current order type (a raid pays more to avoid threat; an assault pays more for high ground on the approach **and** refuses OOS approaches; a scout pays for vision). If the road graph cannot reach the target, fall back to a coarse-grid corridor (same 1-mile cells as influence) and rejoin the road graph at the nearest node **within `SupplySnapCm`**. Last-mile into a capture zone is a short operational path on a local integer grid provided by sim, not Unity NavMesh. Off-road movement penalties are sim rules; the AI only chooses when a snap is worth it.
+Weights come from personality + current order type (a raid pays more to avoid threat; an assault pays more for high ground on the approach **and** refuses OOS approaches; a scout pays for vision). `costWeights` passed to `PathOnRoads` are integer ppt; the service returns an `int64` cost. If the road graph cannot reach the target, fall back to a coarse-grid corridor (same 1-mile cells as influence) and rejoin the road graph at the nearest node **within `SupplySnapCm`**. Last-mile into a capture zone is a short operational path on a local integer grid provided by sim, not Unity NavMesh. Off-road movement penalties are sim rules; the AI only chooses when a snap is worth it.
 
 **Movement postures** (operational, not fire-team formations).
 
@@ -301,7 +325,7 @@ Weights come from personality + current order type (a raid pays more to avoid th
 | Contest | Zone occupy | At least one combat unit inside the enemy ticking zone — enough to pause. |
 | Retreat | Column | Fastest **supplied** road toward a depot or in-supply owned town; ignore high-ground bonus. |
 
-Posture is a task-force stance command. Battalion spacing on the road is the sim’s follower, shared with the player.
+Posture is a squad stance command. Unit spacing on the road is the sim’s formation follower, shared with the player.
 
 **Taking a town (replaces wall-siege).** Capture is a **zone clear + uncontested hold**, not a fortification-break. Fortifications only lengthen the timer. `AssaultTown` phases:
 
@@ -312,9 +336,9 @@ Posture is a task-force stance command. Battalion spacing on the road is the sim
 | Clear | Combat units enter the capture zone | Attack-move until **no enemy combat units** remain in the zone. Fortified buildings are fought through; they do not gate this phase. | Zone clear, or retreat. |
 | Hold | Zone clear of enemy combat | Stay inside the zone. Timer runs (`CaptureTicksVillage/Town/City`, then slowed by visible fortification). | Town captured; **or** an enemy combat unit enters (timer **pauses**, phase stays Hold); **or** retreat. |
 
-If ratio never supports Clear, the task force holds at staging and reports `WaitingOnForce`. Strategy may send another task force, cut supply first, or cancel.
+If ratio never supports Clear, the squad holds at staging and reports `WaitingOnForce`. Strategy may send another squad, cut supply first, or cancel.
 
-**Contesting an enemy capture.** `ContestCapture` is deliberately cheap: **any** friendly combat unit inside the zone pauses their timer. The task force does not need to win the fight to be useful. If it can also Clear, it upgrades in place to a retake (`HoldCaptureZone` after Clear). Priority: contest **anchors** whose timer is furthest along.
+**Contesting an enemy capture.** `ContestCapture` is deliberately cheap: **any** friendly combat unit inside the zone pauses their timer. The squad does not need to win the fight to be useful. If it can also Clear, it upgrades in place to a retake (`HoldCaptureZone` after Clear). Priority: contest **anchors** whose timer is furthest along.
 
 **Defense and reinforcement around capture zones.**
 
@@ -323,7 +347,7 @@ If ratio never supports Clear, the task force holds at staging and reports `Wait
 - Next: the last remaining friendly path (node/bridge) that supplies those zones.
 - Then other towns.
 
-A task force reports `NeedReinforce` when `strengthPpt < ReinforceBelowPpt` (placeholder **600**) while the order is still active, not retreating, and **`supplyState != OutOfSupplyPastGrace`**. Strategy assigns the nearest idle in-supply task force whose travel ticks ≤ `ReinforceMaxTravelTicks` **without** going OOS. Tactical never steals a task force off a higher-priority capture-zone order.
+A squad reports `NeedReinforce` when `strengthPpt < ReinforceBelowPpt` (placeholder **600**) while the order is still active, not retreating, and **`supplyState != OutOfSupplyPastGrace`**. Strategy assigns the nearest idle in-supply squad whose travel ticks ≤ `ReinforceMaxTravelTicks` **without** going OOS. Tactical never steals a squad off a higher-priority capture-zone order.
 
 **Retreat.** Evaluated every scheduled tactical tick, integer prediction only:
 
@@ -331,7 +355,7 @@ A task force reports `NeedReinforce` when `strengthPpt < ReinforceBelowPpt` (pla
 predictedOutcomePpt = ownStrengthPpt * terrainDefenseMul / max(1, enemyStrengthPpt)
 ```
 
-Retreat if `predictedOutcomePpt < RetreatThresholdPpt` **and** the order is not `HoldCaptureZone`/`HoldChokepoint` with `lastStand` (Turtle on an anchor may set this). Also retreat toward a depot if `supplyState == OutOfSupply` and remaining grace < `SupplyRetreatGraceTicks` (placeholder **400**) unless `lastStand`. `RetreatThresholdPpt` is personality × difficulty. Destination: nearest owned in-supply town with garrison capacity, via lowest-threat **supplied** road. Broken task forces (`strengthPpt < BrokenPpt`, placeholder **150**) auto-retreat regardless of order, then `Recover`.
+Retreat if `predictedOutcomePpt < RetreatThresholdPpt` **and** the order is not `HoldCaptureZone`/`HoldChokepoint` with `lastStand` (Turtle on an anchor may set this). Also retreat toward a depot if `supplyState == OutOfSupply` and remaining grace < `SupplyRetreatGraceTicks` (placeholder **400**) unless `lastStand`. `RetreatThresholdPpt` is personality × difficulty. Destination: nearest owned in-supply town with garrison capacity, via lowest-threat **supplied** road. Broken squads (`strengthPpt < BrokenPpt`, placeholder **150**) auto-retreat regardless of order, then `Recover`.
 
 ### 2.3 Orders down, reports up
 
@@ -347,23 +371,23 @@ Orders and reports are sim data, serialized the same way player commands are. Th
 | `targetKind` | `enum` | `Town`, `Territory`, `RoadNode`, `Chokepoint`, `Bridge`, `Region`, `None`. |
 | `targetId` | `int32` | Id in that space; 0 if none. |
 | `stagingNodeId` | `int32` | Optional road node. |
-| `taskForceIds` | `int32[]` | Sorted ascending. |
+| `squadIds` | `int32[]` | Sorted ascending. |
 | `priority` | `int16` | Higher wins conflicts. Capture-zone contest > field raid. |
 | `resourceBudget` | `int32` | Spent via economy commands; 0 if N/A. |
 | `issuedTick` | `int32` | |
 | `expiresTick` | `int32` | Hard cancel if still incomplete. Must exceed the capture timer for `HoldCaptureZone`. |
 | `flags` | `uint32` | bit0 `lastStand`, bit1 `raidAvoidSiege` (Raider: cut/contest, skip long holds), bit2 `destroyBridge` |
 
-**`TaskForceReport`**
+**`SquadReport`**
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `taskForceId` | `int32` | |
+| `squadId` | `int32` | |
 | `orderId` | `int32` | 0 if idle. |
 | `status` | `enum` | `Idle`, `Moving`, `Staging`, `Isolating`, `Clearing`, `Holding`, `Contesting`, `GuardingSupply`, `Retreating`, `Broken`, `WaitingOnForce`. |
 | `strengthPpt` | `int16` | 0–1000. |
 | `supplyState` | `enum` | `InSupply`, `OutOfSupply`, `OutOfSupplyPastGrace`. |
-| `positionCm` | `int32 x, y` | Task-force centroid, centimeters. |
+| `positionCm` | `int32 x, y` | Squad centroid, centimeters. |
 | `nodeId` | `int32` | Nearest road node. |
 | `inCaptureZoneTownId` | `int32` | 0 if none. |
 | `lastCombatTick` | `int32` | 0 if none. |
@@ -374,11 +398,11 @@ Orders and reports are sim data, serialized the same way player commands are. Th
 **Flow.**
 
 1. Strategy writes orders into the faction’s order table (sim state).
-2. Assigned task forces observe the table the next time they are scheduled (usually the same tick, after strategy, if this faction’s tactical slice runs later in the tick; otherwise next slice — see §7.2). Same-tick vs next-slice is a *fixed* schedule, not a race.
-3. Tactical issues player-identical commands with `commandDelayTicks` (shared with the player, plus difficulty reaction extra). Capture happens because units occupy the zone, not because the AI issues a special “claim” command.
-4. Reports are appended to a per-faction ring buffer, consumed on the next plan tick and on listed events (`CaptureStarted`, `CapturePaused`, `TownOwnerChanged`, `TaskForceBroken`, `NeedReinforce`, `SupplyStateChanged`, `BridgeDestroyed`).
+2. Assigned squads observe the table the next time they are scheduled (usually the same tick, after strategy, if this faction’s tactical slice runs later in the tick; otherwise next slice — see §7.2). Same-tick vs next-slice is a *fixed* schedule, not a race.
+3. Tactical issues player-identical commands into the **same command queue**. Each command is stamped `executeTick = issuedTick + commandDelayTicks` (match-setup constant; default 2 in SP). Difficulty may add `ReactionExtraTicks` to that delay for Easy/Normal/Hard. Capture happens because the squad occupies the zone, not because the AI issues a special “claim” command. `CanIssue` is advisory; a command can still reject at `executeTick` (`CommandRejected`).
+4. Reports are appended to a per-faction ring buffer, consumed on the next plan tick and on listed events (`CaptureStarted`, `CapturePaused`, `TownOwnerChanged`, `SquadBroken`, `NeedReinforce`, `SupplyStateChanged`, `BridgeDestroyed`).
 
-The player never sees `StrategicOrder` / `TaskForceReport`. They see battalions move, timers pause, and towns change hands.
+The player never sees `StrategicOrder` / `SquadReport`. They see battalions move, timers pause, and towns change hands.
 
 ---
 
@@ -388,9 +412,11 @@ Maps are not handmade. The AI cannot be given designer ink. It needs a **stable,
 
 ### 3.1 Map pipeline contract (match-static)
 
-Pipeline bakes one blob (or a small set of blobs) that the sim loads at match start. The AI reads it read-only. If a field cannot be produced yet, the pipeline still reserves the field and fills a documented default so the AI does not branch on “data missing.”
+Pipeline bakes one blob (or a small set of blobs) that the sim loads at match start. Map and AI blobs use a **custom versioned little-endian binary** format. Arrays are stored pre-sorted by id. Load must not rebuild a `HashSet`/`Dictionary` iteration order. The AI reads the blob read-only. If a field cannot be produced yet, the pipeline still reserves the field and fills a documented default so the AI does not branch on “data missing.”
 
-Ids are dense `int32` starting at 1. Arrays that the AI iterates are stored pre-sorted by id.
+A **frozen golden 100×100** blob is required for per-PR CI (§8). Do not churn that file.
+
+Ids are dense `int32` starting at 1.
 
 #### Towns
 
@@ -545,7 +571,7 @@ Enemy units the faction cannot see do not write into Threat as truth; they write
 
 **Stamps (integer, saturating).**
 
-- Friendly task force at cell: add `strengthPpt * InfluenceStampMul / 1000`, then spread Chebyshev radius `InfluenceRadiusCells` (placeholder **2**) with linear falloff in ppt.
+- Friendly squad at cell: add `strengthPpt * InfluenceStampMul / 1000`, then spread Chebyshev radius `InfluenceRadiusCells` (placeholder **2**) with linear falloff in ppt.
 - Observed enemy unit: same into Threat.
 - Owned or snapshotted town: add `town.strategicValue` into Value, plus `anchorBonus`, plus `fortificationLevel * FortValueMul` (from snapshot if fogged).
 - Capture zone currently ticking (visible): add `captureProgressPpt` into Value for both the attacker’s finish-hold and the defender’s contest.
@@ -559,7 +585,7 @@ Each sim event dirties an AABB in cell space:
 
 | Event | Dirty region |
 | --- | --- |
-| Task force moved to a new cell | Old cell ∪ new cell, expanded by `InfluenceRadiusCells` |
+| Squad moved to a new cell | Old cell ∪ new cell, expanded by `InfluenceRadiusCells` |
 | Combat start/end | Combat cell + radius |
 | Town owner / fortification / capture progress change | Town cell + `TownDirtyRadius` (placeholder **3**) |
 | Bridge destroyed / repaired, node held/released | Node cell + adjacent edge cells |
@@ -584,25 +610,25 @@ Value map additionally refreshes on plan ticks for cells that overlap active ord
 
 All AI logic runs inside the lockstep **simulation tick**. Presentation, animation, audio, and UI may not feed a single bit back into AI.
 
-If this section conflicts with a convenience in Unity, this section wins.
+The core sim is **pure C# with no `UnityEngine`**. Launch runs a **fixed-step sim on the main thread**; a dedicated sim thread comes later. The AI stays inside `AiOnTick` either way. If this section conflicts with a convenience in Unity, this section wins.
 
 ### 4.1 Hard rules
 
 | Rule | Requirement |
 | --- | --- |
-| Tick-only | AI runs in `SimTick(tick)`, never in `Update` / `FixedUpdate` / jobs that read presentation. |
+| Tick | **20 Hz (50 ms)**, locked. Time is `tick` and `tick * 50 ms`. No `Time.deltaTime`. |
+| Tick-only | AI runs in `AiOnTick(tick)`, never in `Update` / `FixedUpdate` / jobs that read presentation. |
 | No wall-clock | No `DateTime`, `Stopwatch`, `Time.realtimeSinceStartup`, frame index, or “we’re running late so skip.” |
-| No `Time.deltaTime` | Time is `tick` and `tick * TickDurationMs` (constant). |
-| No Unity physics | No `Raycast`, `Overlap`, `NavMesh.CalculatePath`, `Rigidbody` reads. Sim provides integer queries, including vision/LoS. |
-| Integer math | Decision code uses `int8`/`int16`/`int32`/`int64` only. No `float`/`double`/`Vector3` in scoring, path cost, supply, or PRNG. |
-| Seeded PRNG | Per-faction streams; never `UnityEngine.Random` or `System.Random` without an explicit sim seed. |
-| Stable iteration | No `foreach` on `Dictionary` / `HashSet`. Iterate arrays, or copy keys and sort by id. |
-| Time-slicing | Expensive work is sliced on a schedule that is a pure function of `tick` and `factionId` (§7.2). A slice that hits the work cap **defers** remainder; it does not “do less because the frame was heavy.” |
-| Commands | AI issues orders through the **same command interface** as the player, including command delay. |
+| No Unity | Core has no `UnityEngine`. No `Raycast`, `Overlap`, `NavMesh.CalculatePath`, `Rigidbody` reads. Sim provides integer queries, including vision/LoS. |
+| Numeric types | Positions: **integer cm**, `int32` per axis. Squared distances and path costs: **`int64`**. Ratios: **int ppt**. AI decision code uses those integers only — no `float`/`double`/`Vector3` in scoring, path cost, supply, or PRNG. |
+| Fixed64 | Core **Fixed64 (Q32.32)** is for **internal math only** (sqrt, movement stepping, angles). Results are always stored back as cm or ppt. **Nothing** in sim state, hashes, or events is Fixed. **Q16.16 in int32 is ruled out** (cannot cover a 200-mile map). |
+| Ids only | Across ticks the AI keeps **ids only**, never references to sim objects. Re-query by id each tick. |
+| Seeded PRNG | **PCG32**, in-repo with golden tests. Per-faction streams derived with **xxHash64**. Never `UnityEngine.Random`. |
+| Stable iteration | No `foreach` on `Dictionary` / `HashSet`. Iterate arrays, or copy keys and sort by id. Blobs load with arrays already sorted; **no hash-set rebuild on load**. |
+| Time-slicing | Expensive work is sliced on a schedule that is a pure function of `tick` and `factionId` (§7.2). A slice that hits the **work-unit cap** **defers** remainder; it does not “do less because the frame was heavy.” Wall-clock must not change behavior. |
+| Commands | AI plugs into the **foundation command queue**. Same types as the player. `executeTick = issuedTick + commandDelayTicks`. `commandDelayTicks` is a **match-setup constant** (default **2** in SP, higher in MP) and **must never be hardcoded**. |
 | Fog | World queries that return hidden entities must return “unknown” or a **snapshot**, never live truth. `FogCheat` stays `none` at all difficulties. |
-| Supply | AI reads sim supply state. It may estimate cuts from the **visible** graph (held nodes, destroyed bridges) but must not recompute a private float supply model. |
-
-Fixed-point (`Q16.16`) is acceptable if the core sim standardizes on it. This doc’s default is **integer centimeters + parts-per-thousand** so that scoring stays obvious in debug dumps. Pick one match-wide; do not mix.
+| Supply | AI reads sim supply state. It may estimate cuts from the **visible** graph but must not recompute a private float supply model. |
 
 Supply itself is a **sim** system: fixed-tick integer BFS/Dijkstra on the road graph from depots/HQ, snap ≤ `SupplySnapCm` off-road. The AI is a consumer.
 
@@ -611,19 +637,21 @@ Supply itself is a **sim** system: fixed-tick integer BFS/Dijkstra on the road g
 ```
 matchSeed        : uint64     // from match setup
 factionStream    : uint64     = hash64(matchSeed, factionId, STREAM_AI_ROOT)
-strategyRng      : stream     = hash64(factionStream, STREAM_STRATEGY)
-tacticalRng      : stream     = hash64(factionStream, STREAM_TACTICAL)
-mistakeRng       : stream     = hash64(factionStream, STREAM_MISTAKE)
-scoutRng         : stream     = hash64(factionStream, STREAM_SCOUT)
+strategyRng      : PCG32      = seed from hash64(factionStream, STREAM_STRATEGY)
+tacticalRng      : PCG32      = seed from hash64(factionStream, STREAM_TACTICAL)
+mistakeRng       : PCG32      = seed from hash64(factionStream, STREAM_MISTAKE)
+scoutRng         : PCG32      = seed from hash64(factionStream, STREAM_SCOUT)
 ```
 
-Use a deterministic generator with a small, portable state (recommendation: PCG32 or xoshiro128++, integer output only). `hash64` must be specified in code as a named function with a golden test.
+`hash64` means **xxHash64** over the listed fields. PCG32 and xxHash64 live in the repo with golden tests.
 
 Draws happen at defined points (goal tie-break jitter, mistake rolls, scout target among equals). Do not draw “to make the path look organic” on visual-only systems from these streams.
 
 ### 4.3 Simulation hooks the AI needs
 
-These are the seams for the lead engineer to accept, rename, or reject. Names are proposed. All queries are **pure reads** of sim state as of the start of the current tick (plus events already applied this tick, in documented order).
+Hook **behavior is decided** ([Lead engineer decisions](#lead-engineer-decisions)). Names may still be bikeshed. All queries are **pure reads** of sim state as of the start of the current tick (plus events already applied this tick, in documented order). The AI stores **ids**, not object references, across ticks.
+
+The foundation PR owns the command queue. The AI enqueues onto it; it does not invent a second pipe.
 
 #### World queries (fog-filtered unless noted)
 
@@ -632,26 +660,27 @@ These are the seams for the lead engineer to accept, rename, or reject. Names ar
 | `GetTown(id)` | `TownState` (owner, fortification, garrison ppt, capture progress ticks, paused flag, isAnchor, zone radius) | Never-seen: `Unknown` + empty. Explored: last-seen snapshot fields if not currently visible |
 | `GetTerritory(id)` | Owner if all anchors known-held; else `Unknown`/`Contested` | Based on visible/snapshot anchors only |
 | `GetCaptureZone(townId)` | Occupying combat faction ids, timer ticks, paused, slow mul | Own: always. Enemy: only if zone currently seen |
-| `GetUnit(id)` | Position, strength, type (battalion/convoy/recon), supply state, task force | Own: always. Enemy: only if currently visible |
-| `GetTaskForce(id)` | Position, strength, status, order, supply | Own: always. Enemy: only if currently visible |
-| `EnumerateOwnTaskForces(factionId)` | Sorted ids | Own |
-| `EnumerateVisibleEnemyUnits(factionId)` | Sorted ids | Visible only |
+| `GetUnit(id)` | Position, strength, type, supply, parent `squadId` | Own: always. Enemy: visible only. **Read-only intel** — never a command target |
+| `GetSquad(id)` | Position, strength, status, order, supply | Own: always. Enemy: only if currently visible |
+| `EnumerateOwnSquads(factionId)` | Sorted ids | Own |
+| `EnumerateVisibleEnemySquads(factionId)` | Sorted ids | Visible only |
+| `EnumerateVisibleEnemyUnits(factionId)` | Sorted ids | Visible only; intel composition, not orders |
 | `GetEconomy(factionId)` | Resources, income (already includes `EconomyBonusPpt` if Brutal), upkeep, queues | Own only |
 | `GetBuildCatalog()` | Tagged buildings (static) | Public |
-| `CanIssue(command)` | `bool` + reject reason | Legality as player |
+| `CanIssue(command)` | `bool` + reject reason | **Advisory only.** Authoritative validation is at `executeTick` and can still reject (`CommandRejected`) |
 | `GetVisionDelta(factionId)` | Sorted cell indices gained/lost this tick | Own |
 | `EnumerateVisibleCells` / building vision | Current vision set | Own; **not** all owned territory |
 | `SampleElevation(cell)` | `ElevationCell` | Static, public |
 | `GetRoadGraph()` | Read-only view of pipeline blob | Static, public |
 | `GetGraphVersion()` | `int32` (bridges destroyed/repaired, surface changes) | Public |
-| `PathOnRoads(fromNode, toNode, costWeights)` | Node list + total cost **or** unreachable | Static graph; weights may include fog-filtered threat and **visible** held nodes |
-| `EstimateTravelTicks(from, to, costWeights)` | `int32` | Same |
+| `PathOnRoads(fromNode, toNode, costWeights)` | Node list + `int64` total cost **or** unreachable | Sim-owned A\*. `costWeights` are **integer ppt**. Threat/held-node samples must be fog-filtered |
+| `EstimateTravelTicks(from, to, costWeights)` | `int32` | Same service |
 | `GetChokepoints()` | Read-only | Static, public |
 | `GetAdjacency(territoryId)` | Neighbor ids | Static, public |
 | `GetAnchors(territoryId)` | Sorted anchor town ids | Static, public |
-| `HashWorldSlice(factionId)` | `uint64` for tests | Own known state |
+| `HashWorldSlice(factionId)` | `uint64` (**xxHash64**) | Own known state |
 
-`PathOnRoads` is a sim service, not an AI-private cache of floats. Both player UI path preview and AI must be able to call it; only AI is required to at launch.
+`PathOnRoads` and `EstimateTravelTicks` are **core sim services**. The sim owns road A\*, the `PathRequestsPerTick` cap, and the unreachable cache keyed on `(from, to, weightKey, graphVersion)`. Player UI path preview may call the same service; the AI must. `costWeights` are integer ppt. Path costs in the result are `int64`.
 
 #### Supply queries (sim-owned, integer, fog-filtered)
 
@@ -659,7 +688,7 @@ Supply is recomputed by the sim on a fixed tick (placeholder: every **10** ticks
 
 | Hook | Returns | Fog |
 | --- | --- | --- |
-| `GetSupplyState(unitId)` | `InSupply` / `OutOfSupply` + `graceTicksRemaining` | Own: always. Enemy: only if that unit is visible |
+| `GetSupplyState(squadId)` | `InSupply` / `OutOfSupply` + `graceTicksRemaining` | Own: always. Enemy: only if that squad is visible |
 | `GetDepots(factionId)` | Sorted depot/HQ node ids | Own: always. Enemy: only explored snapshots |
 | `HasSupplyPath(fromNode, factionId)` | `bool` + next hop | Own graph with **known** cuts (enemy-held nodes we see, destroyed bridges) |
 | `GetNodeHolder(nodeId)` | Faction id or 0 | If the node is visible; else Unknown |
@@ -670,19 +699,24 @@ Supply is recomputed by the sim on a fixed tick (placeholder: every **10** ticks
 
 | Command | Payload (conceptual) |
 | --- | --- |
-| `CmdMove` | taskForceId or unitId, nodeId or positionCm, posture |
-| `CmdAttackMove` | taskForceId, targetId or cell (into a capture zone to Clear) |
-| `CmdHold` | taskForceId, nodeId or town capture zone (Hold / Contest) |
-| `CmdSetStance` | taskForceId, stance (column, deployed, last stand, destroy-bridge intent) |
+| `CmdMove` | **squadId**, nodeId or positionCm, posture |
+| `CmdAttackMove` | **squadId**, targetId or cell (into a capture zone to Clear) |
+| `CmdHold` | **squadId**, nodeId or town capture zone (Hold / Contest) |
+| `CmdSetStance` | **squadId**, stance (column, deployed, last stand, destroy-bridge intent) |
+| `CmdFormSquad` | unitIds (sorted) — player/AI grouping; sim assigns the new squad id |
+| `CmdSplitSquad` | squadId, unitIds to split off |
+| `CmdMergeSquads` | squadIdA, squadIdB |
 | `CmdDestroyBridge` | bridgeId (if the player can; reject if not destroyable) |
 | `CmdProduce` | buildingId, unitType, count |
 | `CmdBuild` | catalogId, townId or cell |
 | `CmdFortify` | townId (slows future capture; does not block) |
 | `CmdCancel` | commandId or production slot |
 
-There is **no** `CmdClaimTown`. Capture is a sim process driven by combat occupancy of the zone.
+There is **no** `CmdClaimTown`. Capture is a sim process driven by combat occupancy of the zone. There is **no** command that takes a unit id as the mover; units move because their **squad** was ordered.
 
-Every command carries `issuedTick`, `issuer` (`Player` or `AiFactionId`), and is subject to `commandDelayTicks`. Illegal commands are rejected with a reason; the AI must handle reject (report `failReason`), not retry in a tight loop. Reinforce commands against `OutOfSupplyPastGrace` units must reject.
+Every command carries `issuedTick`, `executeTick` (`issuedTick + commandDelayTicks`, plus AI `ReactionExtraTicks` when difficulty says so), `issuerId` (`Player` or `AiFactionId`), and a **sequence** number. They enter the **same queue** as player commands. Dispatch order is `(executeTick, issuerId, sequence)`.
+
+`CanIssue` is **advisory**. Authoritative validation happens at `executeTick` and can still reject. The AI **must** handle `CommandRejected` (report `failReason`), not retry in a tight loop, and not assume `CanIssue == true` means the command will land. Reinforce commands against `OutOfSupplyPastGrace` squads must reject at execute.
 
 #### Events (consumed in `eventId` order)
 
@@ -691,8 +725,8 @@ Every command carries `issuedTick`, `issuer` (`Player` or `AiFactionId`), and is
 | `TownOwnerChanged` | Dirty value map; interrupt plans; Counterattack; re-score remaining anchors. |
 | `CaptureStarted` / `CapturePaused` / `CaptureResumed` | Contest vs finish-hold; defense priority. |
 | `TownFortificationChanged` | Capture slow mul and spend. |
-| `UnitSpotted` / `UnitLostSight` | Threat + confidence. Lost sight of a **structure** writes/keeps a snapshot. |
-| `TaskForceBroken` / `UnitDestroyed` | Force allocation, Recover. |
+| `SquadSpotted` / `SquadLostSight` | Threat + confidence. Lost sight of a **structure** writes/keeps a snapshot. |
+| `SquadBroken` / `SquadDestroyed` | Force allocation, Recover. |
 | `NeedReinforce` | Same-tick or next-slice reinforce (§2.2); ignored if OOS past grace. |
 | `CombatStarted` / `CombatEnded` | Dirty threat; retreat checks. |
 | `NodeHolderChanged` | Supply cut/restore; route refresh. |
@@ -702,17 +736,17 @@ Every command carries `issuedTick`, `issuer` (`Player` or `AiFactionId`), and is
 | `ProductionCompleted` | Strength available. |
 | `MatchEnded` | Stop scheduling work. |
 
-Event payloads include ids and ticks only, no floats.
+Event payloads include ids and ticks only — **cm and ppt, never Fixed**.
 
 #### Lifecycle
 
 | Hook | When |
 | --- | --- |
 | `AiMatchInit(matchSeed, mapBlob, factionIds, difficulty, personalityId)` | Once, before tick 0. |
-| `AiOnTick(tick)` | Every sim tick, after world step (including supply recompute if this is a supply tick), before command dispatch for `tick + delay`. |
+| `AiOnTick(tick)` | Every sim tick, **after the world step** (including supply recompute if this is a supply tick) and **before dispatch**. AI commands enqueue on the same queue as the player. |
 | `AiMatchShutdown()` | Tests / teardown. |
 
-`AiOnTick` must be a single deterministic call stack. No async, no threads that write sim state. Worker threads are allowed later **only** if they compute a pure function of a copied snapshot and the write-back is applied in id order on the sim thread — not needed for launch; do not start there.
+`AiOnTick` is a single deterministic call stack on the sim thread (main thread at launch). No async. No retained references to sim objects after return — **ids only**. A dedicated sim thread later does not change this: the AI still runs inside the tick, after world step, before dispatch.
 
 ---
 
@@ -745,7 +779,7 @@ All values except the meaning of Brutal `EconomyBonusPpt` = 100 are **placeholde
 
 ### 5.1 What the knobs mean
 
-**Reaction extra ticks.** Added to the shared player `commandDelayTicks` for AI-issued commands only. Easy is visibly sluggish; Brutal matches the player’s delay.
+**Reaction extra ticks.** Added **on top of** the match-setup `commandDelayTicks` (default 2 in SP; never hardcoded) for AI-issued commands only: `executeTick = issuedTick + commandDelayTicks + ReactionExtraTicks`. Easy is visibly sluggish; Brutal’s extra is 0, so it matches the player delay.
 
 **Planning cadence.** How often posture and goals refresh. Slow cadence is a weaker opponent, not a performance cheat: Easy still uses the same time-slice budget.
 
@@ -755,7 +789,7 @@ All values except the meaning of Brutal `EconomyBonusPpt` = 100 are **placeholde
 
 **Economy bonus.** Brutal’s **+10% income** (`EconomyBonusPpt = 100`) is the only numeric cheat at launch. Surface it in the difficulty blurb. Hard wins by better cadence, supply play, capture contest, memory, and fewer mistakes.
 
-**Micro quality (0–3).** Operational quality of task-force play, not soldier micro:
+**Micro quality (0–3).** Operational quality of squad play, not soldier micro:
 
 | Level | Behavior |
 | --- | --- |
@@ -769,7 +803,7 @@ All values except the meaning of Brutal `EconomyBonusPpt` = 100 are **placeholde
 - With 50% (next bit): swap the top-scoring candidate with the 2nd or 3rd (if present) before selection.
 - Else: delay this faction’s tactical slice by one extra scheduled slot (still deterministic: skip this slice, run a catch-up slot that is already in the schedule table — do not use wall-clock).
 
-Retreat mistakes: if `d2 < MistakeRatePpt / 2`, Easy/Normal may ignore a single retreat check (the task force rolls again next tactical tick). Brutal almost never does.
+Retreat mistakes: if `d2 < MistakeRatePpt / 2`, Easy/Normal may ignore a single retreat check (the squad rolls again next tactical tick). Brutal almost never does.
 
 ---
 
@@ -841,23 +875,24 @@ When design names real factions, add a mapping table `FactionId → archetypeId`
 
 ## 7. Performance budget
 
-Target hardware: the Steam playable spec (TBD by engineering). Until that spec exists, budget as if **several AI factions** (placeholder **6 AI + 1 player**) on a **200×200 mile** map at **20 Hz** sim (50 ms/tick).
+Tick is **20 Hz**. Targets below are **accepted**. The wall-clock **ship gate waits for a vertical slice**. Until then, **`AiWorkUnitsPerTick` alone governs AI behavior** — a slow machine must not change decisions.
+
+Budget as if **several AI factions** (placeholder **6 AI + 1 player**) on a **200×200 mile** map. Headless speed **goal** (not a commitment): **≥ 50× realtime** on the golden 100×100 with 2 AIs.
 
 ### 7.1 Budget
 
 | Item | Budget |
 | --- | --- |
-| Sim tick wall time, all systems | 8 ms average on target CPU (headroom for render on the main thread if Unity is not fully decoupled yet) |
-| **All AI factions combined** | **1.5 ms average** per tick, **2.5 ms** rare spike |
-| Deterministic work cap | `AiWorkUnitsPerTick` = **50,000** (placeholder; 1 unit ≈ 1 coarse cell update or equivalent) |
+| Sim tick, all systems | **8 ms** average on target CPU (accepted target) |
+| **All AI factions combined** | **1.5 ms** average per tick (accepted target) |
+| Deterministic work cap | `AiWorkUnitsPerTick` = **50,000** (placeholder magnitude; this cap, not wall-clock, changes what the AI does when over budget — it defers) |
 | Coarse grid | 200 × 200 = **40,000** cells; 100 × 100 = 10,000 |
-| Task forces per AI faction | Soft cap **48**; excess merge into existing task forces |
+| Squads per AI faction | Soft cap **48**; excess merge via `CmdMergeSquads` |
 | Active orders per AI faction | `MaxActiveOrders` (difficulty) |
 | Road graph | Assume ≤ **8,000** nodes / **12,000** edges on 200×200; if the pipeline exceeds this, it must LOD the graph |
+| Path requests | `PathRequestsPerTick` = **8**, enforced **inside the sim `PathOnRoads` service** |
 
 Supply BFS is **sim** cost, not AI cost, but it must stay integer and fixed-tick so AI reads are cheap.
-
-The work cap is the **real** constraint. Wall-clock milliseconds are a ship gate measured in headless benches; they must not change AI behavior when the machine is slow.
 
 ### 7.2 Time-slicing schedule
 
@@ -869,24 +904,25 @@ phase = tick % 8
 0: influence/threat/confidence dirty drain — factions 0,1
 1: influence/threat/confidence dirty drain — factions 2,3
 2: influence/threat/confidence dirty drain — factions 4,5
-3: tactical task forces — factions whose id % 3 == 0
-4: tactical task forces — factions whose id % 3 == 1
-5: tactical task forces — factions whose id % 3 == 2
+3: tactical squads — factions whose id % 3 == 0
+4: tactical squads — factions whose id % 3 == 1
+5: tactical squads — factions whose id % 3 == 2
 6: strategic plan — at most one faction (see below); leftover units go to overflow dirty drain
-7: path requests / route refreshes queued by tactical (cap PathRequestsPerTick)
+7: path requests / route refreshes queued by tactical (cap PathRequestsPerTick in the sim service)
 ```
 
 Strategic plans already fire only when `planThisTick(faction)` is true. If two factions collide on phase 6, run the lower `factionId` this tick and the next the following tick (deterministic defer). Never run two full strategic plans in one tick on 200×200.
 
-Each subsystem stops when `workUnits` hits the cap and resumes at the next assigned slot, iterating from the **next id** (cell index, task-force id, candidate index), which is stored in sim state.
+Each subsystem stops when `workUnits` hits the cap and resumes at the next assigned slot, iterating from the **next id** (cell index, squad id, candidate index), which is stored in sim state as ids.
 
-**Path requests.** A\* on the road graph is the expensive unpredictable item. Cap `PathRequestsPerTick` = **8** match-wide. Task forces keep their last path until the new one commits. Unreachable results are cached per `(from, to, weightKey, graphVersion)` until `graphVersion` changes (held nodes, destroyed bridges, town control of edges).
+**Path requests.** A\* is sim-owned. The AI calls `PathOnRoads`; the service applies `PathRequestsPerTick` = **8** match-wide and caches unreachables at `(from, to, weightKey, graphVersion)`. Squads keep their last path until the new one commits. `graphVersion` bumps on held nodes, destroyed bridges, and town control of edges. `costWeights` are integer ppt; path cost is `int64`.
 
 ### 7.3 What we will not do for speed
 
 - Drop a faction’s plan because the frame was slow.
 - Use a coarser grid on low settings (that would desync later replays / MP).
 - Sample Unity profiler counters to change AI.
+- Let wall-clock measurements change `AiWorkUnitsPerTick` or the schedule.
 
 Quality settings may disable **debug overlays**. They may not change `AiWorkUnitsPerTick` or the schedule.
 
@@ -894,37 +930,45 @@ Quality settings may disable **debug overlays**. They may not change `AiWorkUnit
 
 ## 8. Testing and tuning
 
+The core is pure C# (`no UnityEngine`). Headless runs via **`dotnet test`** or a **console host** in GitHub Actions.
+
 ### 8.1 Headless AI-vs-AI
 
-A playerless sim target (`wasteland-rts.Sim.Headless` or equivalent) loads a baked map blob, N AI factions, a seed, a tick limit, and writes:
+A playerless sim host loads a baked map blob, N AI factions, a seed, a tick limit, and writes:
 
 - Per-town owner and capture progress over time
 - Per-territory owner (anchor-complete)
 - Per-faction resource, army strength, and in-supply fraction
 - Final score / winner
-- `HashWorld` every `HashPeriodTicks` (placeholder **200**)
+- `HashWorld` (**xxHash64**) every `HashPeriodTicks` (**200**)
 
-Use this as the daily soak: overnight 1,000 matches across seeds × difficulty × personality. Fail the soak on crash, deadlock, or hash mismatch — not on “AI played poorly.”
+**Per-PR CI (locked):** frozen golden **100×100** map, **2 AI** factions, **12,000 ticks** (10 game minutes), run **twice** with the same seed, assert identical hashes every 200 ticks, finish in **under 5 minutes**.
 
-Poor play is a dashboard: win rate vs a baseline personality, time-to-first-anchor, capture-hold success, contest-pause rate, OOS-assault rate, idle-task-force fraction. Design reads the dashboard; engineering owns the harness.
+**Nightly soak:** start at about **200** matches; grow toward **1,000** once there are perf numbers. Fail the soak on crash, deadlock, or hash mismatch — not on “AI played poorly.”
+
+**Later, before multiplayer:** Windows-vs-Linux hash-stream cross-check.
+
+**Headless speed goal (not a commitment):** ≥ **50× realtime** on 100×100 with 2 AIs.
+
+Poor play is a dashboard: win rate vs a baseline personality, time-to-first-anchor, capture-hold success, contest-pause rate, OOS-assault rate, idle-squad fraction. Design reads the dashboard; engineering owns the harness.
 
 ### 8.2 Determinism check
 
 ```
-run A: seed S, inputs I, ticks T → hashes H[]
+run A: seed S, inputs I, ticks T → hashes H[]   // xxHash64 every 200 ticks
 run B: seed S, inputs I, ticks T → hashes H[]
 assert H identical
 ```
 
-Inputs `I` for AI-vs-AI are empty (no player commands). Later, a recorded player command stream becomes the replay test.
+Inputs `I` for AI-vs-AI are empty (no player commands). Later, a recorded player command stream becomes the replay test. Hashes cover sim state only: **cm and ppt, never Fixed**.
 
 **Must-fail tests (once the harness exists):**
 
-- Iterating a `HashSet` of task-force ids in hash order (guardrail: a debug build shuffles hash seeds — if anyone slipped a forbidden iterate, hashes diverge).
-- Using `float` in a scoring function (CI: analzyer or a unit test that the scorer is integer-only).
+- Iterating a `HashSet` of squad ids in hash order (guardrail: a debug build shuffles hash seeds — if anyone slipped a forbidden iterate, hashes diverge).
+- Using `float` or storing Fixed64 in scoring / events / hash inputs.
 - Wall-clock slice: force the thread to sleep in a test double of the host; hashes must not change.
 
-Hash includes: town owners, capture ticks, resources, unit positions (cm), supply states, order tables, PRNG states, derived-map cell values, structure snapshots. It does not include Unity transforms or debug names.
+Hash includes: town owners, capture ticks, resources, squad positions (cm), supply states, order tables, PRNG states, derived-map cell values, structure snapshots. It does not include Unity transforms, debug names, or Fixed64 scratch.
 
 ### 8.3 Debug visualizations
 
@@ -937,11 +981,11 @@ Editor / development build only. Overlay is presentation; it reads a **copy** of
 | Value | Same (anchors, bridges, ticking zones) |
 | Confidence | Fog memory; **not** owned-territory fill |
 | Snapshots | Last-seen enemy structures |
-| Supply | In-supply vs OOS units; cut nodes; destroyed bridges |
+| Supply | In-supply vs OOS squads; cut nodes; destroyed bridges |
 | Capture | Zone occupancy, timer, paused |
-| Goals | Current accepted orders: type, target, score, assigned task forces |
+| Goals | Current accepted orders: type, target, score, assigned squads |
 | Posture | Faction label + posture + time in posture |
-| Routes | Road-graph polylines for active task forces |
+| Routes | Road-graph polylines for active squads |
 | Dirty AABBs | This-tick influence dirty rects |
 | Work | Work units spent vs cap, per phase |
 
@@ -964,18 +1008,13 @@ Still open:
 
 ### 9.2 Lead engineer
 
-1. Confirm sim tick rate (this doc assumes **20 Hz**) and `commandDelayTicks` shared with the player.
-2. Confirm integer convention: centimeters + ppt vs a shared `Fixed` type.
-3. Who owns road A\*: a sim `PathOnRoads` service (proposed) or an AI module reading a readonly graph? Preference is sim-owned so player UI can share it.
-4. Command interface: is there already a player command queue to plug into, or does this doc define the first one?
-5. Entity model: are squads first-class sim objects, or aggregations of units the AI must not micromanage?
-6. Threading: Unity main thread vs a dedicated sim thread? AI must sit on the sim thread either way.
-7. Serialization of map AI blob: custom binary, MessagePack, ScriptableObject? Needs deterministic load (no hash-set rebuild).
-8. Hash function for `HashWorldSlice` and PRNG `hash64` — pick one library and golden-test it.
-9. Headless target: can we run the sim without a GameObject scene in CI?
-10. Budget: is 1.5 ms AI / 8 ms sim on target CPU realistic once terrain streaming exists, or should AI’s wall-clock gate wait until a vertical slice exists?
+All previous items are **decided**. See [Lead engineer decisions](#lead-engineer-decisions). Nothing remains open in this section.
 
 ### 9.3 Map pipeline engineer
+
+**Required for CI (lead-engineer decision):** a **frozen golden 100×100** map blob is required for the per-PR determinism test (2 AI factions, 12,000 ticks, hash every 200 ticks). Schema versioning (Q7) must keep that file stable. Format: custom versioned little-endian binary, arrays sorted by id, no hash-set rebuild on load.
+
+Still open:
 
 1. Can chokepoints be extracted reliably from OSM/terrain (narrow corridors, passes, river crossings), and what is the false-positive rate we should tolerate?
 2. `strategicValue` 0–1000: which inputs (population, road degree, land cover, named places)? Who signs off on the formula?
@@ -996,13 +1035,13 @@ No Unity scaffolding in this PR. Milestones assume the sim and map blob exist or
 
 | Milestone | Deliverable | Exit |
 | --- | --- | --- |
-| **M0 — Seams** | `AiMatchInit` / `AiOnTick` stubs, command + query interfaces as no-ops, PRNG seeded, empty order/report tables. | Determinism check on empty match (hash stable over 10k ticks). |
-| **M1 — Map ingest + derived maps** | Load schema v1 blob (anchors, capture radii, ridge hints); influence/threat/value/confidence; snapshots; debug grid overlay. | Overlay matches stamped task forces; reconcile at T+2400 equals a from-scratch rebuild (hash). |
-| **M2 — Strategy** | Posture, candidate generation (including Contest/HoldCapture/CutSupply/GuardSupply), utility selection, spend envelope, anchor-set scoring. | In AI-vs-AI on a small 100×100 blob, factions issue `ClaimTown` / `Fortify` / `Assault` / `CutSupply` with stable hashes. |
-| **M3 — Tactical movement** | Task forces follow road A\* that respects supply cuts; column vs deployed; reports flow back; command delay applied. | A task force given `AssaultTown` reaches staging via **supplied** roads, not crow-flies; held-node / destroyed-bridge repath works. |
+| **M0 — Seams** | Plug into the foundation command queue. `AiMatchInit` / `AiOnTick` stubs, PCG32 + xxHash64, empty squad order tables, ids-only across ticks. | Determinism check on empty match (hash stable over 10k ticks). |
+| **M1 — Map ingest + derived maps** | Load schema v1 little-endian blob (anchors, capture radii, ridge hints); influence/threat/value/confidence; snapshots; debug grid overlay. | Overlay matches stamped squads; reconcile at T+2400 equals a from-scratch rebuild (xxHash64). |
+| **M2 — Strategy** | Posture, candidate generation (including Contest/HoldCapture/CutSupply/GuardSupply), utility selection, spend envelope, anchor-set scoring. | In AI-vs-AI on the golden 100×100 blob, factions issue `HoldCaptureZone` / `Fortify` / `AssaultTown` / `CutSupply` with stable hashes. |
+| **M3 — Tactical movement** | Squads call sim `PathOnRoads` (ppt weights, `int64` cost); column vs deployed; reports flow back; `executeTick = issuedTick + commandDelayTicks`. | A squad given `AssaultTown` reaches staging via **supplied** roads, not crow-flies; held-node / destroyed-bridge repath works. |
 | **M4 — Capture, supply, reinforce, retreat** | Clear/hold/contest phases; isolate by cutting nodes/bridges; contest pauses timers; OOS blocks reinforce after grace. | Fixtures: zone-clear starts timer; enemy combat unit pauses it; multi-anchor territory flips only when all anchors held; OOS past grace cannot reinforce. |
 | **M5 — Difficulty + personality** | Parameter tables as data; Easy/Normal/Hard/Brutal; three archetypes; `EconomyBonusPpt` as the sole numeric cheat. | Same seed, different difficulty → different hashes (expected) but each pair of reruns matches; Brutal income +10% visible in economy log; vision queries never return fogged live enemies. |
-| **M6 — Harness** | Headless AI-vs-AI, hash every 200 ticks, soak script, mistake-rate rolls logged. | CI: 20 seeds × 2 personalities, 5 min matches, zero desync; forbidden-iterate canary test. |
+| **M6 — Harness** | `dotnet test` / console host. Per-PR: golden 100×100, 2 AI, 12,000 ticks × 2, hash every 200 ticks. Nightly soak from ~200 matches. | CI finishes in under 5 minutes; identical hash streams; forbidden-iterate canary. |
 | **M7 — Playable opponent** | Warlord profile tuned on one frozen map; debug goal / supply / capture overlay usable by design. | Design can play a match vs Warlord/Normal and identify *why* they lost or won from the overlay. |
 
 **Suggested sequence with the rest of the project.** M0 can land against dummy queries. M1 wants one real (or synthetic) map blob. M2–M4 are the vertical slice of “AI cuts supply, takes a neighboring **anchor**, and contests the player’s timer.” M5–M7 are launch quality. Multiplayer/replay work should consume M0’s command stream unchanged.
@@ -1011,14 +1050,15 @@ No Unity scaffolding in this PR. Milestones assume the sim and map blob exist or
 
 ---
 
-## Appendix A — Default constants (placeholders)
+## Appendix A — Default constants
 
-Convenience copy of launch defaults (Normal, personality-neutral). Personality and difficulty multiply these; they are not a second source of truth.
+Locked values from lead-engineer decisions are marked **locked**. The rest are placeholders (Normal, personality-neutral). Personality and difficulty multiply the placeholders; they are not a second source of truth.
 
 | Name | Value | Unit |
 | --- | --- | --- |
-| `SimTickHz` | 20 | Hz |
-| `TickDurationMs` | 50 | ms |
+| `SimTickHz` | 20 | Hz (**locked**) |
+| `TickDurationMs` | 50 | ms (**locked**) |
+| `commandDelayTicks` | 2 in SP; higher in MP | ticks (**locked as match-setup**; never hardcoded) |
 | `CellSizeCm` | 160934 | cm (1 mile) |
 | `StrategicCadenceTicks` | 40 | ticks |
 | `FactionPlanOffsetTicks` | 3 | ticks |
@@ -1039,9 +1079,10 @@ Convenience copy of launch defaults (Normal, personality-neutral). Personality a
 | `SupplyGraceTicks` | 1200 | ticks (60 s) |
 | `SupplySnapCm` | 50000 | cm (placeholder short off-road) |
 | `SupplyRetreatGraceTicks` | 400 | ticks |
-| `AiWorkUnitsPerTick` | 50000 | units |
-| `PathRequestsPerTick` | 8 | count |
-| `HashPeriodTicks` | 200 | ticks |
+| `AiWorkUnitsPerTick` | 50000 | units (governs behavior; 1.5 ms is the wall-clock *target*) |
+| `PathRequestsPerTick` | 8 | count (enforced in sim path service) |
+| `HashPeriodTicks` | 200 | ticks (**locked** for CI) |
+| `CiMatchTicks` | 12000 | ticks (**locked** per-PR: 10 game minutes) |
 | `EconomyBonusPpt` (Brutal) | 100 | ppt (+10%) |
 | `SchemaVersion` | 1 | — |
 
@@ -1055,10 +1096,12 @@ If a programmer is tempted to “just for now” do any of the following, that c
 - Shorten build times without `BuildSpeedBonusPpt` (keep 0).
 - Add health/damage/vision bonuses on Brutal instead of raising `EconomyBonusPpt`.
 - Path through impassable slope cells or blocking rivers without a bridge.
-- Skip command delay.
+- Skip `commandDelayTicks` or hardcode it instead of reading match setup.
+- Command an individual unit instead of its squad.
 - Run strategic planning every tick “because the CPU is idle.”
 - Recompute supply with floats or a private graph that ignores fogged node holders.
+- Store Fixed64 or object references in AI state, events, or hashes.
 
 ---
 
-*End of proposed contract. Designer positions above are draft pending Garand sign-off. Next step after acceptance: M0 interfaces in the sim repo, and a schema v1 golden map blob from the pipeline.*
+*End of proposed contract. Designer positions are draft pending Garand sign-off. Lead-engineer seams above are **decisions**. Next step: M0 against the foundation command queue, and a frozen golden 100×100 map blob from the pipeline.*
