@@ -1,0 +1,23 @@
+{
+  "name": "Wasteland.Presentation.Editor",
+  "rootNamespace": "Wasteland.Presentation.Editor",
+  "references": [
+    "Wasteland.Presentation",
+    "Unity.Entities",
+    "Unity.Entities.Graphics",
+    "Unity.RenderPipelines.Core.Runtime",
+    "Unity.RenderPipelines.Universal.Runtime",
+    "Unity.RenderPipelines.Universal.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": true,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

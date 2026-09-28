@@ -1,0 +1,24 @@
+{
+  "name": "Wasteland.Prototypes.Editor",
+  "rootNamespace": "Wasteland.Prototypes.Editor",
+  "references": [
+    "Wasteland.Prototypes",
+    "Wasteland.Presentation",
+    "Wasteland.Presentation.Editor",
+    "Unity.Entities",
+    "Unity.Entities.Graphics",
+    "Unity.RenderPipelines.Universal.Runtime",
+    "Unity.RenderPipelines.Universal.Editor"
+  ],
+  "includePlatforms": [
+    "Editor"
+  ],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": false,
+  "precompiledReferences": [],
+  "autoReferenced": false,
+  "defineConstraints": [],
+  "versionDefines": [],
+  "noEngineReferences": false
+}

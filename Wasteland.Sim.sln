@@ -9,6 +9,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wasteland.Sim", "src\Wastel
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wasteland.Sim.Tests", "src\Wasteland.Sim.Tests\Wasteland.Sim.Tests.csproj", "{42DCF6F4-22A1-4610-8FDA-169B87EC438F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wasteland.Presentation.Tests", "src\Wasteland.Presentation.Tests\Wasteland.Presentation.Tests.csproj", "{8F3A21C6-9D47-4B1E-A8C0-5E6F7A9B0C1D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -26,9 +28,14 @@ Global
 		{42DCF6F4-22A1-4610-8FDA-169B87EC438F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{42DCF6F4-22A1-4610-8FDA-169B87EC438F}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{42DCF6F4-22A1-4610-8FDA-169B87EC438F}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8F3A21C6-9D47-4B1E-A8C0-5E6F7A9B0C1D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8F3A21C6-9D47-4B1E-A8C0-5E6F7A9B0C1D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8F3A21C6-9D47-4B1E-A8C0-5E6F7A9B0C1D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8F3A21C6-9D47-4B1E-A8C0-5E6F7A9B0C1D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(NestedProjects) = preSolution
 		{CC9E38F2-C8A1-4690-95A5-E3E16E832A9E} = {B812EC56-6848-44F5-B072-56B7636B67BC}
 		{42DCF6F4-22A1-4610-8FDA-169B87EC438F} = {B812EC56-6848-44F5-B072-56B7636B67BC}
+		{8F3A21C6-9D47-4B1E-A8C0-5E6F7A9B0C1D} = {B812EC56-6848-44F5-B072-56B7636B67BC}
 	EndGlobalSection
 EndGlobal
