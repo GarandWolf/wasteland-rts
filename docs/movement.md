@@ -17,7 +17,7 @@ Roads and terrain arrive as **two** WRMB files (same container; sections located
 - Terrain file: `MVSL` (uint16 per-mille slope), `MVLC` (land cover), `MVFD` (ford bits). Row 0 is south. Sim x = east, y = north, origin SW.
 - Cell size is `META.cellSizeCm`, divided by `moveCellsPerCell` when the movement grid is a subdivision of the mile grid (production maps: 18 cells/mile ≈ 89.4 m). The sim does not assume 100 m.
 
-`MovementService.Create(mapBlob, terrainBlob, tables)` loads both. Synthetic tests emit WRMB fixtures so goldens stay in CI.
+`MovementService.Create(mapBlob, terrainBlob, tables)` loads both. Synthetic tests emit WRMB fixtures for the 11×11 hill goldens. `GoldenMapTests` loads `data/golden/golden-ci-columbia-gorge-100` (Git LFS, 1800×1800, 8940 cm cells) and pins road/off-road path hashes.
 
 ## Speed
 
@@ -153,7 +153,7 @@ Re-run locally after table or heuristic changes; do not treat these numbers as a
 
 ## Hashing
 
-Each `PathResult` carries `xxHash64` over kind, cost, graph version, and every waypoint `(segmentKind, id, xCm, yCm)`. **`CommitTick` is omitted** so a sliced vs synchronous result hashes the same. Goldens freeze that hash (`truck=0x2B0B078CCC489F33`, `infantry=0x9AFC305C35AF54D4`); they are unchanged because the 11×11 hill map fits in one cluster and still uses exact A*.
+Each `PathResult` carries `xxHash64` over kind, cost, graph version, and every waypoint `(segmentKind, id, xCm, yCm)`. **`CommitTick` is omitted** so a sliced vs synchronous result hashes the same. Hill goldens freeze that hash (`truck=0x2B0B078CCC489F33`, `infantry=0x9AFC305C35AF54D4`); they are unchanged because the 11×11 hill map fits in one cluster and still uses exact A*. Columbia Gorge pins (`GoldenMapTests`) are a separate set: road wheeled `0xED55C547CFC83883`, road foot `0x6AC2AC8318785748`, off-road foot `0xAEA7ED93CEECF776`, off-road wheeled `0x327FA8A3742DE14F`.
 
 ## What this service does not do
 

@@ -12,7 +12,12 @@ namespace Wasteland.Sim.Movement
     /// </summary>
     public static class Wrmb
     {
+        /// <summary>Synthetic fixture META (no <c>fileKind</c>). The writer still emits this size.</summary>
         public const int MetaElementSize = 288;
+
+        /// <summary>Pipeline META: <c>fileKind</c> immediately after <c>schemaVersion</c>.</summary>
+        public const int PipelineMetaElementSize = 376;
+
         public const int RnodElementSize = 24;
         public const int RedgElementSize = 64;
 
@@ -32,7 +37,7 @@ namespace Wasteland.Sim.Movement
         {
             WrmbFile file = WrmbFile.Parse(mapBlob);
             WrmbDirEntry metaEntry = file.RequireSection("META");
-            CheckElementSize("META", metaEntry.ElementSize, MetaElementSize);
+            CheckMetaElementSize(metaEntry.ElementSize);
             if (metaEntry.Count < 1)
             {
                 throw new InvalidDataException("WRMB META is empty.");
@@ -217,7 +222,7 @@ namespace Wasteland.Sim.Movement
         {
             WrmbFile file = WrmbFile.Parse(terrainBlob);
             WrmbDirEntry metaEntry = file.RequireSection("META");
-            CheckElementSize("META", metaEntry.ElementSize, MetaElementSize);
+            CheckMetaElementSize(metaEntry.ElementSize);
             if (metaEntry.Count < 1)
             {
                 throw new InvalidDataException("WRMB META is empty.");
@@ -601,6 +606,16 @@ namespace Wasteland.Sim.Movement
             }
         }
 
+        internal static void CheckMetaElementSize(int actual)
+        {
+            if (actual != MetaElementSize && actual != PipelineMetaElementSize)
+            {
+                throw new InvalidDataException(
+                    "META: elementSize " + actual + " is not " + MetaElementSize
+                    + " (synthetic) or " + PipelineMetaElementSize + " (pipeline).");
+            }
+        }
+
         internal static WrmbMeta ReadMeta(byte[] record)
         {
             if (record.Length < MetaElementSize)
@@ -611,6 +626,11 @@ namespace Wasteland.Sim.Movement
             BlobReader r = new BlobReader(record);
             WrmbMeta m = new WrmbMeta();
             m.SchemaVersion = r.I32();
+            if (record.Length >= PipelineMetaElementSize)
+            {
+                r.I32();
+            }
+
             m.MapWidthCm = r.I32();
             m.MapHeightCm = r.I32();
             m.CellSizeCm = r.I32();

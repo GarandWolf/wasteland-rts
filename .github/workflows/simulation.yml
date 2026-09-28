@@ -12,6 +12,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Pull golden WRMB via Git LFS
+        run: git lfs pull --include="data/golden/*.wrmb" --exclude=""
+
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:

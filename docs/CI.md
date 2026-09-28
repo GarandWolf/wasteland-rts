@@ -2,15 +2,15 @@
 
 ## What runs now
 
-`.github/workflows/simulation.yml` restores the headless solution and runs `dotnet test Wasteland.Sim.sln` on every push and pull request. No Unity editor, no license.
+`.github/workflows/simulation.yml` restores the headless solution, pulls `data/golden/*.wrmb` through Git LFS, and runs `dotnet test Wasteland.Sim.sln` on every push and pull request. No Unity editor, no license.
 
-This is the gate for the lockstep contract: `Fixed64` internals, integer-cm state, PCG32 / xxHash64 goldens, delayed command logs, per-tick hashes, and the headless movement/pathfinding service (`dotnet test` does **not** run `src/Wasteland.Sim.Benchmarks`).
+This is the gate for the lockstep contract: `Fixed64` internals, integer-cm state, PCG32 / xxHash64 goldens, delayed command logs, per-tick hashes, and the headless movement/pathfinding service (`dotnet test` does **not** run `src/Wasteland.Sim.Benchmarks`). The Columbia Gorge WRMB pair is loaded by a pathfinding golden, so that job must materialize Git LFS.
 
 ## Golden map (WRMB)
 
-`.github/workflows/golden-map.yml` is a separate job. It does **not** run `dotnet test` and does not load the blobs into the sim. After checkout it pulls only `data/golden/*.wrmb` through Git LFS, checks the sidecar SHA-256 files, and runs `tools/map/wrmb_reader.py` on the Columbia Gorge pair.
+`.github/workflows/golden-map.yml` is a separate job. It does **not** run `dotnet test`. After checkout it pulls only `data/golden/*.wrmb` through Git LFS, checks the sidecar SHA-256 files, and runs `tools/map/wrmb_reader.py` on the Columbia Gorge pair.
 
-Keep it off `simulation.yml` so math CI stays free of LFS bandwidth. The two `.wrmb` files are ~17 MB together; every run of this workflow downloads them from Git LFS (GitHub LFS bandwidth quota). Pathfinding still uses synthetic WRMB fixtures until that work switches onto this pair.
+The two `.wrmb` files are ~17 MB together. Both workflows download them from Git LFS (GitHub LFS bandwidth quota). Keep the Python validator off `simulation.yml` so a layout-only change still fails in a cheap job.
 
 ## Headless AI-vs-AI (later)
 

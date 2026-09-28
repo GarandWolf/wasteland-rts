@@ -19,8 +19,9 @@ Coordinates: absolute integer cm, origin at the SW corner; sim x east → Unity 
 Unity +Y. Grid index = floor(coordCm × gridWidth / mapWidthCm) (cell sizes are exact rationals in the GRID section:
 1-mile grid 160934/1 cm, terrain grid 80467/9 cm). Layout: [`docs/map/wrmb-layout-v0.md`](../../docs/map/wrmb-layout-v0.md).
 
-These files are **not** loaded by the Unity client or `dotnet test` yet. Pathfinding work uses synthetic WRMB fixtures
-until it switches onto this pair.
+`dotnet test` loads this pair through `MovementService.Create` (`src/Wasteland.Sim.Tests/GoldenMapTests.cs`) and pins a
+few road/off-road path hashes. The Unity client does not load it yet. Synthetic WRMB fixtures remain for the small hill
+goldens.
 
 ## Sources (pinned in raw/inputs.lock.json)
 

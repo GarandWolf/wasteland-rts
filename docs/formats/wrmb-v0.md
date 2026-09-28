@@ -9,7 +9,7 @@ Same container, same directory rules. `MovementService.Create(mapBlob, terrainBl
 
 Single source of truth for the on-disk layout is the pipeline reader (`pipeline/wrmb_reader.py`). This document is the sim contract: what we read, how we map enums, and the integer axis.
 
-**Status:** `formatVersion` = 0, header flag bit0 `DRAFT_LAYOUT` is set. Section tags and record layouts may still change. Readers **must** find sections through the directory **by tag**, never by fixed offsets. Unknown tags are skipped. A known tag with the wrong `elementSize` is refused.
+**Status:** `formatVersion` = 0, header flag bit0 `DRAFT_LAYOUT` is set. Section tags and record layouts may still change. Readers **must** find sections through the directory **by tag**, never by fixed offsets. Unknown tags are skipped. A known tag with the wrong `elementSize` is refused, except `META`: synthetic fixtures are 288 B (no `fileKind`) and pipeline maps are 376 B (`fileKind` immediately after `schemaVersion`). Movement accepts both; the fixture writer still emits 288.
 
 WRG1 / WTG1 are gone. Synthetic tests write WRMB fixtures via `RoadGraphBuilder` / `TerrainGridBuilder`.
 
@@ -62,7 +62,7 @@ WRMB node flag `BridgeHead = 2` and edge flag `bridgeSpan = 2` map to the sim’
 
 ## Terrain (`META` + `MVSL` / `MVLC` / `MVFD`)
 
-`META.cellSizeCm` is the **mile-grid** cell when `moveCellsPerCell > 1` and `moveWidth == gridWidth * moveCellsPerCell` (same for height). The movement cell the sim uses is then `cellSizeCm / moveCellsPerCell` (integer). Columbia Gorge is 18 cells per mile ≈ 89.4 m (`160938 / 18 = 8941` cm). If `moveCellsPerCell == 1`, the movement cell **is** `cellSizeCm`. Nothing in the sim assumes 100 m.
+`META.cellSizeCm` is the **mile-grid** cell when `moveCellsPerCell > 1` and `moveWidth == gridWidth * moveCellsPerCell` (same for height). The movement cell the sim uses is then `cellSizeCm / moveCellsPerCell` (integer). The Columbia Gorge golden uses `META.cellSizeCm` = 160934 (1 mile) so the movement cell is `160934 / 18 = 8940` cm. Synthetic fixtures that author a 160938 cm mile still get 8941. If `moveCellsPerCell == 1`, the movement cell **is** `cellSizeCm`. Nothing in the sim assumes 100 m.
 
 | Tag | Layout |
 |---|---|
