@@ -5,7 +5,9 @@ Default: data/golden/ golden pair.
 Proves: (1) a v1 file without header flag bit2 V1_FINAL (stale pre-final v1) is rejected; (2) a v1 terrain file without WTRA fails;
 (3) a raw section with the wrong elementSize is rejected (WTRA must be 1); (4) a map needing more than 254 defense groups fails the
 validator (synthetic 255-group chokepoint set, and the golden file with one group id forced to 254); (5) a road node with
-territoryId 0 fails; (6) the unmodified golden pair passes. Exit 0 = all pass."""
+territoryId 0 fails; (6) the unmodified golden pair passes; (7) cliff rule: a synthetic cliff next to a blocking-river border span
+within 1 km of a bridgehead fails, one farther away passes, and the Gorge pair passes with no allow-list (11 span-adjacent cliffs).
+Exit 0 = all pass."""
 import copy, hashlib, os, struct, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
@@ -57,5 +59,29 @@ check("validator fails a map with defense group id 254", any("exceeds the limit 
 # (5) RNOD territoryId 0
 m3 = copy.deepcopy(m); m3["sections"]["RNOD"][0]["territoryId"] = 0
 check("road node with territoryId 0 fails", any("territoryId 0" in x for x in W.validate(m3)[0]))
+# (7) cliff / crossing rule
+def synth(head_x):
+    w = h = 40; lc = bytearray(w * h); sl = [0] * (w * h)
+    for y in range(h): lc[y * w + 20] = 6          # blocking river column x = 20; territory 1 west, 2 east
+    sl[10 * w + 19] = 1200                           # cliff on the west bank
+    return W.cliff_crossing_check(w, h, struct.pack(f"<{w * h}H", *sl), bytes(lc), [], [10 * w + head_x], [1, 2, 1, 2], 2, 80467, 9)
+r_near, r_far = synth(16), synth(0)
+check("synthetic cliff 3 cells (268 m) from a bridgehead fails", r_near["failing"] == [10 * 40 + 19])
+check("synthetic cliff 19 cells (1699 m) from a bridgehead passes", r_far["failing"] == [] and len(r_far["spanAdjacentCliffs"]) == 1)
+# golden pair with a cliff planted on the bank next to a Columbia bridgehead -> validate_pair reports the cliff error
+t4 = copy.deepcopy(t); Mt = t4["sections"]["META"][0]; w, E = Mt["moveWidth"], Mt["mapWidthCm"]; lc4 = t4["sections"]["MVLC"]
+hn = [n for n in m["sections"]["RNOD"] if n["flags"] & W.RNOD_FLAGS["BridgeHead"]]
+e_main = {(e["a"], e["b"]) for e in m["sections"]["REDG"] if e["flags"] & W.REDG_FLAGS["mainRiverBridge"]}
+hn = [n for n in hn if any(n["id"] in ab for ab in e_main)]
+n0 = hn[0]; c0 = min(n0["positionCm"][1] * w // E, w - 1) * w + min(n0["positionCm"][0] * w // E, w - 1)
+cand = [c0 + dy * w + dx for dy in range(-3, 4) for dx in range(-3, 4)]
+cand = [c for c in cand if lc4[c] != 6 and any(lc4[c + dy * w + dx] == 6 for dy in (-1, 0, 1) for dx in (-1, 0, 1))]
+sl4 = bytearray(t4["sections"]["MVSL"]); struct.pack_into("<H", sl4, 2 * cand[0], 1500); t4["sections"]["MVSL"] = bytes(sl4)
+e4 = W.validate_pair(m, t4, os.path.basename(MAIN), os.path.basename(TERR))[0]
+check("validator: planted cliff next to a Columbia bridgehead fails", any(x.startswith("cliff cells") for x in e4))
+cc = W.cliff_check_model(m, t)
+check("Gorge cliff rule passes (no allow-list), 11 span-adjacent cliffs", cc["failing"] == [] and len(cc["spanAdjacentCliffs"]) == 11)
+print("  Gorge: cliff cells", cc["cliffCells"], "span-adjacent", len(cc["spanAdjacentCliffs"]), "nearest crossing m",
+      min(x["nearestCrossingM"] for x in cc["spanAdjacentCliffs"]))
 print("RESULT", "PASS" if not fails else f"FAIL {fails}")
 sys.exit(1 if fails else 0)

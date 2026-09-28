@@ -160,6 +160,69 @@ def check_defense_groups(chok):
         ps = {tuple(sorted((c["sideATerritoryId"], c["sideBTerritoryId"]))) for c in groups[g]}
         if len(ps) != 1: errs.append(f"defense group {g}: members have different side pairs {sorted(ps)}")
     return errs
+# ---- cliff / crossing rule (final v1; shared by the pipeline S9 CI and validate_pair; blob-layout-v1.md s4.6)
+CLIFF_PPT = 1000               # MVSL >= this: cliff, closed to foot and wheeled units
+CLIFF_SPAN_WINDOW_CELLS = 25   # border span: MVLC-6 cell with bank cells of >= 2 territories within this Chebyshev distance
+CLIFF_MAX_CROSSING_DIST_M = 1000   # a span-adjacent cliff fails only within this straight-line distance of a bridgehead or ford
+def cliff_crossing_check(w, h, mvsl, mvlc, ford_cells, head_cells, cell_territory, grid_w, cell_num_cm, cell_den,
+                         cliff_ppt=CLIFF_PPT, span_window=CLIFF_SPAN_WINDOW_CELLS, max_dist_m=CLIFF_MAX_CROSSING_DIST_M):
+    """mvsl: u16 LE bytes (w*h); mvlc: u8 bytes; ford_cells / head_cells: iterables of movement cell indices (MVFD cells /
+    cells of BridgeHead road nodes); cell_territory: 1-mile CELX territory list (grid_w x grid_w; movement cell -> its 1-mile cell).
+    A cliff cell (MVSL >= cliff_ppt) that is inside or 8-adjacent to a blocking-river border span fails only if it lies within
+    max_dist_m (straight line between cell centres, cell size cell_num_cm / cell_den cm) of a bridgehead or ford cell.
+    Border span = MVLC-6 cells with bank cells (non-6 cells 8-adjacent to a 6 cell) of >= 2 different non-zero territories within
+    Chebyshev distance span_window. Returns {"cliffCells", "spanAdjacentCliffs": [...], "failing": [...]}"""
+    import array
+    sl = array.array("H"); sl.frombytes(mvsl)
+    if sys.byteorder != "little": sl.byteswap()
+    k = w // grid_w
+    def terr(i): return cell_territory[((i // w) // k) * grid_w + (i % w) // k]
+    def nb(i):
+        y, x = divmod(i, w)
+        for dy in (-1, 0, 1):
+            for dx in (-1, 0, 1):
+                if (dy or dx) and 0 <= y + dy < h and 0 <= x + dx < w: yield (y + dy) * w + x + dx
+    def is_bank(i): return mvlc[i] != 6 and any(mvlc[j] == 6 for j in nb(i))
+    memo = {}
+    def is_span(i):
+        if i not in memo:
+            y, x = divmod(i, w); ts = set()
+            for yy in range(max(0, y - span_window), min(h, y + span_window + 1)):
+                for xx in range(max(0, x - span_window), min(w, x + span_window + 1)):
+                    j = yy * w + xx
+                    if mvlc[j] != 6 and is_bank(j):
+                        t = terr(j)
+                        if t: ts.add(t)
+                        if len(ts) >= 2: break
+                if len(ts) >= 2: break
+            memo[i] = len(ts) >= 2
+        return memo[i]
+    cliffs = [i for i in range(w * h) if sl[i] >= cliff_ppt]
+    cross = [(c, "bridgehead") for c in sorted(set(head_cells))] + [(c, "ford") for c in sorted(set(ford_cells))]
+    cm = cell_num_cm / cell_den
+    out, fail = [], []
+    for c in cliffs:
+        zone = [c] + list(nb(c))
+        if not any(mvlc[j] == 6 and is_span(j) for j in zone): continue
+        y, x = divmod(c, w)
+        d, cc, kind = min(((((x - q % w) ** 2 + (y - q // w) ** 2) ** 0.5) * cm / 100, q, kd) for q, kd in cross) if cross else (float("inf"), -1, "")
+        r = {"cellIndex": c, "slopePpt": sl[c], "nearestCrossingM": round(d, 1), "nearestCrossing": kind, "nearestCrossingCell": cc,
+             "fails": d <= max_dist_m}
+        out.append(r)
+        if r["fails"]: fail.append(c)
+    return {"cliffPpt": cliff_ppt, "spanWindowCells": span_window, "maxCrossingDistM": max_dist_m, "cliffCells": len(cliffs),
+            "spanAdjacentCliffs": out, "failing": fail}
+def cliff_check_model(main, terrain):
+    """cliff_crossing_check on a decoded (main, terrain) pair: heads = BridgeHead RNOD cells, fords = MVFD cells, territory = CELX."""
+    M = terrain["sections"]["META"][0]; S = terrain["sections"]; w, h = M["moveWidth"], M["moveHeight"]
+    g = {x["sectionTag"]: x for x in S["GRID"]}["MVLC"]
+    fdb = S["MVFD"]; fords = [i for i in range(w * h) if fdb[i >> 3] >> (i & 7) & 1]
+    E = M["mapWidthCm"]
+    heads = [min(n["positionCm"][1] * h // E, h - 1) * w + min(n["positionCm"][0] * w // E, w - 1)
+             for n in main["sections"]["RNOD"] if n["flags"] & RNOD_FLAGS["BridgeHead"]]
+    ct = [c["territoryId"] for c in main["sections"]["CELX"]]
+    return cliff_crossing_check(w, h, S["MVSL"], S["MVLC"], fords, heads, ct, main["sections"]["META"][0]["gridWidth"],
+                                g["cellSizeNumCm"], g["cellSizeDen"])
 def water_art(model):
     """Expose the terrain file's WTRA section (None if absent, e.g. v0)."""
     b = model["sections"].get("WTRA")
@@ -428,6 +491,11 @@ def validate_pair(main, terrain, main_name, terrain_name):
     bad = [c["id"] for c in main["sections"]["CHOK"] if c["bypassMaxGradePpt"] != NO_BYPASS and c["bypassMaxGradePpt"] > mx]
     if bad: errs.append(f"CHOK bypassMaxGradePpt above max MVSL for {bad}")
     info["noBypassChokepoints"] = sum(c["bypassMaxGradePpt"] == NO_BYPASS for c in main["sections"]["CHOK"])
+    if main["header"]["formatVersion"] >= 1:   # final v1: cliff next to a blocking-river border span near a crossing
+        cc = cliff_check_model(main, terrain)
+        info["cliffCheck"] = {k: v for k, v in cc.items() if k != "spanAdjacentCliffs"} | {"spanAdjacentCliffs": len(cc["spanAdjacentCliffs"]),
+                              "nearestCrossingM": min((r["nearestCrossingM"] for r in cc["spanAdjacentCliffs"]), default=None)}
+        if cc["failing"]: errs.append(f"cliff cells (MVSL >= {CLIFF_PPT}) next to a blocking-river border span within {CLIFF_MAX_CROSSING_DIST_M} m of a bridgehead/ford: {cc['failing'][:20]}")
     return errs, info
 
 def _validate_main(model, S, M, err, info):

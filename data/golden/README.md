@@ -22,8 +22,8 @@ Same map, formatVersion 1. `DRAFT_LAYOUT` is cleared and header flag bit2 `V1_FI
 
 | File | Bytes | SHA-256 | Contents |
 |---|---:|---|---|
-| `golden-ci-columbia-gorge-100.v1.wrmb` | 606784 | `30a1c6705459ed7060405286f6a5ac1f3820d47a8a2b60bbbf56cbc31b6aebe2` | main/AI file (META.fileKind 0): towns, territories, road graph, chokepoints (incl. `bypassMaxGradePpt`, `bypassSurfaceClass`, `defenseGroupId` at offset 7, `bypassWheeledBlocked` at offset 79; record 88 B), rivers, bridges, water, minor settlements, resources, 1-mile cells; stable u64 keys on territories, bridges, chokepoints |
-| `golden-ci-columbia-gorge-100.terrain.v1.wrmb` | 19872384 | `b6636e6a754b738a4a867b00c03b87a524652ce4ff175339b609003c87266419` | terrain file (fileKind 1): 1800 × 1800 movement slope (u16 ppt), land cover (u8; v1.2: code 6 = baked blocking rivers/lakes, impassable, watertight; 5 = fordable water), OSM ford bitset, elevation (u16 dm); required `WTRA`: art-only water marks (0 land, 1 blocking, 2 fordable water, 3 ford) + ford list (cell index, OSM id), not a sim/path input and not in `terrainPayloadSha256` |
+| `golden-ci-columbia-gorge-100.v1.wrmb` | 606784 | `8474c3f404a97cdb58e6bf8f2d0c05021e69bb1e9ff82487bf1c3ef98d648164` | main/AI file (META.fileKind 0): towns, territories, road graph, chokepoints (incl. `bypassMaxGradePpt`, `bypassSurfaceClass`, `defenseGroupId` at offset 7, `bypassWheeledBlocked` at offset 79; record 88 B), rivers, bridges, water, minor settlements, resources, 1-mile cells; stable u64 keys on territories, bridges, chokepoints |
+| `golden-ci-columbia-gorge-100.terrain.v1.wrmb` | 19872384 | `8feb24e89ff11bd66444d3abf6800173f5aba11a408a7db52832242901f183d1` | terrain file (fileKind 1): 1800 × 1800 movement slope (u16 ppt), land cover (u8; v1.2: code 6 = baked blocking rivers/lakes, impassable, watertight; 5 = fordable water), OSM ford bitset, elevation (u16 dm); required `WTRA`: art-only water marks (0 land, 1 blocking, 2 fordable water, 3 ford) + ford list (cell index, OSM id), not a sim/path input and not in `terrainPayloadSha256` |
 
 Also in this folder:
 
@@ -50,6 +50,7 @@ Layout: [`docs/map/wrmb-layout-v1.md`](../../docs/map/wrmb-layout-v1.md).
 - **`RNOD.territoryId` (u16):** permanent per-node territory; 0 is invalid in final v1.
 - **`WTRA`:** required in every v1 terrain file; art-only. The sim must skip unknown tags. It is not part of `terrainPayloadSha256`.
 - **`V1_FINAL`:** a formatVersion 1 file without header flag bit2 is rejected as stale.
+- **Cliff rule:** a cliff cell (`MVSL` ≥ 1000‰) next to a blocking-river border fails only if it is within 1 km of a bridgehead or ford (`wrmb_reader.cliff_crossing_check`). There is no allow-list.
 - **Populations:** towns without a GeoNames/OSM population use the US Census 2020 P.L. 94-171 count (`Town.sourceFlags` bit4).
 - **Design override (NOT sourced data):** Welches population = 250 (`Town.sourceFlags` bit5).
 

@@ -182,10 +182,7 @@ The dominant land cover along the best bypass path of §4.1. Values use the land
   - **Columbia bridges:** every main-river bridge span links two different territories and two different ground components, and each head lies in the territory of its own bank. The same check runs on every bridge over blocking water whose heads are in different ground components.
   - **Passable-water carve-out** (front consistency): for land-adjacent pieces p in T and q in U, D_U(q) ≤ D_T(q) + w and D_T(p) ≤ D_U(p) + w. Here D is the unrestricted ground distance from each seat and w is the step weight. So no territory is cut off by water that units can cross.
   - **Demotion what-if:** every river in `blockingWater.demoteToFordable` is blocked again in a what-if run, and must then leave a territory below the minimum size.
-  - **Cliff check** (config `territories.cliffCheck`): no cliff cell (MVSL ≥ 1000‰) may lie inside, or 8-adjacent to, a blocking-river border span.
-    - A border span is the set of `MVLC`-6 cells that have bank cells (ground cells 8-adjacent to `MVLC` 6) of at least two different territories within 25 cells (Chebyshev distance).
-    - Golden map: 33 386 span cells, 51 478 cells in span + neighbours; **11 cliff cells hit**, all canyon-wall bank cells, none on water. 2 are on the John Day (territory 3 side) and 9 on the upper Klickitat (territory 11 side). Each is at least 59 cells (5 km) from any bridgehead and at least 78 cells from any ford.
-    - The 11 are listed individually in `territories.cliffCheck.allowedCells`, **pending the Lead Engineer's acceptance**. Any other hit fails the build.
+  - **Cliff check** (config `territories.cliffCheck`): a cliff cell next to a blocking-river border span fails only if it is within 1 km of a bridgehead or ford. The rule is in §4.6; the validator applies the same function.
 - **Chokepoint sides and gates:** territory-pair minimum cuts are recomputed on the **final** partition. An edge in a cut of ≤ `maxCutEdges` edges takes that pair; otherwise the territories of its end nodes (0/0 when they are equal).
 - **Selection unchanged:** which chokepoints exist is still decided on S9 `selectionPartition`, the v0 soft partition. The pair from that partition is kept in debug `selectionCutPair`.
 
@@ -230,6 +227,15 @@ Towns with no GeoNames/OSM population get the US Census 2020 P.L. 94-171 redistr
   - no ford or bridgehead cell is blocked;
   - **no foot or wheeled route crosses a blocking river away from its bridges and fords:** samples every 2 km along each river, 8-way search within a 3 km window;
   - every bridgehead is reachable from its own bank.
+
+**Cliffs next to blocking-river borders** (S9 CI and validator; config `territories.cliffCheck`; the Lead Engineer accepted this general rule on 2026-09-28, replacing the earlier 11-cell allow-list, which is removed):
+- **Cliff cell:** a movement cell with `MVSL` ≥ `cliffPpt` = 1000‰ (closed to foot and wheeled).
+- **Border span:** the `MVLC`-6 cells that have bank cells of at least two different territories within `spanWindowCells` = 25 cells (Chebyshev distance). A bank cell is a non-6 cell 8-adjacent to an `MVLC`-6 cell; its territory is the `CELX.territoryId` of its 1-mile cell (0 is ignored).
+- **Span-adjacent:** the cliff cell is a span cell or is 8-adjacent to one.
+- **Crossings:** bridgeheads (the movement cells of `RNOD` nodes flagged BridgeHead) and fords (`MVFD` cells).
+- **Rule:** a span-adjacent cliff cell **fails the build only if** its straight-line distance to the nearest crossing is ≤ `maxCrossingDistM` = 1000 m. The distance is Euclidean between cell centres, in cells × the map cell size (`GRID` / META `cellSizeCm`; 80467/9 cm ≈ 89.4 m on the golden map). A cliff that far from any crossing only thickens a river line that already blocks; a cliff near a crossing could close off the approach, so it must be fixed.
+- **Same code in both places:** `wrmb_reader.cliff_crossing_check` is the single implementation. S9 calls it on the pipeline arrays; the validator (§5) calls it on the decoded pair (`cliff_check_model`) and reports `info.cliffCheck`. `pipeline/config.json` values must equal the reader constants `CLIFF_*` (S9 asserts this).
+- **Golden map:** 717 cliff cells; **11 span-adjacent**, all canyon-wall bank cells, none on water: 2 on the John Day (territory 3 side) and 9 on the upper Klickitat (territory 11 side). The **nearest crossing to any of them is 5 365 m** (a bridgehead, from cell 2844751); the farthest is about 9.0 km. **0 fail.**
 
 **Licence separation:** `MVLC` mixes ESA WorldCover (CC BY 4.0) with OSM-derived cells (ODbL). The OSM-derived cells are exactly those where `movement/landcover.u8` differs from the WorldCover-only `movement/landcover_worldcover.u8` (listed by `movement/osm_water_mask.u8`; golden map: 5440 cells). `MVFD` and `WTRA` are OSM-derived. This mirrors the ford layer separation.
 
@@ -697,6 +703,7 @@ Record size: **12 B**.
    - `pairedFileName` matches the other file's actual name, in both directions.
    - META map/grid/projection/version/hash fields are identical, and SRCS are identical.
    - Every non-65535 `bypassMaxGradePpt` is ≤ max(MVSL).
+   - v1: **cliff rule (§4.6):** no cliff cell (`MVSL` ≥ 1000‰) inside or 8-adjacent to a blocking-river border span lies within 1000 m of a bridgehead or ford. Result in `info.cliffCheck`.
 
 ## 6. Open points
 
