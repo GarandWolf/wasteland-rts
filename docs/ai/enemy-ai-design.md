@@ -7,7 +7,7 @@
 
 This is the working contract for enemy AI. Numbers marked **placeholder** are starting values for the first playable; they are not balance commitments.
 
-Designer answers in [Draft designer positions](#draft-designer-positions-pending-garand-sign-off) are **draft pending Garand’s sign-off**. Lead-engineer answers in [Lead engineer decisions](#lead-engineer-decisions) are **locked decisions**, not drafts. Map-pipeline answers in [Map pipeline decisions](#map-pipeline-decisions) are **accepted contract changes** (CI golden map approved Sep 28, 2026; soak regions still pending Garand).
+Designer answers in [Draft designer positions](#draft-designer-positions-pending-garand-sign-off) are **draft pending Garand’s sign-off**. Lead-engineer answers in [Lead engineer decisions](#lead-engineer-decisions) are **locked decisions**, not drafts. Map-pipeline answers in [Map pipeline decisions](#map-pipeline-decisions) are **accepted contract changes** (CI golden map approved Sep 28, 2026; soak regions still pending Garand). [Team decisions (28 Sep 2026)](#team-decisions-28-sep-2026) (neutral-town race, manpower reserve, depot pre-check, stable map ids, headless logs) are **agreed**, not drafts.
 
 ---
 
@@ -50,7 +50,8 @@ These are the Game Designer’s draft answers. They are **not final** until Gara
 | **Task force** | Ordered list of battalion ids plus a goal. Lives in **AI-owned deterministic state** (serialized, hashed, id-sorted). Other sim systems cannot read it. Orders still issue **per battalion** on the normal command queue. Size target: `taskForceTargetSize` (balance v0.3; renamed from `squadTargetSize`). |
 | **Capture zone** | The town volume that must be empty of enemy combat battalions, then held, to capture. |
 | **Anchor** | A town that must be held to own its territory. Some territories have several; all are required. |
-| **Depot / HQ** | Supply sources. Battalions need a friendly road path to one (plus a short off-road snap). |
+| **Depot / HQ** | Supply sources. Battalions need a friendly road path to one (plus a short off-road snap). HQ range **40 mi** along roads; depot **30 mi**. Placement rules in `rules.json` `supply`. |
+| **Stable map id** | Territory, bridge, and chokepoint identity stored in AI-owned state. Backed by the map’s stable-id manifest (OSM-derived permanent u64 keys). **Never** a raw road node or edge id (those follow bake order). |
 
 ---
 
@@ -63,7 +64,9 @@ These are **decisions**, not drafts. They lock the sim seams the AI is written a
 | Tick | **20 Hz (50 ms)**, locked. |
 | Command delay | `commandDelayTicks` is a **match-setup constant** shared by player and AI. Default **2 ticks (100 ms)** in single-player; higher in multiplayer. **Never hardcoded.** Commands are stamped `executeTick = issuedTick + commandDelayTicks`. Difficulty may add `ReactionExtraTicks` on top for Easy/Normal/Hard; that is a difficulty parameter, not a substitute for the match delay. |
 | Numeric types | Sim state: **integer cm**, `int32` per axis; **`int64`** for squared distances and path costs; ratios as **int ppt**. Core has **Fixed64 (Q32.32)** for internal math only (sqrt, movement stepping, angles); results are always stored back as cm or ppt. **Nothing** in sim state, hashes, or events is Fixed. **Q16.16 in int32 is ruled out** (cannot cover a 200-mile map). |
-| Road A\* | **Core sim owns it.** `PathOnRoads` and `EstimateTravelTicks` are sim services. Both take a **movement class** (`wheeled`, `tracked`, `foot`, `air`) per the designer’s movement table v0.1. `PathRequestsPerTick` and the unreachable cache keyed on `(from, to, weightKey, graphVersion, movementClass)` live in that service. `costWeights` are integer ppt. Per-class edge costs are computed at **match load**, not bake. |
+| Road A\* | **Core sim owns it.** `PathOnRoads` and `EstimateTravelTicks` are sim services. `EstimateTravelTicks` takes a **path** and a **movement class** (`wheeled`, `tracked`, `foot`, `air`) per the designer’s movement table v0.1. `PathRequestsPerTick` = **8** match-wide. The path cache is keyed on `(start, goal, movementClass)` (sim also folds `weightKey`, `graphVersion`). `costWeights` are integer ppt. Per-class edge costs are computed at **match load**, not bake. |
+| Map identity | AI-owned state that names the map stores **stable ids only** (territory, bridge, chokepoint — manifest / OSM-derived permanent u64 keys). **Never** raw road node or edge ids. Road nodes carry a **2-byte `territoryId`** that maps 1:1 to the territory’s permanent key. Path requests may pass the current node id as a sim handle; that handle is not persisted as map identity. |
+| Depot placement | The AI **mirrors** the sim’s depot rules before `CmdBuild` so it never issues a build the sim will `CommandRejected`. Read `maxDepotsPerNode` and `depotMinSpacingCm` from `rules.json` `supply`. |
 | Axes | Sim **x = east** (Unity +X), sim **y = north** (Unity +Z), elevation = Unity +Y. Origin is the **SW corner**. Sim stays in **absolute int cm**; rendering uses a floating origin. |
 | High ground | Sim predicate **`HasHighGround`**: `attackerDm - targetDm >= 500` using the **terrain elevation-layer** cell under each battalion (whole dm). **No interpolation.** Same cell → no bonus. The AI uses **exactly** this rule. |
 | Entity model | **`Battalion`** is the first-class sim entity: pooled HP, one position/path, one command queue. Orders target that entity. On-screen **sections** (6-figure groups) are presentation only. **Battalion split/merge is out of scope for v0**; if ever needed it is a separate sim command. |
@@ -95,6 +98,24 @@ Accepted field-level contract for §3. The CI golden map is **approved (Sep 28, 
 | Format | **WRMB** (approved): versioned little-endian, directory-by-tag, per-section CRCs. Spec: `blob-layout-v0.md`. Variable-length fields are `(offset, count)` into shared int32 / point / string pools. JSON/GeoJSON debug export with a **binary → JSON → binary** round-trip test. Map + terrain are **two WRMB files** that record each other’s `contentHash`. |
 | Gameplay fields | `supplyCapacity`, `fortificationSlots`, `defaultFortification`, `resourceYield` are **not** in the map blob. Designer table, applied at load (keyed by `populationClass`). |
 | Golden maps | CI: **Mid-Columbia Gorge** 100×100 (`golden-ci-columbia-gorge-100`), committed under `data/golden/` via **Git LFS** with SHA-256 files, **approved Sep 28, 2026**. Soak: **Illinois–Iowa** and **Central Alps** at 200×200. |
+| Node territory | Each **road node** carries a 2-byte `territoryId` mapping 1:1 to the territory’s permanent key. |
+| Adjacency | Until the Gorge **v1** map PR merges (river-following territory borders), the AI treats two territories as adjacent **only if a road actually connects them** (stopgap). After v1 it uses the map’s adjacency and **drops** the stopgap. |
+| Chokepoint role | A chokepoint is a **border defensive post** only if it sits between **two different territories**. Interior chokepoints (same territory on both sides) are still used for routing and siege positioning, not as border posts. |
+| Stable ids | Territory, bridge, and chokepoint records are keyed in the map’s **stable-id manifest** (OSM-derived permanent u64). Runtime dense ids are lookup handles, not identity. |
+
+---
+
+## Team decisions (28 Sep 2026)
+
+Agreed with the whole team. These are **decisions**, not drafts. Mechanics live in the sections cited.
+
+| Topic | Decision |
+| --- | --- |
+| Neutral-town race | Strategic-layer town/territory utility. For a **neutral** town, compare our arrival vs the nearest observed enemy force’s arrival, both from `EstimateTravelTicks(path, movementClass)`. We-first scores higher; they-first scores lower. Runs **only** on the strategic cadence (every **2 s** on Normal), never per tick, and only when **neither** HQ is already clearly closer. Each path is a queued request against the sim’s **8** `PathRequestsPerTick`; reuse the sim path cache `(start, goal, movementClass)`; stay in the AI’s share of that budget; if the budget is full, **defer** to the next strategic tick. §2.1. |
+| Manpower reserve | **Every** AI manpower spend (production, rushes, races, reinforcements) must leave `manpower >= reserve`. `reserve` = manpower cost of the `minGarrisonPerTown` battalions every owned town still needs + `manpowerReserveSeconds` of current manpower income. `manpowerReserveSeconds` is in `ai_difficulty.json`, **60** on every difficulty including Brutal. Rushes/races size the task force only up to what passes the gate; if the affordable force is too small to take the target, **do not launch**. Sole exception: **emergency defense** when an enemy task force is inbound on an owned town. If the next tech tier is the top-scoring goal, reserve that tier’s cost and do not spend it on anything else. Balance v0.5: Compact at manpower 0 at 5:00 on Brutal, 2 by minute 5 on Normal, tier II at 9:24. §2.1, §5. |
+| Headless logs | Every **10 s** (minutes **2 to 5** minimum) log manpower, current reserve, tech savings, battalion count, and **The Dalles** control. Debug only — not in the hash. §8.1. |
+| Depot pre-check | Mirror the sim so depot `CmdBuild` is never `CommandRejected`: road node in an owned territory, connected to the current supply network **when the command executes**, `maxDepotsPerNode` = **1**, `depotMinSpacingCm` = **804670** (5 road-miles, along the road graph, **any** owner). Both values from `rules.json` `supply`. Ranges along roads: HQ **40 mi**, depot **30 mi**. A forward depot (e.g. The Dalles or White Salmon) is a **required prerequisite** for assaulting a town outside supply range (e.g. Hood River at 44.4 road-miles from Remnant HQ). Relay chains (e.g. Condon via an OR-206 relay) are **ordered depot steps**. §2.1, §4.3. |
+| Map ids / adjacency | Persist **stable ids only** (territory, bridge, chokepoint). Never raw road node or edge ids. Road-connected adjacency stopgap until Gorge v1; then map adjacency. Border chokepoints only between two territories. §3.1, §4.1. |
 
 ---
 
@@ -231,16 +252,18 @@ Hysteresis: a new posture must beat the current score by `PostureSwitchMarginPpt
 
 | Goal type | Target | Generated when |
 | --- | --- | --- |
-| `ClaimTown` | empty / contestable town | Adjacent to held territory, or reachable via supplied roads. Completing an anchor set is preferred over a non-anchor. |
+| `ClaimTown` | empty / contestable town | Adjacent to held territory (road-connected stopgap until Gorge v1; then map adjacency), or reachable via supplied roads. Completing an anchor set is preferred over a non-anchor. Neutral towns get a **race** term (§2.1). |
 | `FortifyTown` | owned town | Town is an anchor, value high, or threat on its capture zone above threshold. |
-| `AssaultTown` | enemy town | Neighbor territory; force ratio vs estimate above personality threshold; a supplied route to the capture zone exists or can be opened. |
+| `AssaultTown` | enemy town | Neighbor territory; force ratio vs estimate above personality threshold; a supplied route to the capture zone exists or can be opened. If the town is outside HQ/depot range, a `PlaceDepot` chain must already be accepted (or generated as a prerequisite this pass). |
 | `ContestCapture` | town whose enemy timer is ticking | Any visible (or last-seen-in-progress) enemy capture of a town we care about. Cheap: one combat battalion in the zone pauses the timer. |
 | `HoldCaptureZone` | town we are capturing, or an owned zone under threat | After the zone is cleared, until the timer completes; or garrison an owned anchor. |
-| `Raid` / `CutSupply` | enemy road node, junction, or bridge | Attack/BuildUp; holding the node or destroying the bridge cuts a path from their depot to a town or field force. |
-| `GuardSupply` | own depot-path node or bridge | Degree ≥ 2 junction, bridge, or the last path to an exposed battalion / anchor. |
-| `HoldChokepoint` | chokepoint id | Controls access to a valued town we own or want, or sits on a supply path. Score scales with mix-weighted `bypassPenaltyPpt`. |
+| `Raid` / `CutSupply` | enemy chokepoint, bridge, or town-gate **stable id** | Attack/BuildUp; holding the crossing or destroying the bridge cuts a path from their depot to a town or field force. Persist the stable id, not a raw node/edge id. |
+| `GuardSupply` | own depot-path chokepoint, bridge, or town-gate **stable id** | Degree ≥ 2 junction, bridge, or the last path to an exposed battalion / anchor. Persist the stable id. |
+| `HoldChokepoint` | chokepoint stable id | **Border post** only if the chokepoint sits between **two different territories**. Interior chokepoints (same territory both sides) score for routing and siege positioning, not as border posts. Score scales with mix-weighted `bypassPenaltyPpt`. |
 | `ScoutRegion` | coarse-grid region or ridge cell | Confidence stale; fog-honest; prefer cells with `HasHighGround` vs the road or capture zone they watch. |
 | `ExpandEconomy` | build slot / town | BuildUp or Turtle with spare income. |
+| `PlaceDepot` | road node in owned territory (looked up this tick; persist territory + stable seat, not the raw node id) | Needed to extend supply toward a goal town outside HQ/depot range, or as the next step of a relay chain. Must pass the depot pre-check. |
+| `ResearchTech` | next tech tier | Next tier is available. If this is the top-scoring goal, **reserve** its remaining cost (tech savings) and do not spend that reserve on anything else. |
 | `CounterattackForce` | lost or threatened anchor | Posture Counterattack, or incoming capture of an owned zone. |
 | `Recover` | owned rally town that is in supply | Army below recovery strength after a fight. |
 
@@ -274,32 +297,77 @@ All terms are `int32` millipoints. Features are already in parts-per-thousand (p
 | `bridgeJunctionValue` | Extra for bridge **edges** and high-flag junctions (cut or guard). |
 | `visionGroundBonus` | Cells with `HasHighGround` vs a road or zone (`attackerDm - targetDm >= 500`, terrain elevation-layer cell, no interpolation, same cell = 0). |
 | `economyNeedPpt` | High when income < upkeep + planned spend. |
-| `distanceCost` | From sim `EstimateTravelTicks(from, to, movementClass)`, not raw `travelCost`. Staging town must be in supply. Plan **per movement class**. |
+| `distanceCost` | From sim `EstimateTravelTicks(path, movementClass)`, not raw `travelCost`. Staging town must be in supply. Plan **per movement class**. |
+| `raceAdvantagePpt` | **Neutral towns only.** `clamp((themTicks − ourTicks) * 1000 / max(1, ourTicks + themTicks), −1000, 1000)`. Positive ⇒ we arrive first. Fog-honest nearest observed enemy force. See race rules below. |
 | `fogUncertainty` | Penalty (or scout bonus) when confidence is low; never treated as vision. |
 | `recentFailurePenalty` | Same goal type+target failed within `FailureMemoryTicks`. |
 
 Weights live in the personality profile (§6). Difficulty scales a subset: reaction, aggression, scout weight, mistake injection (§5).
 
+**Neutral-town race (strategic cadence only).** For a **neutral** town, compare our arrival time vs the nearest **observed** (visible or memory) enemy force’s arrival. Both times come from `EstimateTravelTicks(path, movementClass)` — the sim service takes a **path** and a **movement class**. Towns we reach first score higher (`raceAdvantagePpt` > 0); towns the enemy clearly reaches first score lower.
+
+Race checks run **only** on the strategic cadence (`StrategicCadenceTicks`; every **2.0 s** on Normal), **never** per tactical tick, and **only** when neither side’s HQ is already clearly closer:
+
+```
+hqUs    = EstimateTravelTicks(path ourHQ → town, movementClass)     // cache
+hqThem  = EstimateTravelTicks(path theirHQ → town, movementClass)
+clearlyCloser = min(hqUs, hqThem) * 2 < max(hqUs, hqThem)           // integer
+```
+
+Skip the race (leave `raceAdvantagePpt = 0`) when `clearlyCloser`, when the town is not neutral, or when no enemy force is observed.
+
+Each path is a **queued** `PathOnRoads` request and counts against the sim’s `PathRequestsPerTick` = **8** (match-wide). Race checks **must** reuse the sim path cache keyed on `(start, goal, movementClass)` (the service also folds `weightKey` and `graphVersion`). Cache hits do not consume a request. Misses stay within the AI’s share of that budget. If the remaining budget cannot cover a miss, **defer** the check to the next strategic tick (`raceAdvantagePpt = 0` this plan tick). Do not run extra pathing on tactical slices to “catch up.”
+
 **Selection.** Greedy: sort candidates by score (stable sort, `goalId` as tie-break), then accept if:
 
 1. Score > `MinAcceptScore` (placeholder **1000**).
-2. Remaining army strength and resource budget cover `g.cost`.
-3. A **supplied** route exists, or a `GuardSupply` / `CutSupply` order that opens/closes it is already accepted this pass (order matters: accept supply-enabling goals before the assault that needs them).
+2. Remaining army strength and resource budget cover `g.cost`, **and** every manpower spend in that cost passes the **manpower reserve gate** (below). Rushes and races that fail the gate are not accepted.
+3. A **supplied** route exists, or a `GuardSupply` / `CutSupply` / `PlaceDepot` order that opens it is already accepted this pass (order matters: accept supply-enabling goals, including forward depots and relay steps, before the assault that needs them).
 4. Target is not already claimed by an accepted goal of an incompatible type (two assaults on the same town merge; assault vs fortify on the same town conflict; `ContestCapture` may stack with a later `AssaultTown`).
 
 Cap accepted goals at `MaxActiveOrders` = **12** per faction. Drop the rest. Idle leftover strength is assigned to `HoldCaptureZone` on the highest-threat owned **anchor** that is in supply (implicit, not a generated candidate). Garrison that **town or city** with at least `minGarrisonPerTown` **battalions** (`minGarrisonPerTown` does not apply to villages).
 
-For each accepted goal the AI builds a **task force**: an ordered list of battalion ids (sized toward `taskForceTargetSize`) plus the goal. Task forces live in **AI-owned deterministic state** — serialized with save/load, folded into the periodic hash, stored in **fixed id-sorted order**. Other sim systems cannot read them. They are **validated** each strategic tick (drop dead/missing ids, re-issue if the goal is still live). Commands still go out **per battalion** on the foundation queue.
+For each accepted goal the AI builds a **task force**: an ordered list of battalion ids (sized toward `taskForceTargetSize`) plus the goal. Rushes and races size the list **only up to** what still passes the manpower reserve gate; if the affordable force is too small to take the target, **do not launch**. Task forces live in **AI-owned deterministic state** — serialized with save/load, folded into the periodic hash, stored in **fixed id-sorted order**. Other sim systems cannot read them. They are **validated** each strategic tick (drop dead/missing ids, re-issue if the goal is still live). Commands still go out **per battalion** on the foundation queue.
 
-Do **not** accept an `AssaultTown` whose hold duration (capture timer, slowed by visible fortification) exceeds the time the force can stay in supply. Isolate first, or cancel.
+Do **not** accept an `AssaultTown` whose hold duration (capture timer, slowed by visible fortification) exceeds the time the force can stay in supply. Isolate first, `PlaceDepot` first, or cancel.
 
-**Spending.** Economy is a goal type, not a free-form script. On a plan tick the faction has a spend envelope:
+**Spending.** Economy is a goal type, not a free-form script.
+
+**Manpower reserve gate.** Every AI manpower spend — production, rushes, races, reinforcements — must satisfy `manpowerAfter >= reserve` (integer, floor):
 
 ```
-spendable = currentResources - ReservePpt * netIncomePerCadence / 1000
+garrisonNeed = Σ_ownedTowns max(0, minGarrisonPerTown − garrisonedBattalions) * battalionManpowerCost
+               // towns and cities only; villages excluded
+reserve      = garrisonNeed + manpowerReserveSeconds * manpowerIncomePerSecond
+manpowerAfter = manpowerNow − spendCost
 ```
 
-`ReservePpt` is a personality field. Spend priority within the envelope: (1) repairs / fortify on threatened anchors and their capture zones, (2) unit production to reach `TargetArmyStrength` (including recon if confidence is stale), (3) expansion buildings, (4) extra scouts. Building IDs and the gameplay table (`supplyCapacity`, `fortificationSlots`, `defaultFortification`, `resourceYield`) are designer fill-ins applied at load; the AI only needs a tagged catalog: `Production`, `Fortification`, `Economy`, `Intel` (recon).
+`manpowerReserveSeconds` lives in `ai_difficulty.json` and is **60** on every difficulty including Brutal. `manpowerIncomePerSecond` is current manpower income (already includes Brutal `EconomyBonusPpt` if any), integer.
+
+Rushes and races build the task force only up to the battalion count that still passes the gate. If that affordable force is too small to take the target, the rush is **not** launched.
+
+**Exception:** emergency defense when an observed enemy task force is inbound on an owned town — the gate does not block that spend.
+
+**Tech savings.** When `ResearchTech` for the next tier is the top-scoring goal, the AI reserves that tier’s remaining cost and does not spend it on anything else.
+
+Motivation (balance **v0.5**): Compact hit manpower **0** at 5:00 on Brutal and **2** by minute 5 on Normal, with tier II slipping to **9:24**.
+
+Non-manpower resources still use the personality envelope:
+
+```
+spendableOther = currentOtherResources - ReservePpt * netIncomePerCadence / 1000
+```
+
+`ReservePpt` is a personality field. Spend priority within both envelopes: (0) emergency defense of an inbound owned town, (1) repairs / fortify on threatened anchors and their capture zones, (2) tech savings if `ResearchTech` is top-scoring, (3) production to reach `TargetArmyStrength` (including recon if confidence is stale) that passes the manpower gate, (4) expansion buildings including `PlaceDepot`, (5) extra scouts. Building IDs and the gameplay table (`supplyCapacity`, `fortificationSlots`, `defaultFortification`, `resourceYield`) are designer fill-ins applied at load; the AI only needs a tagged catalog: `Production`, `Fortification`, `Economy`, `Intel` (recon), `Depot`.
+
+**Depot placement pre-check.** The AI **mirrors** the sim’s depot rules before issuing `CmdBuild`. A depot the sim would `CommandRejected` is never enqueued. Checks (all integer):
+
+1. The site is a **road node** in a **territory the AI owns** (node `territoryId` maps 1:1 to the territory’s permanent key).
+2. The node is **connected to the current supply network when the command executes** (same connectivity the sim will test at `executeTick`).
+3. `maxDepotsPerNode` = **1** (from `rules.json` `supply`).
+4. Along-graph distance to every other depot (**any** owner) ≥ `depotMinSpacingCm` = **804670** (5 road-miles). Distance is the sum of `lengthCm` along the road graph, not Euclidean.
+
+Read `maxDepotsPerNode` and `depotMinSpacingCm` from `rules.json` under `supply` at match init (hash those fields with match config if the file is loaded). Supply ranges are **along roads**: HQ **40 mi**, depot **30 mi**. The planner treats a forward depot (e.g. at The Dalles or White Salmon) as a **required prerequisite** for assaulting a town outside supply range — e.g. Hood River at **44.4** road-miles from Remnant’s HQ. Relay chains (e.g. Condon via an OR-206 relay) are planned as **ordered** `PlaceDepot` steps; accept them before the assault they enable.
 
 Brutal’s `EconomyBonusPpt` is applied by the **sim economy**, not by the AI inventing extra builds.
 
@@ -463,7 +531,7 @@ Debug next to every blob (game never loads these): `<map>.debug.json` and `<map>
 
 A **frozen golden 100×100** map + terrain WRMB pair is required for per-PR CI (§8). Over-budget road graphs **fail the bake**; they are never truncated.
 
-Ids are dense `int32` starting at 1. Chokepoints, territories, `strategicValue`, and neighbour lists are computed **after** the post-apocalyptic transform.
+Ids are dense `int32` starting at 1 **as runtime lookup handles**. Territory, bridge, and chokepoint **identity** is the map’s **stable-id manifest** (OSM-derived permanent u64 keys). AI-owned state stores those stable ids, **never** raw road node or edge ids (those follow bake order and can change). Chokepoints, territories, `strategicValue`, and neighbour lists are computed **after** the post-apocalyptic transform.
 
 Gameplay values **not** in this blob: `supplyCapacity`, `fortificationSlots`, `defaultFortification`, `resourceYield`. A designer table keyed by `populationClass` is applied at load into the runtime records the AI reads. `fortificationLevel` is sim state.
 
@@ -505,7 +573,7 @@ Percentile rank: sort by `(rawValue, townId)`; tied towns share the first index 
 
 #### Territories
 
-Generated as a travel-cost partition on the 1-mile grid (not admin boundaries). Canonical painted boundary = `CellExt.territoryId`. Adjacency = shared cell edge.
+Generated as a travel-cost partition on the 1-mile grid (not admin boundaries). Canonical painted boundary = `CellExt.territoryId`. Map-file adjacency = shared cell edge. **AI frontline / adjacency (stopgap until Gorge v1):** treat two territories as adjacent **only if a road actually connects them**. After the Gorge v1 map PR merges (river-following territory borders), use the map’s adjacency directly and **drop** this stopgap.
 
 ```
 TerritoryRecord
@@ -519,7 +587,7 @@ TerritoryRecord
   centroidCm            int32 x, y
 ```
 
-`resourceYield` is **not** here; designer table at load. Ownership is **anchor-complete**. Assault graph = territory adjacency. Raids may still follow the road graph through a neighbor.
+`resourceYield` is **not** here; designer table at load. Ownership is **anchor-complete**. Assault graph = AI adjacency (road-connected stopgap until Gorge v1; then map `neighborTerritoryIds`). Raids may still follow the road graph through a neighbor.
 
 #### Road graph
 
@@ -527,17 +595,19 @@ Budget: **~8k nodes / 12k edges** on 200×200; **~2k / 3k** on 100×100. Town in
 
 ```
 RoadNode
-  id                    int32
+  id                    int32              // runtime handle; do **not** persist in AI-owned state
   positionCm            int32 x, y
   elevationCm           int32
   flags                 uint8              // bitmask: TownGate, BridgeEnd, Chokepoint, Way, TerritoryBorder
                                            // (categories overlap; not an exclusive enum)
-  chokepointId          int32              // 0 if none
+  chokepointId          int32              // 0 if none; stable chokepoint identity is the manifest key
+  territoryId           uint16             // 2-byte; maps 1:1 to the territory’s permanent key; 0 if none
   degree                int8               // incident simplified edges
+  _padNode              uint8
 
 RoadEdge
   id                    int32
-  a, b                  int32              // node ids, a < b
+  a, b                  int32              // node ids, a < b — runtime handles, not AI-owned identity
   lengthCm              int32
   travelCost            int32              // metre-equivalents, symmetric base
                                            // (paved, intact, flat = 1 per metre). Sim converts to ticks.
@@ -599,6 +669,8 @@ mixBypassPenaltyPpt = (Σ_c n_c * bypassPenaltyPpt[c]) / (Σ_c n_c)   // floor; 
 
 `n_c` is the **battalion** count of movement class `c` in the **relevant** mix: enemy mix when we fortify, hold, or raid/cut; friendly assigned mix when we assault through or around the choke. Weight by battalion count.
 
+A chokepoint is a **border defensive post** only if `sideATerritoryId` and `sideBTerritoryId` are **different and both non-zero**. Interior chokepoints (same territory, or a zero side) are still used for routing and siege positioning; they do **not** generate a border `HoldChokepoint`.
+
 A designer change to `wheeledMaxGradePpt` (including lowering it to **199‰** after playtests) must take effect from the table at match load with **no code or map rebuild**.
 
 **Gorge examples** (`golden-ci-columbia-gorge-100`):
@@ -633,7 +705,8 @@ ChokepointRecord                           // fixed size; arrays via (offset,cou
   approachReliefCmA     int32              // relief toward sideA
   approachReliefCmB     int32
   sideATerritoryId      int32              // the two territories it connects (A < B); 0 if interior
-  sideBTerritoryId      int32
+  sideBTerritoryId      int32              // border **defensive post** only if A and B are different and both ≠ 0
+                                           // interior (A == B, or either 0): routing and siege positioning only
   gatesTerritoryIds     (off,count)        // sorted; access it controls (can be >2)
   relatedTownId         int32              // nearest town by road cost within 5 km; 0 if none
   riverId               int32              // Bridge/Tunnel/Causeway; else 0
@@ -786,7 +859,7 @@ Value map additionally refreshes on plan ticks for cells that overlap active ord
 - Player-only markers, unrevealed resource nodes outside fog rules, or debug gizmos.
 - Heightmap LoS via Unity raycasts. Vision is a sim query; the coarse elevation grid and `CellExt` are **hints** for scout placement and corridor blocks.
 - Live enemy structure/battalion state that has never been seen this match, including in owned-but-unseen territory.
-- Floating-point GIS source data, OSM ids, or the JSON/GeoJSON debug export. The game loads only the WRMB pair (map + terrain).
+- Floating-point GIS source data, raw OSM extracts, or the JSON/GeoJSON debug export. The game loads only the WRMB pair (map + terrain) plus the map’s **stable-id manifest**. AI-owned state may store those manifest keys (OSM-derived permanent u64), not raw GIS ids and not bake-order node/edge ids.
 
 ---
 
@@ -806,7 +879,7 @@ The core sim is **pure C# with no `UnityEngine`**. Launch runs a **fixed-step si
 | No Unity | Core has no `UnityEngine`. No `Raycast`, `Overlap`, `NavMesh.CalculatePath`, `Rigidbody` reads. Sim provides integer queries, including vision/LoS. |
 | Numeric types | Positions: **integer cm**, `int32` per axis (**x east** = Unity +X, **y north** = Unity +Z, elevation = Unity +Y; origin SW). Squared distances and path costs: **`int64`**. Ratios: **int ppt**. Sim stays in absolute int cm; rendering uses a floating origin. AI decision code uses those integers only — no `float`/`double`/`Vector3` in scoring, path cost, supply, or PRNG. |
 | Fixed64 | Core **Fixed64 (Q32.32)** is for **internal math only** (sqrt, movement stepping, angles). Results are always stored back as cm or ppt. **Nothing** in sim state, hashes, or events is Fixed. **Q16.16 in int32 is ruled out** (cannot cover a 200-mile map). |
-| Ids only | Across ticks the AI keeps **ids only**, never references to sim objects. Re-query by id each tick. AI-owned state (task forces, goals, caches, cooldowns, RNG) is still ids and integers, serialized and hashed in fixed id-sorted order. |
+| Ids only | Across ticks the AI keeps **ids only**, never references to sim objects. Re-query by id each tick. Map references in AI-owned state are **stable ids** (territory, bridge, chokepoint — manifest / OSM-derived permanent u64 keys), **never** raw road node or edge ids. Path/depot commands may pass the current node handle looked up this tick. Task forces, goals, caches, cooldowns, RNG are still ids and integers, serialized and hashed in fixed id-sorted order. |
 | Seeded PRNG | **PCG32**, in-repo with golden tests. Per-faction streams derived with **xxHash64**. Never `UnityEngine.Random`. |
 | Stable iteration | No `foreach` on `Dictionary` / `HashSet`. Iterate arrays, or copy keys and sort by id. Blobs load with arrays already sorted; **no hash-set rebuild on load**. |
 | Time-slicing | Expensive work is sliced on a schedule that is a pure function of `tick` and `factionId` (§7.2). A slice that hits the **work-unit cap** **defers** remainder; it does not “do less because the frame was heavy.” Wall-clock must not change behavior. |
@@ -861,14 +934,15 @@ The foundation PR owns the command queue. The AI enqueues onto it; it does not i
 | `GetWaterBodies()` | Read-only | Static, public |
 | `GetRoadGraph()` | Read-only view of pipeline blob | Static, public |
 | `GetGraphVersion()` | `int32` (destroyed/repaired bridges, `condition` changes) | Public |
-| `PathOnRoads(fromNode, toNode, movementClass, costWeights)` | Node list + `int64` total cost **or** unreachable | Sim-owned A\*. `movementClass`: `wheeled` / `tracked` / `foot` / `air`. `costWeights` are **integer ppt**. Per-class costs at **match load**. Threat/held-node samples must be fog-filtered |
-| `EstimateTravelTicks(from, to, movementClass, costWeights)` | `int32` | Same service. Speed = `floor(base * surfacePpt * slopePpt / 1_000_000)`; 0 = impassable. Wheeled off-road blocked above **299‰** |
+| `PathOnRoads(fromNode, toNode, movementClass, costWeights)` | Node list + `int64` total cost **or** unreachable | Sim-owned A\*. `movementClass`: `wheeled` / `tracked` / `foot` / `air`. `costWeights` are **integer ppt**. Per-class costs at **match load**. Threat/held-node samples must be fog-filtered. Counts against `PathRequestsPerTick` = **8** unless served from cache |
+| `EstimateTravelTicks(path, movementClass)` | `int32` ticks | Takes a **path** and a **movement class**. Speed = `floor(base * surfacePpt * slopePpt / 1_000_000)`; 0 = impassable. Wheeled off-road blocked above **299‰**. A from/to convenience form may look up or queue `PathOnRoads` (same cap and cache) then estimate |
 | `GetChokepoints()` | Read-only | Static, public |
-| `GetAdjacency(territoryId)` | Neighbor ids | Static, public |
+| `GetAdjacency(territoryId)` | Neighbor ids | Static, public. **Until Gorge v1**, the AI intersects this with **road-connected** territories (stopgap) |
 | `GetAnchors(territoryId)` | Sorted anchor town ids | Static, public |
+| `GetStableId(kind, runtimeId)` | Permanent u64 from the map manifest | Public |
 | `HashWorldSlice(factionId)` | `uint64` (**xxHash64**) | Own known state |
 
-`PathOnRoads` and `EstimateTravelTicks` are **core sim services**. The sim owns road A\*, the `PathRequestsPerTick` cap, and the unreachable cache keyed on `(from, to, weightKey, graphVersion, movementClass)`. Player UI path preview may call the same service; the AI must. `costWeights` are integer ppt. Path costs in the result are `int64`. The AI plans and estimates threat **per movement class**.
+`PathOnRoads` and `EstimateTravelTicks` are **core sim services**. `EstimateTravelTicks` takes a **path** and a **movement class**. The sim owns road A\*, the `PathRequestsPerTick` = **8** cap, and the path cache keyed on `(start, goal, movementClass)` (also `weightKey`, `graphVersion`). Player UI path preview may call the same service; the AI must. Race checks (§2.1) reuse this cache and defer when the remaining budget cannot cover a miss. `costWeights` are integer ppt. Path costs in the result are `int64`. The AI plans and estimates threat **per movement class**.
 
 #### Supply queries (sim-owned, integer, fog-filtered)
 
@@ -877,7 +951,9 @@ Supply is recomputed by the sim on a fixed tick (placeholder: every **10** ticks
 | Hook | Returns | Fog |
 | --- | --- | --- |
 | `GetSupplyState(battalionId)` | `InSupply` / `OutOfSupply` + `graceTicksRemaining` | Own: always. Enemy: only if that battalion is visible |
-| `GetDepots(factionId)` | Sorted depot/HQ node ids | Own: always. Enemy: only explored snapshots |
+| `GetDepots(factionId)` | Sorted depot/HQ ids (stable building/town keys; current node is a lookup) | Own: always. Enemy: only explored snapshots |
+| `GetSupplyRules()` | `maxDepotsPerNode`, `depotMinSpacingCm`, HQ/depot range along roads from `rules.json` `supply` | Public |
+| `RoadDistanceCm(fromNode, toNode)` | `int32` sum of `lengthCm` along the road graph, or unreachable | Public; used for `depotMinSpacingCm` |
 | `HasSupplyPath(fromNode, factionId)` | `bool` + next hop | Own graph with **known** cuts (enemy-held nodes we see, destroyed bridges) |
 | `GetNodeHolder(nodeId)` | Faction id or 0 | If the node is visible; else Unknown |
 | `IsBridgeDestroyed(bridgeId)` | `bool` | Destroyed bridges are world facts (or snapshot if that is how sim treats wreckage — prefer public) |
@@ -894,7 +970,7 @@ Supply is recomputed by the sim on a fixed tick (placeholder: every **10** ticks
 | Battalion split/merge | **Out of scope for v0.** If ever needed, a **separate sim command**. |
 | `CmdDestroyBridge` | bridgeId (if the player can; reject if not destroyable) |
 | `CmdProduce` | buildingId, battalionType, count |
-| `CmdBuild` | catalogId, townId or cell |
+| `CmdBuild` | catalogId, townId or cell; **depot:** current road-node handle (looked up this tick; must pass the depot pre-check) |
 | `CmdFortify` | townId (slows future capture; does not block) |
 | `CmdCancel` | commandId or production slot |
 
@@ -902,7 +978,7 @@ There is **no** `CmdClaimTown`. Capture is a sim process driven by combat occupa
 
 Every command carries `issuedTick`, `executeTick` (`issuedTick + commandDelayTicks`, plus AI `ReactionExtraTicks` when difficulty says so), `issuerId` (`Player` or `AiFactionId`), and a **sequence** number. They enter the **same queue** as player commands. Dispatch order is `(executeTick, issuerId, sequence)`.
 
-`CanIssue` is **advisory**. Authoritative validation happens at `executeTick` and can still reject. The AI **must** handle `CommandRejected` (report `failReason`), not retry in a tight loop, and not assume `CanIssue == true` means the command will land. Reinforce commands against `OutOfSupplyPastGrace` battalions must reject at execute.
+`CanIssue` is **advisory**. Authoritative validation happens at `executeTick` and can still reject. The AI **must** handle `CommandRejected` (report `failReason`), not retry in a tight loop, and not assume `CanIssue == true` means the command will land. Reinforce commands against `OutOfSupplyPastGrace` battalions must reject at execute. Depot `CmdBuild` is **pre-checked** against the sim rules in §2.1 so the AI does not enqueue placements the sim will reject.
 
 #### Events (consumed in `eventId` order)
 
@@ -928,7 +1004,7 @@ Event payloads include ids and ticks only — **cm and ppt, never Fixed**.
 
 | Hook | When |
 | --- | --- |
-| `AiMatchInit(matchSeed, mapBlob, factionIds, difficulty, personalityId, personalityJsonHash, difficultyJsonHash)` | Once, before tick 0. Personality and difficulty file hashes are **match config**. |
+| `AiMatchInit(matchSeed, mapBlob, factionIds, difficulty, personalityId, personalityJsonHash, difficultyJsonHash)` | Once, before tick 0. Personality and difficulty file hashes are **match config**. Read `rules.json` `supply` (`maxDepotsPerNode`, `depotMinSpacingCm`, HQ/depot ranges) here. |
 | `AiOnTick(tick)` | Every sim tick, **after the world step** (including supply recompute if this is a supply tick) and **before dispatch**. AI commands enqueue on the same queue as the player. |
 | `AiMatchShutdown()` | Tests / teardown. |
 
@@ -960,6 +1036,7 @@ Four levels. One brain. Parameter sets only. Difficulty lives in **`data/balance
 | `RetreatThresholdMulPpt` | 1200 | 1000 | 850 | 750 |
 | `MaxActiveOrders` | 6 | 12 | 12 | 16 |
 | `MaxCandidateGoals` | 32 | 64 | 64 | 64 |
+| `manpowerReserveSeconds` | **60** | **60** | **60** | **60** |
 
 All values except the meaning of Brutal `EconomyBonusPpt` = 100 are **placeholder**. The +10% itself is a **draft designer position pending Garand sign-off**.
 
@@ -973,7 +1050,9 @@ All values except the meaning of Brutal `EconomyBonusPpt` = 100 are **placeholde
 
 **Scouting and fog.** Higher difficulties scout more often (recon to cells with `HasHighGround` vs the watched target) and forget **battalion** contacts slower. Structure snapshots still persist at all levels. They do **not** see through fog. `FogCheat` is `none` at all four levels and is not a planned Brutal unlock.
 
-**Economy bonus.** Brutal’s **+10% income** (`EconomyBonusPpt = 100`) is the only numeric cheat at launch. Surface it in the difficulty blurb. Hard wins by better cadence, supply play, capture contest, memory, and fewer mistakes.
+**Economy bonus.** Brutal’s **+10% income** (`EconomyBonusPpt = 100`) is the only numeric cheat at launch. Surface it in the difficulty blurb. Hard wins by better cadence, supply play, capture contest, memory, and fewer mistakes. `manpowerReserveSeconds` is **60** at every difficulty including Brutal — it is a spend discipline, not a cheat.
+
+**Manpower reserve.** See §2.1. The same 60-second income floor plus unmet `minGarrisonPerTown` cost applies on Easy through Brutal. Compact bleeding to manpower 0 by 5:00 on Brutal (balance v0.5) is the reason this is not a personality field.
 
 **Micro quality (0–3).** Operational quality of battalion play, not soldier micro:
 
@@ -1014,12 +1093,14 @@ Shared fields (all ppt unless noted; names as in the JSON):
 | `weightSupplyCut` | Raiding nodes/bridges vs frontal assault |
 | `weightSupplyGuard` | Protecting own depot paths |
 | `weightDistance` | Preference for nearby goals (higher = more local) |
+| `weightRace` | Neutral-town race term (`raceAdvantagePpt`); 0 if the check was skipped or deferred |
 | `weightVisionGround` | Scout/overwatch on cells with `HasHighGround` vs the watched road/zone |
 | `aggressionBias` | Attack posture, raids |
 | `turtleBias` | Fortify, HoldCaptureZone, last stand |
 | `raidBias` | CutSupply / contest vs long holds |
 | `scoutBias` | ScoutRegion weight |
-| `ReservePpt` | Unspent resource floor |
+| `ReservePpt` | Unspent **non-manpower** resource floor |
+| `manpowerReserveSeconds` | Difficulty field (not personality): **60** on every difficulty; see §2.1, §5 |
 | `SiegeInvestRatioPpt` | Min force ratio to Isolate (cut supply) |
 | `SiegeAssaultRatioPpt` | Min force ratio to Clear the zone |
 | `RetreatThresholdPpt` | Compared to the **task force’s total HP ‰** (dead battalions count as 0), before difficulty mul |
@@ -1043,6 +1124,7 @@ The table below is the stub/placeholder layout. Live values come from `ai_person
 | `weightSupplyCut` | 1000 | 700 | 1600 |
 | `weightSupplyGuard` | 900 | 1400 | 700 |
 | `weightDistance` | 800 | 1100 | 600 |
+| `weightRace` | 900 | 1100 | 700 |
 | `weightVisionGround` | 900 | 800 | 1300 |
 | `aggressionBias` | 1400 | 700 | 1300 |
 | `turtleBias` | 600 | 1400 | 500 |
@@ -1107,7 +1189,7 @@ Strategic plans already fire only when `planThisTick(faction)` is true. If two f
 
 Each subsystem stops when `workUnits` hits the cap and resumes at the next assigned slot, iterating from the **next id** (cell index, battalion id, candidate index), which is stored in sim state as ids.
 
-**Path requests.** A\* is sim-owned. The AI calls `PathOnRoads` with a **movement class**; the service applies `PathRequestsPerTick` = **8** match-wide and caches unreachables at `(from, to, weightKey, graphVersion, movementClass)`. Battalions keep their last path until the new one commits. `graphVersion` bumps on held nodes, destroyed bridges, and town control of edges. `costWeights` are integer ppt; path cost is `int64`. Per-class costs are computed at match load.
+**Path requests.** A\* is sim-owned. The AI calls `PathOnRoads` with a **movement class**; `EstimateTravelTicks` takes the resulting **path** and that class. The service applies `PathRequestsPerTick` = **8** match-wide and caches at `(start, goal, movementClass)` (also `weightKey`, `graphVersion`). Cache hits are free. Neutral-town race checks (§2.1) run only on the strategic cadence, reuse this cache, stay in the AI’s share of the 8, and **defer** to the next strategic tick if a miss would exceed the remaining budget. Battalions keep their last path until the new one commits. `graphVersion` bumps on held nodes, destroyed bridges, and town control of edges. `costWeights` are integer ppt; path cost is `int64`. Per-class costs are computed at match load.
 
 ### 7.3 What we will not do for speed
 
@@ -1131,6 +1213,7 @@ A playerless sim host loads a baked map + terrain WRMB pair, N AI factions, a se
 - Per-town owner and capture progress over time
 - Per-territory owner (anchor-complete)
 - Per-faction resource, army strength, and in-supply fraction
+- **Every 10 s** (`HeadlessLogPeriodTicks` = **200**), from minute **2** through minute **5** **minimum** (ticks 2400–6000 at 20 Hz; continue after minute 5 is allowed): manpower, current manpower reserve, tech savings, battalion count, and **The Dalles** control. Debug/dashboard only — **not** in `HashWorld`.
 - Final score / winner
 - `HashWorld` (**xxHash64**) every `HashPeriodTicks` (**200**)
 
@@ -1196,7 +1279,7 @@ Answered items (scale / `Battalion` entity, Compact personality file, capture/an
 Still open:
 
 1. Win / loss: last faction standing, territory percentage, timed score, or player-only story beats?
-2. Neutral towns: empty at start, NPC garrison, or hazards? Can two AIs race an empty town (shared capture zone, whose timer)?
+2. Neutral towns: empty at start, NPC garrison, or hazards? Whose timer if two sides occupy the zone? (**Race scoring** for neutral towns is decided: §2.1, team 28 Sep 2026.)
 3. Should Easy **telegraph** attacks (longer staging, fewer raids) beyond the numbers in §5?
 4. Army composition: one battalion type or roles (garrison, field, raid, recon, siege-engineer / bridge) that strategy must request by tag?
 5. Sign-off on `strategicValue` weights (percentile mix + land-cover “resources”) and `populationClass` thresholds.
@@ -1212,9 +1295,9 @@ All previous items are **decided**, including WRMB as the single map format (`bl
 
 ### 9.3 Map pipeline engineer
 
-Answered items (chokepoints including `bypassMaxGradePpt` and match-load `bypassPenaltyPpt`; `wheeledOnly` overlay-only, `strategicValue` formula, road LOD budget, AI cells + `cellSizeCm` from META, terrain WRMB split with elevation in dm, rivers/lakes, territories, neighbour lists, `areaCells`, bridges-as-edges, surface/condition split, golden maps under `data/golden/`, **WRMB section layout**) are recorded as [Map pipeline decisions](#map-pipeline-decisions). Layout spec: **`blob-layout-v0.md`**.
+Answered items (chokepoints including `bypassMaxGradePpt` and match-load `bypassPenaltyPpt`; `wheeledOnly` overlay-only, `strategicValue` formula, road LOD budget, AI cells + `cellSizeCm` from META, terrain WRMB split with elevation in dm, rivers/lakes, territories, neighbour lists, `areaCells`, bridges-as-edges, surface/condition split, golden maps under `data/golden/`, **WRMB section layout**, **RoadNode `territoryId`**, **stable-id manifest**) are recorded as [Map pipeline decisions](#map-pipeline-decisions). Layout spec: **`blob-layout-v0.md`**.
 
-Nothing remaining in this section. Soak golden regions stay under §9.1 (Garand).
+Remaining: Gorge **v1** river-following territory borders (map PR). Until that merges, the AI uses the **road-connected adjacency stopgap**. After v1 it uses map adjacency and drops the stopgap. Soak golden regions stay under §9.1 (Garand).
 
 ---
 
@@ -1225,12 +1308,12 @@ No Unity scaffolding in this PR. Milestones assume the sim and map blob exist or
 | Milestone | Deliverable | Exit |
 | --- | --- | --- |
 | **M0 — Seams** | Plug into the foundation command queue. `AiMatchInit` / `AiOnTick` stubs, PCG32 + xxHash64, empty battalion order tables, AI-owned state (id-sorted, hashed, save/load), personality/difficulty JSON hashes in match config. | Determinism check on empty match (hash stable over 10k ticks). |
-| **M1 — Map ingest + derived maps** | Load WRMB pair (map + terrain, mutual `contentHash`) per `blob-layout-v0.md`; `cellSizeCm` from META; `CellExt` / `WaterBody`; influence maps; `TDBG` overlay. | Overlay matches stamped battalions; corridor fallback respects `edgeBlockMask`; binary→JSON→binary round-trip; companion hashes match; reconcile hash. |
-| **M2 — Strategy** | Posture, candidate generation (including Contest/HoldCapture/CutSupply/GuardSupply), utility selection, spend envelope, anchor-set scoring. | In AI-vs-AI on the golden 100×100 blob, factions issue `HoldCaptureZone` / `Fortify` / `AssaultTown` / `CutSupply` with stable hashes. |
-| **M3 — Tactical movement** | Battalions call sim `PathOnRoads` (movement class, ppt weights, `int64` cost); column vs deployed; reports flow back; `executeTick = issuedTick + commandDelayTicks`. | A battalion given `AssaultTown` reaches staging via **supplied** roads, not crow-flies; held-node / destroyed-bridge repath works; wheeled refuses >299‰ off-road. |
-| **M4 — Capture, supply, reinforce, retreat** | Clear/hold/contest phases; isolate by cutting nodes/bridges; contest pauses timers; OOS blocks reinforce after grace. | Fixtures: zone-clear starts timer; enemy combat battalion pauses it; multi-anchor territory flips only when all anchors held; OOS past grace cannot reinforce. |
+| **M1 — Map ingest + derived maps** | Load WRMB pair (map + terrain, mutual `contentHash`) per `blob-layout-v0.md`; `cellSizeCm` from META; `CellExt` / `WaterBody`; influence maps; `TDBG` overlay; stable-id manifest; road-connected adjacency stopgap. | Overlay matches stamped battalions; corridor fallback respects `edgeBlockMask`; binary→JSON→binary round-trip; companion hashes match; reconcile hash; AI state stores no raw node/edge ids. |
+| **M2 — Strategy** | Posture, candidate generation (including Contest/HoldCapture/CutSupply/GuardSupply/`PlaceDepot`/`ResearchTech`), utility selection (neutral-town race on cadence), manpower reserve gate, spend envelope, anchor-set scoring. | In AI-vs-AI on the golden 100×100 blob, factions issue `HoldCaptureZone` / `Fortify` / `AssaultTown` / `CutSupply` / `PlaceDepot` with stable hashes; Compact does not hit manpower 0 by 5:00 from skipping the gate. |
+| **M3 — Tactical movement** | Battalions call sim `PathOnRoads` (movement class, ppt weights, `int64` cost); `EstimateTravelTicks(path, movementClass)`; column vs deployed; reports flow back; `executeTick = issuedTick + commandDelayTicks`. | A battalion given `AssaultTown` reaches staging via **supplied** roads, not crow-flies; held-node / destroyed-bridge repath works; wheeled refuses >299‰ off-road; race checks never run off the strategic cadence. |
+| **M4 — Capture, supply, reinforce, retreat** | Clear/hold/contest phases; isolate by cutting nodes/bridges; contest pauses timers; OOS blocks reinforce after grace; depot pre-check; forward-depot / relay prerequisites. | Fixtures: zone-clear starts timer; enemy combat battalion pauses it; multi-anchor territory flips only when all anchors held; OOS past grace cannot reinforce; depot `CmdBuild` that violates `maxDepotsPerNode` / `depotMinSpacingCm` / ownership / connectivity is never issued. |
 | **M5 — Difficulty + personality** | Load `ai_personalities.json` + `ai_difficulty.json` (`schemaVersion` 1); hashes in match config; Compact `homestead_compact_settler`; Warlord/Raider stubs; `EconomyBonusPpt` as the sole AI numeric cheat (Compact manpower is a faction trait). | Same seed, different difficulty → different hashes (expected) but each pair of reruns matches; swapping personality at fixed difficulty is valid; Brutal income +10% visible in economy log; vision queries never return fogged live enemies. |
-| **M6 — Harness** | `dotnet test` / console host. Per-PR: golden 100×100, 2 AI, 12,000 ticks × 2, hash every 200 ticks. Nightly soak from ~200 matches. | CI finishes in under 5 minutes; identical hash streams; forbidden-iterate canary. |
+| **M6 — Harness** | `dotnet test` / console host. Per-PR: golden 100×100, 2 AI, 12,000 ticks × 2, hash every 200 ticks. Headless log every 10 s (minutes 2–5 min.) of manpower, reserve, tech savings, battalion count, The Dalles control. Nightly soak from ~200 matches. | CI finishes in under 5 minutes; identical hash streams; forbidden-iterate canary; 10 s logs present and **not** in the hash. |
 | **M7 — Playable opponent** | Warlord profile tuned on one frozen map; debug goal / supply / capture overlay usable by design. | Design can play a match vs Warlord/Normal and identify *why* they lost or won from the overlay. |
 
 **Suggested sequence with the rest of the project.** M0 can land against dummy queries. M1 wants one real (or synthetic) map blob. M2–M4 are the vertical slice of “AI cuts supply, takes a neighboring **anchor**, and contests the player’s timer.” M5–M7 are launch quality. Multiplayer/replay work should consume M0’s command stream unchanged.
@@ -1266,6 +1349,13 @@ Locked values from lead-engineer decisions are marked **locked**. The rest are p
 | `BrokenPpt` | 150 | ppt (pooled HP ‰) |
 | `minGarrisonPerTown` | from personality JSON | battalion count (towns and cities) |
 | `taskForceTargetSize` | from personality JSON | battalions (v0.3) |
+| `manpowerReserveSeconds` | 60 | seconds (all difficulties, including Brutal) |
+| `maxDepotsPerNode` | 1 | count (`rules.json` `supply`) |
+| `depotMinSpacingCm` | 804670 | cm (5 road-miles along graph, any owner) |
+| `hqSupplyRangeMi` | 40 | road-miles along graph |
+| `depotSupplyRangeMi` | 30 | road-miles along graph |
+| `HeadlessLogPeriodTicks` | 200 | ticks (10 s at 20 Hz) |
+| `HeadlessLogFromTick` | 2400 | ticks (minute 2; through minute 5 minimum) |
 | `CaptureTicksVillage` | 1200 | ticks (60 s) |
 | `CaptureTicksTown` | 2400 | ticks (120 s) |
 | `CaptureTicksCity` | 3600 | ticks (180 s) |
@@ -1294,6 +1384,10 @@ If a programmer is tempted to “just for now” do any of the following, that c
 - Skip `commandDelayTicks` or hardcode it instead of reading match setup.
 - Command a **section**, or invent nested unit ids. Command the **battalion** (`battalionId`).
 - Invent a private high-ground test. Use the sim’s `HasHighGround` (`attackerDm - targetDm >= 500`, terrain-layer cell, no interpolation, same cell = 0).
+- Store raw road node or edge ids in AI-owned state. Store **stable** territory / bridge / chokepoint ids.
+- Run a neutral-town race check off the strategic cadence, skip the path cache, or exceed `PathRequestsPerTick`.
+- Issue a depot `CmdBuild` the sim would `CommandRejected` (ownership, connectivity at execute, `maxDepotsPerNode`, `depotMinSpacingCm`).
+- Spend manpower so that `manpowerAfter < reserve`, except emergency defense of an inbound owned town.
 - Drop task forces or other AI memory from save/load or the periodic hash (or store them in non-id-sorted order). Other sim systems must not read AI-owned state.
 - Omit a cache from AI-owned state without a deterministic recompute from world state.
 - Run strategic planning every tick “because the CPU is idle.”
@@ -1302,4 +1396,4 @@ If a programmer is tempted to “just for now” do any of the following, that c
 
 ---
 
-*End of proposed contract. Designer positions are draft pending Garand sign-off. Lead-engineer seams and map-pipeline field contract above are **decisions** (WRMB approved; CI golden map approved Sep 28, 2026; soak regions still pending Garand). Next step: M0 against the foundation command queue, and `golden-ci-columbia-gorge-100` under `data/golden/`.*
+*End of proposed contract. Designer positions are draft pending Garand sign-off. Lead-engineer seams, map-pipeline field contract, and team decisions of 28 Sep 2026 (neutral-town race, manpower reserve, depot pre-check, stable map ids, headless logs) above are **decisions** (WRMB approved; CI golden map approved Sep 28, 2026; soak regions still pending Garand; Gorge v1 adjacency still pending the map PR). Next step: M0 against the foundation command queue, and `golden-ci-columbia-gorge-100` under `data/golden/`.*
