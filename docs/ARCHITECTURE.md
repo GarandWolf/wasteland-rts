@@ -2,7 +2,7 @@
 
 Working title. PC/Steam first. Single-player vs AI at launch; lockstep multiplayer after launch, without rewriting the simulation.
 
-Locked with the enemy AI design (`docs/ai/enemy-ai-design.md` §4.3): **20 Hz**, shared **`commandDelayTicks`**, integer **centimeters + parts-per-thousand** in sim state, **PCG32** + **xxHash64**, **squads** as first-class Move targets, events in **eventId** order.
+Locked with the enemy AI design (`docs/ai/enemy-ai-design.md` §4.3): **20 Hz**, shared **`commandDelayTicks`**, integer **centimeters + parts-per-thousand** in sim state, **PCG32** + **xxHash64**, **battalions** as first-class Move targets, events in **eventId** order.
 
 ## Separation of simulation and presentation
 
@@ -31,7 +31,7 @@ Presentation interpolates between the **previous** and **current** committed sim
 
 ```
 intent (player or AI)
-  → SimCommand(issuedTick, issuerId, squadId, kind, cm args)
+  → SimCommand(issuedTick, issuerId, battalionId, kind, cm args)
   → executeTick = issuedTick + commandDelayTicks
   → CommandQueue ordered by (executeTick, issuerId, sequence)
   → SimWorld.Step() validates at execute time, then integrates
@@ -57,11 +57,13 @@ AI is another `issuerId`. It must be deterministic (PCG32 streams derived with `
 
 **Never store `Fixed64` in sim state, hashes, or events.** `Fixed64` (Q32.32 in a `long`) exists only for internal math: hypot, step along a heading, future angles. Convert to cm with `ToIntTowardZero()` before writing state.
 
-## Squads
+## Battalions
 
-A **squad** is a first-class sim entity with a stable `Id`. Units **belong** to squads (`SimUnit.SquadId`). `Move` targets a squad, not a unit. This skeleton spawns a one-unit squad (unit id = squad id) so the command log stays small; later composition will add more units per squad without changing the Move target.
+A **battalion** is a first-class sim entity with a stable `Id`. Units **belong** to battalions (`SimUnit.BattalionId`). `Move` targets a battalion, not a unit. This skeleton spawns a one-unit battalion (unit id = battalion id) so the command log stays small; later composition will add more units per battalion without changing the Move target.
 
-Iterate squads and units in **id order**. Do not rely on dictionary enumeration.
+A group of battalions managed by the AI is a **task force**: AI-owned deterministic state. Other sim systems cannot read it, but it is serialized with saves and folded into the periodic state hash (stored in a fixed order).
+
+Iterate battalions and units in **id order**. Do not rely on dictionary enumeration.
 
 ## Deterministic RNG
 
@@ -75,8 +77,8 @@ Faction streams (AI design §4.2) will be `XxHash64.Mix(matchSeed, factionId, st
 
 1. Tick, seed, `commandDelayTicks`
 2. RNG state + stream
-3. Each squad in id order: id, owner, position/target **cm**, speed cm/s, strength ppt, `HasTarget`
-4. Each unit in id order: id, squadId, owner
+3. Each battalion in id order: id, owner, position/target **cm**, speed cm/s, strength ppt, `HasTarget`
+4. Each unit in id order: id, battalionId, owner
 
 No floats, no `Fixed64` raw bits. In single-player this is a regression tripwire. In multiplayer it is the desync detector.
 
@@ -84,7 +86,7 @@ No floats, no `Fixed64` raw bits. In single-player this is a regression tripwire
 
 `SimEvent` values are appended with monotonic `eventId`. Consumers (AI tactical, tests) read them **in eventId order**. Payloads are **ids and ticks only** (plus an integer reason code on reject).
 
-This skeleton emits `SquadSpawned`, `SquadArrived`, and `CommandRejected`. The AI design lists further kinds (`TownOwnerChanged`, `SquadSpotted`, …) to be added with those systems.
+This skeleton emits `BattalionSpawned`, `BattalionArrived`, and `CommandRejected`. The AI design lists further kinds (`TownOwnerChanged`, `BattalionSpotted`, …) to be added with those systems.
 
 ## Save, load, and replays
 
@@ -105,7 +107,7 @@ The current `SimWorld` is a headless prototype. The lockstep contract it defines
 
 | Today | DOTS later |
 | --- | --- |
-| `SimSquad` / `SimUnit` | `IComponentData` with integer cm fields and stable ids |
+| `SimBattalion` / `SimUnit` | `IComponentData` with integer cm fields and stable ids |
 | `List<T>` scan in id order | `ISystem` / `IJobEntity` sorted by sim id, never `Entity` |
 | `CommandQueue` | Buffer consumed first in the sim group |
 | `Fixed64` | Burst-compile **only** integer/`Fixed64` paths; never persist it |
@@ -115,11 +117,11 @@ Netcode for Entities is not the lockstep path. Lockstep exchanges `SimCommand` b
 
 ## Road pathfinding (`PathOnRoads`)
 
-**Sim-owned service, not implemented in this PR.**
+Sim-owned `Wasteland.Sim.Movement.MovementService`. Integer A* on a versioned road-graph blob, 8-connected grid A* on a versioned terrain blob, and a combined query that takes a road shortcut when that is cheaper. Costs are `int64` ticks; `costWeights` are parts-per-thousand. Both player UI path preview and AI call the same functions. Do **not** put a private float A* inside the AI module.
 
-AI design §4.3: `PathOnRoads(fromNode, toNode, costWeights)` returns a node list + integer total cost, or unreachable. Both player UI path preview and AI call the same function. Costs are `int64`; threat samples that feed weights are fog-filtered integers. Do **not** put a private float A* inside the AI module.
+Blobs: [docs/formats/wrmb-v0.md](formats/wrmb-v0.md) (map/AI WRMB + separate terrain WRMB). Algorithms, budget, cache, and the hierarchical gateway rule: [docs/movement.md](movement.md). Per-class cost grids are computed at **match load** from `movement-tables-v1.json`, not at map bake.
 
-Until the road graph exists, no caller should invent a parallel pathfinder. Local formation following around a squad stays in the sim (integer/fixed internal math, cm state).
+Until `SimWorld.Move` is wired to follow a `PathResult`, local motion is still a straight cm line. Local formation following around a battalion stays in the sim (integer/fixed internal math, cm state).
 
 Unity NavMesh is presentation/authoring only.
 
@@ -145,7 +147,7 @@ A 200×200 mile map cannot be a uniform navmesh. Hierarchical **integer-cost** r
 
 ### Identity
 
-`Entity` ids are not stable. Sim identity is `SquadId` / `UnitId` / `issuerId`. Command logs refer to those.
+`Entity` ids are not stable. Sim identity is `BattalionId` / `UnitId` / `issuerId`. Command logs refer to those.
 
 ### Time sources
 

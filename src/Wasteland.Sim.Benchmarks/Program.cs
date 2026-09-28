@@ -1,0 +1,287 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using Wasteland.Sim.Movement;
+
+namespace Wasteland.Sim.Benchmarks
+{
+    /// <summary>
+    /// Micro-benchmark for road ALT, HPA* off-road, and expansion-capped queue ticks.
+    /// Not a CI gate: <c>dotnet run -c Release --project src/Wasteland.Sim.Benchmarks</c>.
+    /// </summary>
+    public static class Program
+    {
+        public static int Main()
+        {
+            MovementTables tables = MovementTables.Default();
+            BenchmarkRoads(tables);
+            string cacheDir = Path.Combine(Path.GetTempPath(), "wasteland-whpa-bench");
+            BenchmarkGrid(tables, 1800, cacheDir);
+            BenchmarkGrid(tables, 3600, cacheDir);
+            return 0;
+        }
+
+        private static void PrintLoad(MovementLoadStats s)
+        {
+            Console.WriteLine(
+                "  load {0} ms  cacheHit={1} workers={2} costGrid={3} ms hierarchy={4} ms clusters={5} size={6} absNodes/class={7} absEdges/class={8} landmarks={9}",
+                s.LoadMilliseconds,
+                s.HierarchyCacheHit,
+                s.BuildWorkers,
+                s.CostGridMilliseconds,
+                s.HierarchyMilliseconds,
+                s.ClusterCount,
+                s.ClusterSize,
+                s.AbstractNodesPerClass,
+                s.AbstractDirectedEdgesPerClass,
+                s.LandmarkCount);
+            Console.WriteLine(
+                "  memory/class: costGrid={0:F1} MB  hierarchy={1:F1} MB  landmarks={2:F1} MB  scratch={3:F1} MB  total≈{4:F1} MB",
+                s.CostGridBytesPerClass / 1048576.0,
+                s.HierarchyBytesPerClass / 1048576.0,
+                s.LandmarkBytesPerClass / 1048576.0,
+                s.ScratchBytes / 1048576.0,
+                (s.CostGridBytesPerClass * 4 + s.HierarchyBytesPerClass * 4 + s.LandmarkBytesPerClass * 4 + s.ScratchBytes) / 1048576.0);
+            Process proc = Process.GetCurrentProcess();
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            Console.WriteLine(
+                "  process: workingSet={0:F1} MB  gcHeap={1:F1} MB",
+                proc.WorkingSet64 / 1048576.0,
+                GC.GetTotalMemory(true) / 1048576.0);
+        }
+
+        private static void BenchmarkRoads(MovementTables tables)
+        {
+            const int side = 90;
+            RoadGraphBuilder roads = new RoadGraphBuilder();
+            int cell = MovementConfig.SyntheticFixtureCellSizeCm;
+            for (int y = 0; y < side; y++)
+            {
+                for (int x = 0; x < side; x++)
+                {
+                    int id = y * side + x + 1;
+                    roads.AddNode(id, x * cell + cell / 2, y * cell + cell / 2);
+                    if (x > 0)
+                    {
+                        int left = y * side + (x - 1) + 1;
+                        roads.AddEdge(id * 2, left, id, cell, RoadTier.Paved, RoadSurface.Asphalt);
+                    }
+
+                    if (y > 0)
+                    {
+                        int below = (y - 1) * side + x + 1;
+                        roads.AddEdge(id * 2 + 1, below, id, cell, RoadTier.Paved, RoadSurface.Asphalt);
+                    }
+                }
+            }
+
+            TerrainGridBuilder terrain = new TerrainGridBuilder(side, side, MovementConfig.SyntheticFixtureCellSizeCm).Fill(0, LandCover.Field);
+            Console.WriteLine("Building {0}×{0} road graph ({1} nodes)...", side, side * side);
+            MovementService svc = MovementService.Create(roads.ToBlob(), terrain.ToBlob(), tables);
+            PrintLoad(svc.LoadStats);
+            Console.WriteLine("  nodes={0} edges={1}", svc.Graph.NodeCount, svc.Graph.EdgeCount);
+
+            int from = 1;
+            int to = side * side;
+            RoadCostWeights weights = RoadCostWeights.Uniform();
+            Stopwatch warm = Stopwatch.StartNew();
+            PathResult first = svc.PathOnRoads(from, to, MovementClass.Wheeled, weights);
+            warm.Stop();
+            Console.WriteLine(
+                "  first PathOnRoads reachable={0} cost={1} expansions={2} {3} ms hash=0x{4:X16}",
+                first.Reachable,
+                first.TotalCostTicks,
+                svc.LastExpansions,
+                warm.ElapsedMilliseconds,
+                first.Hash);
+
+            const int repeats = 40;
+            int[] froms = new int[repeats];
+            int[] tos = new int[repeats];
+            for (int i = 0; i < repeats; i++)
+            {
+                froms[i] = 1 + i * 17;
+                tos[i] = side * side - i * 13;
+                if (tos[i] <= froms[i])
+                {
+                    tos[i] = froms[i] + 50;
+                }
+            }
+
+            long expSum = 0;
+            Stopwatch search = Stopwatch.StartNew();
+            ulong mix = 0;
+            for (int i = 0; i < repeats; i++)
+            {
+                PathResult r = svc.PathOnRoads(froms[i], tos[i], MovementClass.Wheeled, weights);
+                mix ^= r.Hash;
+                expSum += svc.LastExpansions;
+            }
+
+            search.Stop();
+            Console.WriteLine(
+                "  {0} unique PathOnRoads {1} ms ({2:F3} ms/query, {3:F1} expansions/query) mix=0x{4:X16}",
+                repeats,
+                search.ElapsedMilliseconds,
+                search.Elapsed.TotalMilliseconds / repeats,
+                expSum / (double)repeats,
+                mix);
+        }
+
+        private static void BenchmarkGrid(MovementTables tables, int side, string cacheDir)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+            GC.Collect();
+            int cell = MovementConfig.ProductionCellSizeCm;
+            Console.WriteLine(
+                "Building {0}×{0} mixed terrain ({1} cells, cellSizeCm={2}, field/forest bands + river)...",
+                side,
+                side * side,
+                cell);
+            TerrainGridBuilder terrain = MixedCover(side, cell);
+            RoadGraphBuilder roads = new RoadGraphBuilder().AddNode(1, cell / 2, cell / 2);
+            byte[] mapBlob = roads.ToBlob();
+            byte[] terrainBlob = terrain.ToBlob();
+            MovementServiceConfig coldCfg = new MovementServiceConfig(
+                MovementConfig.DefaultPathRequestsPerTick,
+                MovementConfig.DefaultMaxGateways,
+                MovementConfig.DefaultExpansionsPerTick,
+                MovementConfig.DefaultClusterSize,
+                MovementConfig.DefaultLandmarkCount,
+                cacheDir,
+                0);
+            MovementService svc = MovementService.Create(mapBlob, terrainBlob, tables, coldCfg);
+            PrintLoad(svc.LoadStats);
+
+            MovementServiceConfig warmCfg = coldCfg;
+            MovementService warm = MovementService.Create(mapBlob, terrainBlob, tables, warmCfg);
+            Console.WriteLine(
+                "  cache reload {0} ms hit={1}",
+                warm.LoadStats.LoadMilliseconds,
+                warm.LoadStats.HierarchyCacheHit);
+
+            int fromX = svc.Terrain.CellCenterXCm(0);
+            int fromY = svc.Terrain.CellCenterYCm(0);
+            int toX = svc.Terrain.CellCenterXCm(side - 1);
+            int toY = svc.Terrain.CellCenterYCm(side - 1);
+            Stopwatch first = Stopwatch.StartNew();
+            PathResult corner = svc.PathOffRoad(fromX, fromY, toX, toY, MovementClass.Foot);
+            first.Stop();
+            Console.WriteLine(
+                "  corner-to-corner foot reachable={0} cost={1} waypoints={2} expansions={3} {4} ms hash=0x{5:X16}",
+                corner.Reachable,
+                corner.TotalCostTicks,
+                corner.Waypoints.Length,
+                svc.LastExpansions,
+                first.ElapsedMilliseconds,
+                corner.Hash);
+
+            const int n = 8;
+            long expSum = 0;
+            Stopwatch eight = Stopwatch.StartNew();
+            ulong mix = 0;
+            for (int i = 0; i < n; i++)
+            {
+                int x1 = svc.Terrain.CellCenterXCm(System.Math.Min(i * (side / 16), side - 1));
+                int y1 = svc.Terrain.CellCenterYCm(System.Math.Min(i * (side / 20), side - 1));
+                int x2 = svc.Terrain.CellCenterXCm(System.Math.Max(side - 1 - i * (side / 18), 0));
+                int y2 = svc.Terrain.CellCenterYCm(System.Math.Max(side - 1 - i * (side / 22), 0));
+                PathResult r = svc.PathOffRoad(x1, y1, x2, y2, MovementClass.Wheeled);
+                mix ^= r.Hash;
+                expSum += svc.LastExpansions;
+            }
+
+            eight.Stop();
+            Console.WriteLine(
+                "  {0} unique wheeled PathOffRoad {1} ms ({2:F3} ms/query, {3:F1} expansions/query) mix=0x{4:X16}",
+                n,
+                eight.ElapsedMilliseconds,
+                eight.Elapsed.TotalMilliseconds / n,
+                expSum / (double)n,
+                mix);
+
+            MovementService queued = svc;
+            int sliceFromX = svc.Terrain.CellCenterXCm(1);
+            int sliceFromY = svc.Terrain.CellCenterYCm(1);
+            int sliceToX = svc.Terrain.CellCenterXCm(side - 2);
+            int sliceToY = svc.Terrain.CellCenterYCm(side - 2);
+            int qid = queued.Enqueue(PathRequest.OffRoad(sliceFromX, sliceFromY, sliceToX, sliceToY, MovementClass.Foot));
+            int ticks = 0;
+            long maxExp = 0;
+            long maxTickMs = 0;
+            Stopwatch tickClock = new Stopwatch();
+            while (!queued.TryGetResult(qid, out _) && ticks < 100000)
+            {
+                tickClock.Restart();
+                queued.ProcessQueue();
+                tickClock.Stop();
+                if (queued.ExpansionsThisTick > maxExp)
+                {
+                    maxExp = queued.ExpansionsThisTick;
+                }
+
+                if (tickClock.ElapsedMilliseconds > maxTickMs)
+                {
+                    maxTickMs = tickClock.ElapsedMilliseconds;
+                }
+
+                ticks++;
+            }
+
+            queued.TryGetResult(qid, out PathResult committed);
+            Console.WriteLine(
+                "  sliced corner: ticks={0} commitTick={1} maxExpansions/tick={2} (cap {3}) worstTick={4} ms reachable={5}",
+                ticks,
+                committed.CommitTick,
+                maxExp,
+                queued.ExpansionsPerTick,
+                maxTickMs,
+                committed.Reachable);
+        }
+
+        /// <summary>
+        /// Production-like mixed cover: 16-cell field / forest bands (every 32-cell
+        /// cluster has two costs, so intra-cluster Dijkstra actually runs) plus a
+        /// 2-cell water river with periodic fords so ground classes stay connected.
+        /// Air is still uniform and skips HPA*.
+        /// </summary>
+        private static TerrainGridBuilder MixedCover(int side, int cellSizeCm)
+        {
+            TerrainGridBuilder terrain = new TerrainGridBuilder(side, side, cellSizeCm).Fill(0, LandCover.Field);
+            for (int y = 16; y < side; y += 32)
+            {
+                int y1 = y + 15;
+                if (y1 >= side)
+                {
+                    y1 = side - 1;
+                }
+
+                terrain.FillRect(0, y, side - 1, y1, 0, LandCover.Forest);
+            }
+
+            int river = side / 2;
+            int river1 = river + 1;
+            if (river1 >= side)
+            {
+                river1 = side - 1;
+            }
+
+            terrain.FillRect(river, 0, river1, side - 1, 0, LandCover.Water);
+            for (int y = 0; y < side; y += 64)
+            {
+                int y1 = y + 3;
+                if (y1 >= side)
+                {
+                    y1 = side - 1;
+                }
+
+                terrain.FillRect(river, y, river1, y1, 0, LandCover.Ford);
+            }
+
+            return terrain;
+        }
+    }
+}

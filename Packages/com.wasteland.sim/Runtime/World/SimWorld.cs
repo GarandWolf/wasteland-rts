@@ -9,15 +9,15 @@ using Wasteland.Sim.Random;
 namespace Wasteland.Sim.World
 {
     /// <summary>
-    /// Minimal deterministic world: spawn squads, issue Move commands, step at
+    /// Minimal deterministic world: spawn battalions, issue Move commands, step at
     /// 20 Hz. All mutation goes through the delayed command queue. Validation
     /// is authoritative at execute time; rejections emit
     /// <see cref="SimEventKind.CommandRejected"/>.
     /// </summary>
     public sealed class SimWorld
     {
-        private readonly List<SimSquad> _squads = new List<SimSquad>();
-        private readonly Dictionary<int, int> _squadIndexById = new Dictionary<int, int>();
+        private readonly List<SimBattalion> _battalions = new List<SimBattalion>();
+        private readonly Dictionary<int, int> _battalionIndexById = new Dictionary<int, int>();
         private readonly List<SimUnit> _units = new List<SimUnit>();
         private readonly Dictionary<int, int> _unitIndexById = new Dictionary<int, int>();
         private readonly Dictionary<int, int> _nextSequenceByIssuer = new Dictionary<int, int>();
@@ -58,9 +58,9 @@ namespace Wasteland.Sim.World
             get { return _commandDelayTicks; }
         }
 
-        public int SquadCount
+        public int BattalionCount
         {
-            get { return _squads.Count; }
+            get { return _battalions.Count; }
         }
 
         public int UnitCount
@@ -73,9 +73,9 @@ namespace Wasteland.Sim.World
             get { return _rng; }
         }
 
-        public IReadOnlyList<SimSquad> Squads
+        public IReadOnlyList<SimBattalion> Battalions
         {
-            get { return _squads; }
+            get { return _battalions; }
         }
 
         public IReadOnlyList<SimUnit> Units
@@ -88,9 +88,9 @@ namespace Wasteland.Sim.World
             get { return _events; }
         }
 
-        public SimSquad GetSquad(int id)
+        public SimBattalion GetBattalion(int id)
         {
-            return _squads[SquadIndexOf(id)];
+            return _battalions[BattalionIndexOf(id)];
         }
 
         public SimUnit GetUnit(int id)
@@ -109,7 +109,7 @@ namespace Wasteland.Sim.World
             int executeTick = checked(command.IssuedTick + _commandDelayTicks);
             if (executeTick < Tick)
             {
-                Emit(SimEventKind.CommandRejected, command.SquadId, (int)CommandRejectReason.TooLate);
+                Emit(SimEventKind.CommandRejected, command.BattalionId, (int)CommandRejectReason.TooLate);
                 return command;
             }
 
@@ -140,20 +140,20 @@ namespace Wasteland.Sim.World
             hash.AddInt(_commandDelayTicks);
             hash.AddULong(_rng.State);
             hash.AddULong(_rng.Stream);
-            hash.AddInt(_squads.Count);
+            hash.AddInt(_battalions.Count);
 
-            for (int i = 0; i < _squads.Count; i++)
+            for (int i = 0; i < _battalions.Count; i++)
             {
-                SimSquad squad = _squads[i];
-                hash.AddInt(squad.Id);
-                hash.AddInt(squad.OwnerId);
-                hash.AddInt(squad.PositionXCm);
-                hash.AddInt(squad.PositionYCm);
-                hash.AddInt(squad.TargetXCm);
-                hash.AddInt(squad.TargetYCm);
-                hash.AddInt(squad.SpeedCmPerSecond);
-                hash.AddInt(squad.StrengthPpt);
-                hash.AddBool(squad.HasTarget);
+                SimBattalion battalion = _battalions[i];
+                hash.AddInt(battalion.Id);
+                hash.AddInt(battalion.OwnerId);
+                hash.AddInt(battalion.PositionXCm);
+                hash.AddInt(battalion.PositionYCm);
+                hash.AddInt(battalion.TargetXCm);
+                hash.AddInt(battalion.TargetYCm);
+                hash.AddInt(battalion.SpeedCmPerSecond);
+                hash.AddInt(battalion.StrengthPpt);
+                hash.AddBool(battalion.HasTarget);
             }
 
             hash.AddInt(_units.Count);
@@ -161,7 +161,7 @@ namespace Wasteland.Sim.World
             {
                 SimUnit unit = _units[i];
                 hash.AddInt(unit.Id);
-                hash.AddInt(unit.SquadId);
+                hash.AddInt(unit.BattalionId);
                 hash.AddInt(unit.OwnerId);
             }
 
@@ -176,14 +176,14 @@ namespace Wasteland.Sim.World
                 SimCommand command = commands[i];
                 switch (command.Kind)
                 {
-                    case CommandKind.SpawnSquad:
+                    case CommandKind.SpawnBattalion:
                         ApplySpawn(command);
                         break;
                     case CommandKind.Move:
                         ApplyMove(command);
                         break;
                     default:
-                        Emit(SimEventKind.CommandRejected, command.SquadId, (int)CommandRejectReason.UnknownKind);
+                        Emit(SimEventKind.CommandRejected, command.BattalionId, (int)CommandRejectReason.UnknownKind);
                         break;
                 }
             }
@@ -193,21 +193,21 @@ namespace Wasteland.Sim.World
 
         private void ApplySpawn(SimCommand command)
         {
-            if (_squadIndexById.ContainsKey(command.SquadId))
+            if (_battalionIndexById.ContainsKey(command.BattalionId))
             {
-                Emit(SimEventKind.CommandRejected, command.SquadId, (int)CommandRejectReason.DuplicateSquad);
+                Emit(SimEventKind.CommandRejected, command.BattalionId, (int)CommandRejectReason.DuplicateBattalion);
                 return;
             }
 
             if (command.Arg2 < 0)
             {
-                Emit(SimEventKind.CommandRejected, command.SquadId, (int)CommandRejectReason.NegativeSpeed);
+                Emit(SimEventKind.CommandRejected, command.BattalionId, (int)CommandRejectReason.NegativeSpeed);
                 return;
             }
 
-            SimSquad squad = new SimSquad
+            SimBattalion battalion = new SimBattalion
             {
-                Id = command.SquadId,
+                Id = command.BattalionId,
                 OwnerId = command.IssuerId,
                 PositionXCm = command.Arg0,
                 PositionYCm = command.Arg1,
@@ -218,19 +218,19 @@ namespace Wasteland.Sim.World
                 HasTarget = false
             };
 
-            int insertAt = _squads.BinarySearch(squad, SquadIdComparer.Instance);
+            int insertAt = _battalions.BinarySearch(battalion, BattalionIdComparer.Instance);
             if (insertAt < 0)
             {
                 insertAt = ~insertAt;
             }
 
-            _squads.Insert(insertAt, squad);
-            RebuildSquadIndex();
+            _battalions.Insert(insertAt, battalion);
+            RebuildBattalionIndex();
 
             SimUnit unit = new SimUnit
             {
-                Id = command.SquadId,
-                SquadId = command.SquadId,
+                Id = command.BattalionId,
+                BattalionId = command.BattalionId,
                 OwnerId = command.IssuerId
             };
             int unitAt = _units.BinarySearch(unit, UnitIdComparer.Instance);
@@ -242,69 +242,69 @@ namespace Wasteland.Sim.World
             _units.Insert(unitAt, unit);
             RebuildUnitIndex();
 
-            Emit(SimEventKind.SquadSpawned, command.SquadId, command.IssuerId);
+            Emit(SimEventKind.BattalionSpawned, command.BattalionId, command.IssuerId);
         }
 
         private void ApplyMove(SimCommand command)
         {
-            if (!_squadIndexById.TryGetValue(command.SquadId, out int index))
+            if (!_battalionIndexById.TryGetValue(command.BattalionId, out int index))
             {
-                Emit(SimEventKind.CommandRejected, command.SquadId, (int)CommandRejectReason.UnknownSquad);
+                Emit(SimEventKind.CommandRejected, command.BattalionId, (int)CommandRejectReason.UnknownBattalion);
                 return;
             }
 
-            SimSquad squad = _squads[index];
-            if (squad.OwnerId != command.IssuerId)
+            SimBattalion battalion = _battalions[index];
+            if (battalion.OwnerId != command.IssuerId)
             {
-                Emit(SimEventKind.CommandRejected, command.SquadId, (int)CommandRejectReason.NotOwner);
+                Emit(SimEventKind.CommandRejected, command.BattalionId, (int)CommandRejectReason.NotOwner);
                 return;
             }
 
-            squad.TargetXCm = command.Arg0;
-            squad.TargetYCm = command.Arg1;
-            squad.HasTarget = true;
-            _squads[index] = squad;
+            battalion.TargetXCm = command.Arg0;
+            battalion.TargetYCm = command.Arg1;
+            battalion.HasTarget = true;
+            _battalions[index] = battalion;
         }
 
         private void IntegrateMovement()
         {
-            for (int i = 0; i < _squads.Count; i++)
+            for (int i = 0; i < _battalions.Count; i++)
             {
-                SimSquad squad = _squads[i];
-                if (!squad.HasTarget)
+                SimBattalion battalion = _battalions[i];
+                if (!battalion.HasTarget)
                 {
                     continue;
                 }
 
-                int dx = squad.TargetXCm - squad.PositionXCm;
-                int dy = squad.TargetYCm - squad.PositionYCm;
+                int dx = battalion.TargetXCm - battalion.PositionXCm;
+                int dy = battalion.TargetYCm - battalion.PositionYCm;
                 long distSq = ((long)dx * dx) + ((long)dy * dy);
                 if (distSq == 0)
                 {
-                    squad.HasTarget = false;
-                    _squads[i] = squad;
-                    Emit(SimEventKind.SquadArrived, squad.Id, 0);
+                    battalion.HasTarget = false;
+                    _battalions[i] = battalion;
+                    Emit(SimEventKind.BattalionArrived, battalion.Id, 0);
                     continue;
                 }
 
-                Fixed64 speedPerTick = Fixed64.FromInt(squad.SpeedCmPerSecond) * SimConfig.TickDuration;
+                Fixed64 speedPerTick = Fixed64.FromInt(battalion.SpeedCmPerSecond) * SimConfig.TickDuration;
                 Fixed64Vec2 delta = new Fixed64Vec2(Fixed64.FromInt(dx), Fixed64.FromInt(dy));
                 Fixed64 distance = delta.Length();
                 if (distance <= speedPerTick)
                 {
-                    squad.PositionXCm = squad.TargetXCm;
-                    squad.PositionYCm = squad.TargetYCm;
-                    squad.HasTarget = false;
-                    Emit(SimEventKind.SquadArrived, squad.Id, 0);
+                    battalion.PositionXCm = battalion.TargetXCm;
+                    battalion.PositionYCm = battalion.TargetYCm;
+                    battalion.HasTarget = false;
+                    Emit(SimEventKind.BattalionArrived, battalion.Id, 0);
                 }
                 else
                 {
                     Fixed64Vec2 step = delta * (speedPerTick / distance);
-                    squad.PositionXCm += step.X.ToIntTowardZero();
-                    squad.PositionYCm += step.Y.ToIntTowardZero();
+                    battalion.PositionXCm += step.X.ToIntTowardZero();
+                    battalion.PositionYCm += step.Y.ToIntTowardZero();
                 }
 
-                _squads[i] = squad;
+                _battalions[i] = battalion;
             }
         }
 
@@ -314,11 +314,11 @@ namespace Wasteland.Sim.World
             _nextEventId++;
         }
 
-        private int SquadIndexOf(int squadId)
+        private int BattalionIndexOf(int battalionId)
         {
-            if (!_squadIndexById.TryGetValue(squadId, out int index))
+            if (!_battalionIndexById.TryGetValue(battalionId, out int index))
             {
-                throw new InvalidOperationException("Unknown squad " + squadId + ".");
+                throw new InvalidOperationException("Unknown battalion " + battalionId + ".");
             }
 
             return index;
@@ -334,12 +334,12 @@ namespace Wasteland.Sim.World
             return index;
         }
 
-        private void RebuildSquadIndex()
+        private void RebuildBattalionIndex()
         {
-            _squadIndexById.Clear();
-            for (int i = 0; i < _squads.Count; i++)
+            _battalionIndexById.Clear();
+            for (int i = 0; i < _battalions.Count; i++)
             {
-                _squadIndexById.Add(_squads[i].Id, i);
+                _battalionIndexById.Add(_battalions[i].Id, i);
             }
         }
 
@@ -352,11 +352,11 @@ namespace Wasteland.Sim.World
             }
         }
 
-        private sealed class SquadIdComparer : IComparer<SimSquad>
+        private sealed class BattalionIdComparer : IComparer<SimBattalion>
         {
-            public static readonly SquadIdComparer Instance = new SquadIdComparer();
+            public static readonly BattalionIdComparer Instance = new BattalionIdComparer();
 
-            public int Compare(SimSquad x, SimSquad y)
+            public int Compare(SimBattalion x, SimBattalion y)
             {
                 return x.Id.CompareTo(y.Id);
             }

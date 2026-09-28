@@ -4,8 +4,8 @@ namespace Wasteland.Sim.Events
     {
         None = 0,
         TooLate = 1,
-        UnknownSquad = 2,
-        DuplicateSquad = 3,
+        UnknownBattalion = 2,
+        DuplicateBattalion = 3,
         NotOwner = 4,
         NegativeSpeed = 5,
         UnknownKind = 6

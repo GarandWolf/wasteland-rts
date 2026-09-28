@@ -6,7 +6,7 @@ Players build defenses and assault neighboring territories on 100×100 or 200×2
 
 ## Status
 
-Foundation only: Unity 6.3 LTS project skeleton, a deterministic simulation assembly with no `UnityEngine` dependency, and a `dotnet test` suite that proves a scripted match hashes identically when replayed.
+Foundation: Unity 6.3 LTS project skeleton, a deterministic simulation assembly with no `UnityEngine` dependency (including integer road/grid pathfinding), and a `dotnet test` suite that proves a scripted match hashes identically when replayed.
 
 ## Requirements
 
@@ -24,13 +24,16 @@ Open this folder in the Unity Hub with 6000.3.24f1. First open downloads package
 
 ## Layout
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — 20 Hz lockstep, delayed commands, cm state, squads, PCG32/xxHash64, DOTS mapping
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — 20 Hz lockstep, delayed commands, cm state, battalions, PCG32/xxHash64, DOTS mapping
+- [`docs/movement.md`](docs/movement.md) — sim-owned pathfinding
+- [`docs/formats/`](docs/formats/) — WRMB map container (roads + terrain)
 - [`Packages/com.wasteland.sim/`](Packages/com.wasteland.sim/) — simulation core
 - [`Assets/_Project/`](Assets/_Project/) — presentation, art/shader prototypes, throwaway Prototypes assembly
 - [`data/golden/`](data/golden/) — Columbia Gorge 100×100 mile WRMB goldens (Git LFS)
 - [`docs/map/wrmb-layout-v0.md`](docs/map/wrmb-layout-v0.md) — WRMB v0 map container (main + terrain)
 - [`tools/map/wrmb_reader.py`](tools/map/wrmb_reader.py) — standalone WRMB reader/validator
 - [`src/Wasteland.Sim.Tests/`](src/Wasteland.Sim.Tests/) — xUnit
+- [`src/Wasteland.Sim.Benchmarks/`](src/Wasteland.Sim.Benchmarks/) — pathfinding micro-benchmark (not a CI gate)
 
 ## License
 

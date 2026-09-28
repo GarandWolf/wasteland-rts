@@ -19,4 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Wasteland.Sim\Wasteland.Sim.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\Packages\com.wasteland.sim\Runtime\Movement\Data\movement-tables-v1.json" Link="movement-tables-v1.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

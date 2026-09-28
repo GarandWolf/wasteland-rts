@@ -13,7 +13,8 @@ Assets/_Project/          Unity presentation, scenes, authoring
 Packages/com.wasteland.sim/   Deterministic sim (UPM embedded package, no UnityEngine)
 src/Wasteland.Sim/        dotnet wrapper csproj that compiles the package sources
 src/Wasteland.Sim.Tests/  xUnit, runs on CI without the Unity editor
-docs/                     Architecture and process
+src/Wasteland.Sim.Benchmarks/  pathfinding micro-benchmark (`dotnet run -c Release`, not CI)
+docs/                     Architecture, movement, blob formats
 docs/map/                 WRMB v0 layout spec
 data/golden/              Columbia Gorge WRMB goldens (Git LFS)
 tools/map/                Standalone WRMB reader/validator (Python stdlib)
@@ -28,7 +29,7 @@ One assembly definition per module. No cross-talk except downward:
 
 | Asmdef | Namespace | UnityEngine | Notes |
 | --- | --- | --- | --- |
-| `Wasteland.Sim` | `Wasteland.Sim.*` | **Forbidden** (`noEngineReferences`) | Commands, squads, cm state, PCG32, xxHash64 |
+| `Wasteland.Sim` | `Wasteland.Sim.*` | **Forbidden** (`noEngineReferences`) | Commands, battalions, cm state, PCG32, xxHash64 |
 | `Wasteland.Presentation` | `Wasteland.Presentation` | Allowed | View, interpolation, UI |
 | `Wasteland.Prototypes` | `Wasteland.Prototypes` | Allowed | Throwaway only. `autoReferenced: false`. Shipping asmdefs must not reference it. |
 
@@ -51,8 +52,8 @@ Root namespace for Unity-generated scripts is `Wasteland` (see Editor Settings).
 1. Sim **state**, **hashes**, and **events** are integers: centimeters (`int32`), squared distances (`int64`), parts-per-thousand. No `float` / `double` / `Fixed64` stored there.
 2. `Fixed64` is internal math only (sqrt, stepping, angles). Convert to cm before writing state.
 3. No `UnityEngine` in `Wasteland.Sim`.
-4. All state changes go through `SimCommand` (`issuedTick + commandDelayTicks`). Move targets **squads**.
-5. Iterate squads/units in id order. Do not rely on dictionary enumeration.
+4. All state changes go through `SimCommand` (`issuedTick + commandDelayTicks`). Move targets **battalions**.
+5. Iterate battalions/units in id order. Do not rely on dictionary enumeration.
 6. RNG is PCG32 (`SimRandom`). Hashing is xxHash64. Both have golden tests.
 7. If two runs with the same `MatchConfig` and command log disagree on `HashState()`, it is a bug.
 
@@ -90,6 +91,7 @@ Do not treat `ProjectSettings/ProjectSettings.asset` as sacred after first open 
 ```bash
 git lfs install          # once per machine
 dotnet test Wasteland.Sim.sln
+dotnet run -c Release --project src/Wasteland.Sim.Benchmarks   # pathfinding micro-benchmark, not CI
 (cd data/golden && sha256sum -c golden-ci-columbia-gorge-100.v0.wrmb.sha256 --strict \
   && sha256sum -c golden-ci-columbia-gorge-100.terrain.v0.wrmb.sha256 --strict)
 python3 tools/map/wrmb_reader.py \
