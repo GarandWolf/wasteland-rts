@@ -149,6 +149,8 @@ namespace Wasteland.Sim.Movement
         public readonly int ExpansionsPerTick;
         public readonly int ClusterSize;
         public readonly int LandmarkCount;
+        public readonly string? HierarchyCacheDirectory;
+        public readonly int BuildWorkers;
 
         public MovementServiceConfig(int pathRequestsPerTick, int maxGateways)
             : this(
@@ -156,7 +158,9 @@ namespace Wasteland.Sim.Movement
                 maxGateways,
                 MovementConfig.DefaultExpansionsPerTick,
                 MovementConfig.DefaultClusterSize,
-                MovementConfig.DefaultLandmarkCount)
+                MovementConfig.DefaultLandmarkCount,
+                null,
+                0)
         {
         }
 
@@ -166,6 +170,18 @@ namespace Wasteland.Sim.Movement
             int expansionsPerTick,
             int clusterSize,
             int landmarkCount)
+            : this(pathRequestsPerTick, maxGateways, expansionsPerTick, clusterSize, landmarkCount, null, 0)
+        {
+        }
+
+        public MovementServiceConfig(
+            int pathRequestsPerTick,
+            int maxGateways,
+            int expansionsPerTick,
+            int clusterSize,
+            int landmarkCount,
+            string? hierarchyCacheDirectory,
+            int buildWorkers)
         {
             if (pathRequestsPerTick < 0)
             {
@@ -192,11 +208,18 @@ namespace Wasteland.Sim.Movement
                 throw new ArgumentOutOfRangeException(nameof(landmarkCount));
             }
 
+            if (buildWorkers < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(buildWorkers));
+            }
+
             PathRequestsPerTick = pathRequestsPerTick;
             MaxGateways = maxGateways;
             ExpansionsPerTick = expansionsPerTick;
             ClusterSize = clusterSize;
             LandmarkCount = landmarkCount;
+            HierarchyCacheDirectory = hierarchyCacheDirectory;
+            BuildWorkers = buildWorkers;
         }
 
         public static MovementServiceConfig Default
@@ -208,7 +231,9 @@ namespace Wasteland.Sim.Movement
                     MovementConfig.DefaultMaxGateways,
                     MovementConfig.DefaultExpansionsPerTick,
                     MovementConfig.DefaultClusterSize,
-                    MovementConfig.DefaultLandmarkCount);
+                    MovementConfig.DefaultLandmarkCount,
+                    null,
+                    0);
             }
         }
     }
@@ -227,5 +252,9 @@ namespace Wasteland.Sim.Movement
         public long LandmarkBytesPerClass;
         public long ScratchBytes;
         public long LoadMilliseconds;
+        public int BuildWorkers;
+        public bool HierarchyCacheHit;
+        public long CostGridMilliseconds;
+        public long HierarchyMilliseconds;
     }
 }

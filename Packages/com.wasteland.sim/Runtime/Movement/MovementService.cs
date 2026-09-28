@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Threading.Tasks;
 using Wasteland.Sim.Math;
 
 namespace Wasteland.Sim.Movement
@@ -184,22 +185,134 @@ namespace Wasteland.Sim.Movement
             Stopwatch loadClock = Stopwatch.StartNew();
             RoadGraph graph = Wrmb.ReadRoadGraph(mapBlob);
             TerrainGrid terrain = Wrmb.ReadTerrain(terrainBlob);
+            Stopwatch costClock = Stopwatch.StartNew();
             MovementCosts costs = MovementCosts.Build(terrain, graph, tables);
+            costClock.Stop();
             GridHierarchy[] hierarchies = new GridHierarchy[MovementTables.ClassCount];
             RoadLandmarks[] landmarks = new RoadLandmarks[MovementTables.ClassCount];
             int clusterSize = config.ClusterSize;
             int clustersX = (terrain.Width + clusterSize - 1) / clusterSize;
             int clustersY = (terrain.Height + clusterSize - 1) / clusterSize;
             bool buildHierarchy = clustersX > 1 || clustersY > 1;
+            int workers = config.BuildWorkers;
+            if (workers <= 0)
+            {
+                workers = Environment.ProcessorCount;
+            }
+
+            if (workers < 1)
+            {
+                workers = 1;
+            }
+
+            bool cacheHit = false;
+            byte[] terrainHash = new byte[32];
+            if (terrainBlob.Length >= 64)
+            {
+                Array.Copy(terrainBlob, 32, terrainHash, 0, 32);
+            }
+
+            ulong tableHash = tables.ContentHash();
+            Stopwatch hierClock = Stopwatch.StartNew();
+            if (buildHierarchy
+                && !string.IsNullOrEmpty(config.HierarchyCacheDirectory)
+                && HierarchyCache.TryLoad(
+                    config.HierarchyCacheDirectory,
+                    terrainHash,
+                    tableHash,
+                    clusterSize,
+                    terrain.Width,
+                    terrain.Height,
+                    out GridHierarchy[] cached)
+                && cached != null
+                && cached.Length == MovementTables.ClassCount)
+            {
+                hierarchies = cached;
+                cacheHit = true;
+            }
+            else
+            {
+                int classWorkers;
+                int innerWorkers;
+                if (workers >= MovementTables.ClassCount * 2)
+                {
+                    classWorkers = MovementTables.ClassCount;
+                    innerWorkers = System.Math.Max(1, workers / MovementTables.ClassCount);
+                }
+                else
+                {
+                    classWorkers = 1;
+                    innerWorkers = workers;
+                }
+
+                if (classWorkers == 1)
+                {
+                    for (int c = 0; c < MovementTables.ClassCount; c++)
+                    {
+                        if (buildHierarchy && !UniformCostGrid(costs.CellTicks[c]))
+                        {
+                            hierarchies[c] = GridHierarchy.Build(terrain, costs.CellTicks[c], clusterSize, innerWorkers);
+                        }
+
+                        if (config.LandmarkCount > 0 && graph.NodeCount > 0)
+                        {
+                            landmarks[c] = RoadLandmarks.Build(graph, costs.RoadTicks[c], config.LandmarkCount);
+                        }
+                    }
+                }
+                else
+                {
+                    ParallelOptions options = new ParallelOptions();
+                    options.MaxDegreeOfParallelism = classWorkers;
+                    Parallel.For(0, MovementTables.ClassCount, options, delegate (int c)
+                    {
+                        if (buildHierarchy && !UniformCostGrid(costs.CellTicks[c]))
+                        {
+                            hierarchies[c] = GridHierarchy.Build(terrain, costs.CellTicks[c], clusterSize, innerWorkers);
+                        }
+
+                        if (config.LandmarkCount > 0 && graph.NodeCount > 0)
+                        {
+                            landmarks[c] = RoadLandmarks.Build(graph, costs.RoadTicks[c], config.LandmarkCount);
+                        }
+                    });
+                }
+
+                if (buildHierarchy && !string.IsNullOrEmpty(config.HierarchyCacheDirectory))
+                {
+                    HierarchyCache.TrySave(
+                        config.HierarchyCacheDirectory,
+                        terrainHash,
+                        tableHash,
+                        clusterSize,
+                        terrain.Width,
+                        terrain.Height,
+                        hierarchies);
+                }
+            }
+
+            if (cacheHit)
+            {
+                ParallelOptions landOptions = new ParallelOptions();
+                landOptions.MaxDegreeOfParallelism = workers;
+                Parallel.For(0, MovementTables.ClassCount, landOptions, delegate (int c)
+                {
+                    if (config.LandmarkCount > 0 && graph.NodeCount > 0)
+                    {
+                        landmarks[c] = RoadLandmarks.Build(graph, costs.RoadTicks[c], config.LandmarkCount);
+                    }
+                });
+            }
+
+            hierClock.Stop();
             int absNodes = 0;
             int absEdges = 0;
             long hierBytes = 0;
             long landBytes = 0;
             for (int c = 0; c < MovementTables.ClassCount; c++)
             {
-                if (buildHierarchy)
+                if (hierarchies[c] != null)
                 {
-                    hierarchies[c] = GridHierarchy.Build(terrain, costs.CellTicks[c], clusterSize);
                     if (hierarchies[c].NodeCount > absNodes)
                     {
                         absNodes = hierarchies[c].NodeCount;
@@ -208,13 +321,9 @@ namespace Wasteland.Sim.Movement
                     }
                 }
 
-                if (config.LandmarkCount > 0 && graph.NodeCount > 0)
+                if (landmarks[c] != null && landmarks[c].EstimateBytes > landBytes)
                 {
-                    landmarks[c] = RoadLandmarks.Build(graph, costs.RoadTicks[c], config.LandmarkCount);
-                    if (landmarks[c].EstimateBytes > landBytes)
-                    {
-                        landBytes = landmarks[c].EstimateBytes;
-                    }
+                    landBytes = landmarks[c].EstimateBytes;
                 }
             }
 
@@ -228,7 +337,11 @@ namespace Wasteland.Sim.Movement
                 RoadNodes = graph.NodeCount,
                 CostGridBytesPerClass = (long)terrain.CellCount * 4,
                 HierarchyBytesPerClass = hierBytes,
-                LandmarkBytesPerClass = landBytes
+                LandmarkBytesPerClass = landBytes,
+                BuildWorkers = workers,
+                HierarchyCacheHit = cacheHit,
+                CostGridMilliseconds = costClock.ElapsedMilliseconds,
+                HierarchyMilliseconds = hierClock.ElapsedMilliseconds
             };
 
             loadClock.Stop();
@@ -249,6 +362,12 @@ namespace Wasteland.Sim.Movement
         public TerrainGrid Terrain
         {
             get { return _terrain; }
+        }
+
+        internal ulong HierarchyFingerprint(MovementClass clas)
+        {
+            GridHierarchy h = _hierarchies[(int)clas];
+            return h == null ? 0UL : h.Fingerprint();
         }
 
         public MovementTables Tables
@@ -2114,6 +2233,30 @@ namespace Wasteland.Sim.Movement
 
             _pending.RemoveRange(0, _pendingHead);
             _pendingHead = 0;
+        }
+
+        /// <summary>
+        /// HPA* is a no-op when every cell has the same tick cost: octile is exact
+        /// (Air always; open field for every class). Mixed cover or any impassable
+        /// cell keeps the hierarchy.
+        /// </summary>
+        private static bool UniformCostGrid(int[] ticks)
+        {
+            if (ticks.Length == 0)
+            {
+                return true;
+            }
+
+            int first = ticks[0];
+            for (int i = 1; i < ticks.Length; i++)
+            {
+                if (ticks[i] != first)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static PathResult Unreachable(int graphVersion)

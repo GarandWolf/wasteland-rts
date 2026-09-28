@@ -1,11 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Wasteland.Sim.Hashing;
 
 namespace Wasteland.Sim.Movement
 {
     /// <summary>
     /// HPA*-style abstract graph for one movement class, built at match load.
     /// Maps that fit in a single cluster leave this unused so goldens stay exact A*.
+    /// Pure function of (cost grid, cluster size, algorithm version).
     /// </summary>
     internal sealed class GridHierarchy
     {
@@ -67,6 +71,29 @@ namespace Wasteland.Sim.Movement
             }
         }
 
+        public ulong Fingerprint()
+        {
+            XxHash64Builder hash = new XxHash64Builder();
+            hash.AddInt(MovementConfig.HierarchyAlgorithmVersion);
+            hash.AddInt(ClusterSize);
+            hash.AddInt(ClustersX);
+            hash.AddInt(ClustersY);
+            hash.AddInt(NodeCount);
+            AddInts(hash, NodeCell);
+            AddInts(hash, NodeCluster);
+            AddInts(hash, ClusterNodeOffset);
+            AddInts(hash, ClusterNodes);
+            AddInts(hash, AdjOffset);
+            AddInts(hash, AdjNeighbor);
+            AddInts(hash, AdjCost);
+            for (int i = 0; i < AdjInter.Length; i++)
+            {
+                hash.AddByte(AdjInter[i]);
+            }
+
+            return hash.Digest();
+        }
+
         public int ClusterOfCell(int cell, int mapWidth)
         {
             int x = cell % mapWidth;
@@ -97,6 +124,12 @@ namespace Wasteland.Sim.Movement
 
         public static GridHierarchy Build(TerrainGrid terrain, int[] cellTicks, int clusterSize)
         {
+            return Build(terrain, cellTicks, clusterSize, 0);
+        }
+
+        /// <param name="maxDegreeOfParallelism">1 = serial (for equality tests). 0 = ProcessorCount.</param>
+        public static GridHierarchy Build(TerrainGrid terrain, int[] cellTicks, int clusterSize, int maxDegreeOfParallelism)
+        {
             int width = terrain.Width;
             int height = terrain.Height;
             int clustersX = (width + clusterSize - 1) / clusterSize;
@@ -117,10 +150,16 @@ namespace Wasteland.Sim.Movement
             List<int>[] perCluster = new List<int>[clusterCount];
             for (int i = 0; i < clusterCount; i++)
             {
-                perCluster[i] = new List<int>();
+                perCluster[i] = new List<int>(16);
             }
 
-            Dictionary<int, int> cellToNode = new Dictionary<int, int>();
+            int cells = width * height;
+            int[] cellToNode = new int[cells];
+            for (int i = 0; i < cells; i++)
+            {
+                cellToNode[i] = -1;
+            }
+
             for (int cy = 0; cy < clustersY; cy++)
             {
                 for (int cx = 0; cx < clustersX; cx++)
@@ -168,18 +207,21 @@ namespace Wasteland.Sim.Movement
                 }
             }
 
-            List<int> edgeFrom = new List<int>();
-            List<int> edgeTo = new List<int>();
-            List<int> edgeCost = new List<int>();
-            List<byte> edgeInter = new List<byte>();
+            int[] nodeCellArr = nodeCell.ToArray();
+            int[] nodeClusterArr = nodeCluster.ToArray();
+            int nodeCount = nodeCellArr.Length;
 
-            int nodeCount = nodeCell.Count;
+            List<int> edgeFrom = new List<int>(nodeCount * 4);
+            List<int> edgeTo = new List<int>(nodeCount * 4);
+            List<int> edgeCost = new List<int>(nodeCount * 4);
+            List<byte> edgeInter = new List<byte>(nodeCount * 4);
+
             for (int i = 0; i < nodeCount; i++)
             {
-                int cell = nodeCell[i];
+                int cell = nodeCellArr[i];
                 int x = cell % width;
                 int y = cell / width;
-                int cluster = nodeCluster[i];
+                int cluster = nodeClusterArr[i];
                 for (int d = 0; d < 8; d++)
                 {
                     TryInter(
@@ -187,7 +229,7 @@ namespace Wasteland.Sim.Movement
                         width,
                         height,
                         cellToNode,
-                        nodeCluster,
+                        nodeClusterArr,
                         cluster,
                         i,
                         x,
@@ -202,78 +244,64 @@ namespace Wasteland.Sim.Movement
                 }
             }
 
+            int workers = maxDegreeOfParallelism;
+            if (workers <= 0)
+            {
+                workers = Environment.ProcessorCount;
+            }
+
+            if (workers < 1)
+            {
+                workers = 1;
+            }
+
+            int[][] intraFrom = new int[clusterCount][];
+            int[][] intraTo = new int[clusterCount][];
+            int[][] intraCost = new int[clusterCount][];
             int clusterCells = clusterSize * clusterSize;
-            long[] g = new long[clusterCells];
-            int[] gen = new int[clusterCells];
-            int searchId = 0;
-            MinHeap heap = new MinHeap(clusterCells);
+            if (workers == 1 || clusterCount <= 1)
+            {
+                ClusterScratch scratch = new ClusterScratch(clusterCells);
+                for (int cluster = 0; cluster < clusterCount; cluster++)
+                {
+                    BuildIntra(cluster, clustersX, clusterSize, width, height, cellTicks, nodeCellArr, clusterNodeOffset, clusterNodes, scratch, intraFrom, intraTo, intraCost);
+                }
+            }
+            else
+            {
+                ParallelOptions options = new ParallelOptions();
+                options.MaxDegreeOfParallelism = workers;
+                ThreadLocal<ClusterScratch> local = new ThreadLocal<ClusterScratch>(() => new ClusterScratch(clusterCells), false);
+                try
+                {
+                    Parallel.For(0, clusterCount, options, delegate (int cluster)
+                    {
+                        ClusterScratch scratch = local.Value!;
+                        BuildIntra(cluster, clustersX, clusterSize, width, height, cellTicks, nodeCellArr, clusterNodeOffset, clusterNodes, scratch, intraFrom, intraTo, intraCost);
+                    });
+                }
+                finally
+                {
+                    local.Dispose();
+                }
+            }
+
             for (int cluster = 0; cluster < clusterCount; cluster++)
             {
-                int start = clusterNodeOffset[cluster];
-                int end = clusterNodeOffset[cluster + 1];
-                int count = end - start;
-                if (count <= 1)
+                int[] from = intraFrom[cluster];
+                if (from == null || from.Length == 0)
                 {
                     continue;
                 }
 
-                int cx = cluster % clustersX;
-                int cy = cluster / clustersX;
-                int x0 = cx * clusterSize;
-                int y0 = cy * clusterSize;
-                int x1 = x0 + clusterSize;
-                int y1 = y0 + clusterSize;
-                if (x1 > width)
+                int[] to = intraTo[cluster];
+                int[] cost = intraCost[cluster];
+                for (int i = 0; i < from.Length; i++)
                 {
-                    x1 = width;
-                }
-
-                if (y1 > height)
-                {
-                    y1 = height;
-                }
-
-                int localW = x1 - x0;
-                int localH = y1 - y0;
-                for (int a = start; a < end; a++)
-                {
-                    int fromNode = clusterNodes[a];
-                    int fromCell = nodeCell[fromNode];
-                    DijkstraCluster(
-                        cellTicks,
-                        width,
-                        fromCell,
-                        x0,
-                        y0,
-                        localW,
-                        localH,
-                        g,
-                        gen,
-                        ref searchId,
-                        heap);
-                    for (int b = a + 1; b < end; b++)
-                    {
-                        int toNode = clusterNodes[b];
-                        int toCell = nodeCell[toNode];
-                        int tx = toCell % width;
-                        int ty = toCell / width;
-                        int local = (tx - x0) + (ty - y0) * localW;
-                        if (gen[local] != searchId || g[local] >= Inf)
-                        {
-                            continue;
-                        }
-
-                        int cost = g[local] > int.MaxValue ? int.MaxValue : (int)g[local];
-                        if (cost < 1)
-                        {
-                            cost = 1;
-                        }
-
-                        edgeFrom.Add(fromNode);
-                        edgeTo.Add(toNode);
-                        edgeCost.Add(cost);
-                        edgeInter.Add(0);
-                    }
+                    edgeFrom.Add(from[i]);
+                    edgeTo.Add(to[i]);
+                    edgeCost.Add(cost[i]);
+                    edgeInter.Add(0);
                 }
             }
 
@@ -282,14 +310,235 @@ namespace Wasteland.Sim.Movement
                 clusterSize,
                 clustersX,
                 clustersY,
-                nodeCell.ToArray(),
-                nodeCluster.ToArray(),
+                nodeCellArr,
+                nodeClusterArr,
                 clusterNodeOffset,
                 clusterNodes,
                 adjOffset,
                 adjNeighbor,
                 adjCost,
                 adjInter);
+        }
+
+        internal static GridHierarchy FromCache(
+            int clusterSize,
+            int clustersX,
+            int clustersY,
+            int[] nodeCell,
+            int[] nodeCluster,
+            int[] clusterNodeOffset,
+            int[] clusterNodes,
+            int[] adjOffset,
+            int[] adjNeighbor,
+            int[] adjCost,
+            byte[] adjInter)
+        {
+            return new GridHierarchy(
+                clusterSize,
+                clustersX,
+                clustersY,
+                nodeCell,
+                nodeCluster,
+                clusterNodeOffset,
+                clusterNodes,
+                adjOffset,
+                adjNeighbor,
+                adjCost,
+                adjInter);
+        }
+
+        private static void BuildIntra(
+            int cluster,
+            int clustersX,
+            int clusterSize,
+            int width,
+            int height,
+            int[] cellTicks,
+            int[] nodeCell,
+            int[] clusterNodeOffset,
+            int[] clusterNodes,
+            ClusterScratch scratch,
+            int[][] intraFrom,
+            int[][] intraTo,
+            int[][] intraCost)
+        {
+            int start = clusterNodeOffset[cluster];
+            int end = clusterNodeOffset[cluster + 1];
+            int count = end - start;
+            if (count <= 1)
+            {
+                intraFrom[cluster] = Array.Empty<int>();
+                intraTo[cluster] = Array.Empty<int>();
+                intraCost[cluster] = Array.Empty<int>();
+                return;
+            }
+
+            int cx = cluster % clustersX;
+            int cy = cluster / clustersX;
+            int x0 = cx * clusterSize;
+            int y0 = cy * clusterSize;
+            int x1 = x0 + clusterSize;
+            int y1 = y0 + clusterSize;
+            if (x1 > width)
+            {
+                x1 = width;
+            }
+
+            if (y1 > height)
+            {
+                y1 = height;
+            }
+
+            int localW = x1 - x0;
+            int localH = y1 - y0;
+            List<int> from = scratch.EdgeFrom;
+            List<int> to = scratch.EdgeTo;
+            List<int> costList = scratch.EdgeCost;
+            from.Clear();
+            to.Clear();
+            costList.Clear();
+            int pairCap = count * (count - 1) / 2;
+            if (from.Capacity < pairCap)
+            {
+                from.Capacity = pairCap;
+                to.Capacity = pairCap;
+                costList.Capacity = pairCap;
+            }
+
+            int uniformTick = ClusterUniformTick(cellTicks, width, x0, y0, x1, y1);
+            if (uniformTick > 0)
+            {
+                for (int a = start; a < end - 1; a++)
+                {
+                    int fromNode = clusterNodes[a];
+                    int fromCell = nodeCell[fromNode];
+                    int fx = fromCell % width;
+                    int fy = fromCell / width;
+                    for (int b = a + 1; b < end; b++)
+                    {
+                        int toNode = clusterNodes[b];
+                        int toCell = nodeCell[toNode];
+                        int tx = toCell % width;
+                        int ty = toCell / width;
+                        int cost = OctileUniformCost(tx - fx, ty - fy, uniformTick);
+                        from.Add(fromNode);
+                        to.Add(toNode);
+                        costList.Add(cost);
+                    }
+                }
+            }
+            else
+            {
+                int[] targets = scratch.Targets;
+                for (int a = start; a < end - 1; a++)
+                {
+                    int fromNode = clusterNodes[a];
+                    int fromCell = nodeCell[fromNode];
+                    int targetCount = 0;
+                    for (int b = a + 1; b < end; b++)
+                    {
+                        int toCell = nodeCell[clusterNodes[b]];
+                        int tx = toCell % width;
+                        int ty = toCell / width;
+                        targets[targetCount++] = (tx - x0) + (ty - y0) * localW;
+                    }
+
+                    DijkstraCluster(
+                        cellTicks,
+                        width,
+                        fromCell,
+                        x0,
+                        y0,
+                        localW,
+                        localH,
+                        scratch,
+                        targets,
+                        targetCount);
+                    for (int b = a + 1; b < end; b++)
+                    {
+                        int toNode = clusterNodes[b];
+                        int toCell = nodeCell[toNode];
+                        int tx = toCell % width;
+                        int ty = toCell / width;
+                        int local = (tx - x0) + (ty - y0) * localW;
+                        if (scratch.Gen[local] != scratch.SearchId || scratch.G[local] >= Inf)
+                        {
+                            continue;
+                        }
+
+                        int cost = scratch.G[local] > int.MaxValue ? int.MaxValue : (int)scratch.G[local];
+                        if (cost < 1)
+                        {
+                            cost = 1;
+                        }
+
+                        from.Add(fromNode);
+                        to.Add(toNode);
+                        costList.Add(cost);
+                    }
+                }
+            }
+
+            intraFrom[cluster] = from.ToArray();
+            intraTo[cluster] = to.ToArray();
+            intraCost[cluster] = costList.ToArray();
+        }
+
+        private static int ClusterUniformTick(int[] cellTicks, int width, int x0, int y0, int x1, int y1)
+        {
+            int first = cellTicks[y0 * width + x0];
+            if (first <= 0)
+            {
+                return 0;
+            }
+
+            for (int y = y0; y < y1; y++)
+            {
+                int row = y * width;
+                for (int x = x0; x < x1; x++)
+                {
+                    if (cellTicks[row + x] != first)
+                    {
+                        return 0;
+                    }
+                }
+            }
+
+            return first;
+        }
+
+        private static int OctileUniformCost(int dx, int dy, int cellTicks)
+        {
+            if (dx < 0)
+            {
+                dx = -dx;
+            }
+
+            if (dy < 0)
+            {
+                dy = -dy;
+            }
+
+            int min = dx < dy ? dx : dy;
+            int max = dx < dy ? dy : dx;
+            if (max == 0)
+            {
+                return 0;
+            }
+
+            int diag = (int)((long)cellTicks * MovementConfig.Sqrt2Ppt / SimConfig.PptScale);
+            if (diag < 1)
+            {
+                diag = 1;
+            }
+
+            int cost = min * diag + (max - min) * cellTicks;
+            if (cost < 1)
+            {
+                cost = 1;
+            }
+
+            return cost;
         }
 
         private static void AddBorderEntrances(
@@ -303,7 +552,7 @@ namespace Wasteland.Sim.Movement
             int y1,
             int dx,
             int dy,
-            Dictionary<int, int> cellToNode,
+            int[] cellToNode,
             List<int> nodeCell,
             List<int> nodeCluster,
             List<int>[] perCluster)
@@ -389,7 +638,7 @@ namespace Wasteland.Sim.Movement
             int runStart,
             int runCount,
             int cluster,
-            Dictionary<int, int> cellToNode,
+            int[] cellToNode,
             List<int> nodeCell,
             List<int> nodeCluster,
             List<int>[] perCluster)
@@ -421,7 +670,7 @@ namespace Wasteland.Sim.Movement
             int fixedCoord,
             int varying,
             int cluster,
-            Dictionary<int, int> cellToNode,
+            int[] cellToNode,
             List<int> nodeCell,
             List<int> nodeCluster,
             List<int>[] perCluster)
@@ -454,7 +703,7 @@ namespace Wasteland.Sim.Movement
             int x,
             int y,
             int cluster,
-            Dictionary<int, int> cellToNode,
+            int[] cellToNode,
             List<int> nodeCell,
             List<int> nodeCluster,
             List<int>[] perCluster)
@@ -465,7 +714,7 @@ namespace Wasteland.Sim.Movement
                 return;
             }
 
-            if (cellToNode.ContainsKey(cell))
+            if (cellToNode[cell] >= 0)
             {
                 return;
             }
@@ -481,8 +730,8 @@ namespace Wasteland.Sim.Movement
             int[] cellTicks,
             int width,
             int height,
-            Dictionary<int, int> cellToNode,
-            List<int> nodeCluster,
+            int[] cellToNode,
+            int[] nodeCluster,
             int fromCluster,
             int fromNode,
             int x,
@@ -501,7 +750,8 @@ namespace Wasteland.Sim.Movement
             }
 
             int toCell = ny * width + nx;
-            if (!cellToNode.TryGetValue(toCell, out int toNode) || toNode <= fromNode)
+            int toNode = cellToNode[toCell];
+            if (toNode < 0 || toNode <= fromNode)
             {
                 return;
             }
@@ -547,19 +797,43 @@ namespace Wasteland.Sim.Movement
             int y0,
             int localW,
             int localH,
-            long[] g,
-            int[] gen,
-            ref int searchId,
-            MinHeap heap)
+            ClusterScratch scratch,
+            int[] targets,
+            int targetCount)
         {
-            searchId++;
-            if (searchId == int.MaxValue)
+            scratch.SearchId++;
+            if (scratch.SearchId == int.MaxValue)
             {
-                Array.Clear(gen, 0, gen.Length);
-                searchId = 1;
+                Array.Clear(scratch.Gen, 0, scratch.Gen.Length);
+                Array.Clear(scratch.Closed, 0, scratch.Closed.Length);
+                Array.Clear(scratch.Mark, 0, scratch.Mark.Length);
+                scratch.SearchId = 1;
             }
 
+            int searchId = scratch.SearchId;
+            long[] g = scratch.G;
+            int[] gen = scratch.Gen;
+            int[] closed = scratch.Closed;
+            int[] mark = scratch.Mark;
+            MinHeap heap = scratch.Heap;
             heap.Clear();
+
+            int remaining = 0;
+            for (int i = 0; i < targetCount; i++)
+            {
+                int t = targets[i];
+                if (mark[t] != searchId)
+                {
+                    mark[t] = searchId;
+                    remaining++;
+                }
+            }
+
+            if (remaining <= 0)
+            {
+                return;
+            }
+
             int fx = fromCell % width;
             int fy = fromCell / width;
             int fromLocal = (fx - x0) + (fy - y0) * localW;
@@ -567,11 +841,26 @@ namespace Wasteland.Sim.Movement
             gen[fromLocal] = searchId;
             heap.Push(0, fromLocal, fromLocal);
 
-            while (heap.TryPop(out int current, out _))
+            while (heap.TryPop(out int current, out long popped))
             {
-                if (gen[current] != searchId)
+                if (gen[current] != searchId || closed[current] == searchId)
                 {
                     continue;
+                }
+
+                if (popped != g[current])
+                {
+                    continue;
+                }
+
+                closed[current] = searchId;
+                if (mark[current] == searchId)
+                {
+                    remaining--;
+                    if (remaining <= 0)
+                    {
+                        break;
+                    }
                 }
 
                 int cx = x0 + current % localW;
@@ -581,6 +870,12 @@ namespace Wasteland.Sim.Movement
                     int nx = cx + GridDirs.X[d];
                     int ny = cy + GridDirs.Y[d];
                     if (nx < x0 || ny < y0 || nx >= x0 + localW || ny >= y0 + localH)
+                    {
+                        continue;
+                    }
+
+                    int nextLocal = (nx - x0) + (ny - y0) * localW;
+                    if (closed[nextLocal] == searchId)
                     {
                         continue;
                     }
@@ -609,7 +904,6 @@ namespace Wasteland.Sim.Movement
                         }
                     }
 
-                    int nextLocal = (nx - x0) + (ny - y0) * localW;
                     long ng = g[current] + step;
                     if (gen[nextLocal] != searchId || ng < g[nextLocal])
                     {
@@ -670,52 +964,70 @@ namespace Wasteland.Sim.Movement
                 adjInter[pb] = inter;
             }
 
-            List<int> order = new List<int>();
             for (int n = 0; n < nodeCount; n++)
             {
                 int start = adjOffset[n];
                 int count = adjOffset[n + 1] - start;
-                if (count <= 1)
+                for (int i = 1; i < count; i++)
                 {
-                    continue;
-                }
-
-                order.Clear();
-                for (int k = 0; k < count; k++)
-                {
-                    order.Add(start + k);
-                }
-
-                int[] neighbor = adjNeighbor;
-                int[] cost = adjCost;
-                byte[] inter = adjInter;
-                order.Sort(delegate (int ia, int ib)
-                {
-                    int c = neighbor[ia].CompareTo(neighbor[ib]);
-                    if (c != 0)
+                    int ni = adjNeighbor[start + i];
+                    int ci = adjCost[start + i];
+                    byte ii = adjInter[start + i];
+                    int j = i - 1;
+                    while (j >= 0)
                     {
-                        return c;
+                        int cmp = adjNeighbor[start + j].CompareTo(ni);
+                        if (cmp < 0 || (cmp == 0 && adjCost[start + j] <= ci))
+                        {
+                            break;
+                        }
+
+                        adjNeighbor[start + j + 1] = adjNeighbor[start + j];
+                        adjCost[start + j + 1] = adjCost[start + j];
+                        adjInter[start + j + 1] = adjInter[start + j];
+                        j--;
                     }
 
-                    return cost[ia].CompareTo(cost[ib]);
-                });
-
-                int[] nCopy = new int[count];
-                int[] cCopy = new int[count];
-                byte[] iCopy = new byte[count];
-                for (int k = 0; k < count; k++)
-                {
-                    nCopy[k] = neighbor[order[k]];
-                    cCopy[k] = cost[order[k]];
-                    iCopy[k] = inter[order[k]];
+                    adjNeighbor[start + j + 1] = ni;
+                    adjCost[start + j + 1] = ci;
+                    adjInter[start + j + 1] = ii;
                 }
+            }
+        }
 
-                for (int k = 0; k < count; k++)
-                {
-                    neighbor[start + k] = nCopy[k];
-                    cost[start + k] = cCopy[k];
-                    inter[start + k] = iCopy[k];
-                }
+        private static void AddInts(XxHash64Builder hash, int[] values)
+        {
+            hash.AddInt(values.Length);
+            for (int i = 0; i < values.Length; i++)
+            {
+                hash.AddInt(values[i]);
+            }
+        }
+
+        private sealed class ClusterScratch
+        {
+            public readonly long[] G;
+            public readonly int[] Gen;
+            public readonly int[] Closed;
+            public readonly int[] Mark;
+            public readonly int[] Targets;
+            public readonly MinHeap Heap;
+            public readonly List<int> EdgeFrom;
+            public readonly List<int> EdgeTo;
+            public readonly List<int> EdgeCost;
+            public int SearchId;
+
+            public ClusterScratch(int clusterCells)
+            {
+                G = new long[clusterCells];
+                Gen = new int[clusterCells];
+                Closed = new int[clusterCells];
+                Mark = new int[clusterCells];
+                Targets = new int[clusterCells];
+                Heap = new MinHeap(clusterCells);
+                EdgeFrom = new List<int>(64);
+                EdgeTo = new List<int>(64);
+                EdgeCost = new List<int>(64);
             }
         }
     }

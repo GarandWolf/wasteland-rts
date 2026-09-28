@@ -1,3 +1,6 @@
+using System;
+using System.Threading.Tasks;
+
 namespace Wasteland.Sim.Movement
 {
     /// <summary>Per-class cost grids and road speeds, computed at match load.</summary>
@@ -32,7 +35,7 @@ namespace Wasteland.Sim.Movement
             int cells = terrain.CellCount;
             int[][] cellTicks = new int[classCount][];
             int[] maxGrid = new int[classCount];
-            for (int c = 0; c < classCount; c++)
+            Parallel.For(0, classCount, delegate (int c)
             {
                 MovementClass clas = (MovementClass)c;
                 int[] row = new int[cells];
@@ -50,7 +53,7 @@ namespace Wasteland.Sim.Movement
 
                 cellTicks[c] = row;
                 maxGrid[c] = maxSpeed;
-            }
+            });
 
             int edges = graph.EdgeCount;
             int[][] roadSpeed = new int[classCount][];

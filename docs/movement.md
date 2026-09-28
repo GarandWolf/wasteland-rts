@@ -60,12 +60,17 @@ Heuristics are admissible: octile-cm / maxSpeed on the grid; on roads, `max(Eucl
 
 Maps that fit in one HPA* cluster (`width` and `height` ≤ `ClusterSize`, default 32) never build a hierarchy. Those queries — including the 11×11 hill goldens — stay exact 8-connected A*, so frozen hashes do not change.
 
-Larger maps, per movement class, at match load:
+Larger maps, per movement class, at match load (pure function of that class's cost grid, `ClusterSize`, and `HierarchyAlgorithmVersion`):
 
-1. Partition the cost grid into `ClusterSize × ClusterSize` clusters.
-2. Place border **entrances** at the first, last, and midpoint cell of each contiguous passable orthogonal run, plus extra samples every `DefaultEntranceInterval` (8) cells. Corners stay in the abstract graph so 8-connected cluster hops work.
-3. Intra-cluster edges: Dijkstra between that cluster's entrances (same 8-connected, no-corner-cut rule as query A*).
-4. Inter-cluster edges: 8-connected steps between entrance cells in neighboring clusters.
+1. **Skip the hierarchy** when every cell has the same tick cost (Air always; open field for every class). Canonical octile is then exact, so the abstract graph is wasted work.
+2. Partition the cost grid into `ClusterSize × ClusterSize` clusters.
+3. Place border **entrances** at the first, last, and midpoint cell of each contiguous passable orthogonal run, plus extra samples every `DefaultEntranceInterval` (8) cells. Corners stay in the abstract graph so 8-connected cluster hops work.
+4. Intra-cluster edges: one closed-set Dijkstra per entrance over **that cluster only** (scratch reused, last source skipped because CSR is undirected), or octile arithmetic when the cluster itself is uniform-cost and fully passable.
+5. Inter-cluster edges: 8-connected steps between entrance cells in neighboring clusters.
+
+Clusters are built with `Parallel.For` (deterministic CSR sort afterwards). Classes run in parallel only when `BuildWorkers >= ClassCount * 2` so a 4-core VM spends all cores inside one class rather than starving cluster work. Serial vs parallel fingerprints are tested (`workers=1` vs `workers=8`).
+
+Optional **WHPA** on-disk cache (`MovementServiceConfig.HierarchyCacheDirectory`): keyed by terrain WRMB `contentHash`, movement-table xxHash64, algorithm version, cluster size, and `W×H`. Payload SHA-256 is checked on load; a mismatch rebuilds. Repeat loads of the same map are then dominated by cost-grid fill + ALT, not HPA*.
 
 Query:
 
@@ -106,26 +111,32 @@ Road travel **does not** pay the terrain cells under the polyline: the unit is o
 
 ## Micro-benchmark (not a CI gate)
 
-`dotnet run -c Release --project src/Wasteland.Sim.Benchmarks` on the Cloud Agent VM (.NET 8.0.425, linux-x64). Load times include per-class HPA* graphs and road ALT. Memory figures are **per movement class** except scratch (shared).
+`dotnet run -c Release --project src/Wasteland.Sim.Benchmarks` on the Cloud Agent VM (.NET 8.0.425, linux-x64, 4 cores). Road mesh still uses 10,000 cm synthetic cells. Grid load uses **production `cellSizeCm` = 8941** (~89.4 m) on mixed cover (16-cell field/forest bands so every 32-cluster has two costs, plus a 2-cell water river with fords). That forces HPA* for wheeled/tracked/foot; Air is uniform and skips. Memory: per-class estimates plus process working set / GC heap.
+
+Load-time targets (all movement classes, cold, no cache): **< ~5 s at 1800×1800** (100 mi) and **< ~20 s at 3600×3600** (200 mi). Repeat loads with WHPA cache should be near-instant versus the cold HPA* build.
 
 | Workload | Result |
 | --- | --- |
 | 90×90 road graph (8,100 nodes, 16,020 edges) load | 240 ms; 16 landmarks, 1.0 MB/class |
 | First `PathOnRoads` corner-to-corner | 3 ms, 179 expansions |
 | 40 unique `PathOnRoads` | **0.45 ms/query**, 112 expansions/query (was 2.10 ms) |
-| 1600×1600 terrain (2.56M cells) load | 24 s; 2,500 clusters of 32; 39,396 abstract nodes / 641,804 directed edges / class |
-| 1600×1600 memory/class | cost grid 9.8 MB, hierarchy 6.0 MB, scratch 0.8 MB shared |
-| Foot corner-to-corner `PathOffRoad` | **2 ms**, 1,600 waypoints, 1,599 expansions (was 22 ms) |
+| 1800×1800 mixed (3.24M cells, 8941 cm) cold load | *pending VM bench* |
+| 1800×1800 WHPA cache reload | *pending* |
+| 3600×3600 mixed (12.96M cells, 8941 cm) cold load | *pending VM bench* |
+| 3600×3600 WHPA cache reload | *pending* |
+
+Query-time (open-field 1600/3200, previous pass; 0.45 ms road is accepted given the expansion cap):
+
+| Workload | Result |
+| --- | --- |
 | 8 unique wheeled `PathOffRoad` 1600 | **0.40 ms/query**, 1,067 expansions/query (was 32.64 ms) |
 | 1600 sliced corner (`ExpansionsPerTick` 4096) | 1 tick, max 1,599 expansions, worst tick 1 ms |
-| 3200×3200 (200-mile @ 100 m, 10.24M cells) load | 106 s; 10,000 clusters; 158,796 abstract nodes / 2,603,604 directed edges / class |
-| 3200×3200 memory/class | cost grid 39.1 MB, hierarchy 24.2 MB, scratch 3.0 MB shared |
 | 8 unique wheeled `PathOffRoad` 3200 | **0.62 ms/query**, 2,132 expansions/query |
 | 3200 sliced corner | 1 tick, max 3,199 expansions (cap 4,096), worst tick < 1 ms |
 
-Targets: amortized **< 1 ms** per off-road request on 1,600×1,600 (**met**, 0.40 ms) and **< 0.2 ms** per road request on the 8,100-node mesh (**0.45 ms** — about 5× faster than 2.10 ms; remaining cost is reconstruct+hash of ~100-node paths after ALT already cuts expansions to ~112). Per-tick path work is bounded by `ExpansionsPerTick` (measured max 3,199 ≤ 4,096 on 3200, worst tick 1 ms).
+Targets: amortized **< 1 ms** per off-road request on 1,600×1,600 (**met**, 0.40 ms) and **< 0.2 ms** per road request on the 8,100-node mesh (**0.45 ms** — accepted). Per-tick path work is bounded by `ExpansionsPerTick`. Match-load numbers above replace the old 24 s/class @ 1600 and 106 s/class @ 3200 open-field Dijkstra.
 
-Re-run locally after table or heuristic changes; do not treat these numbers as a pass/fail gate.
+Re-run locally after table or heuristic changes; do not treat these numbers as a pass/fail gate. Bump `HierarchyAlgorithmVersion` if entrance placement, intra costs, or CSR order change — the WHPA cache key includes it.
 
 ## Budget, queue, cache
 

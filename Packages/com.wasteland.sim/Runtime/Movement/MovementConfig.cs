@@ -56,5 +56,16 @@ namespace Wasteland.Sim.Movement
         public const int MaxRoadNodes = 2000000;
         public const int MaxRoadEdges = 4000000;
         public const int MaxGridDimension = 16384;
+
+        /// <summary>
+        /// Movement cell on production maps: 1 mile = 160938 cm, 18 cells/mile.
+        /// </summary>
+        public const int ProductionCellSizeCm = 8941;
+
+        /// <summary>
+        /// Bump when the HPA* build (entrances, intra costs, CSR order) changes.
+        /// Disk cache keys include this.
+        /// </summary>
+        public const ushort HierarchyAlgorithmVersion = 1;
     }
 }

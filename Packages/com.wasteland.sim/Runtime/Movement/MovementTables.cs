@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Wasteland.Sim.Hashing;
 
 namespace Wasteland.Sim.Movement
 {
@@ -70,6 +71,35 @@ namespace Wasteland.Sim.Movement
         public MovementClassTable this[MovementClass clas]
         {
             get { return _classes[(int)clas]; }
+        }
+
+        public ulong ContentHash()
+        {
+            XxHash64Builder hash = new XxHash64Builder();
+            hash.AddInt(ClassCount);
+            hash.AddInt(MovementConfig.HierarchyAlgorithmVersion);
+            for (int c = 0; c < ClassCount; c++)
+            {
+                MovementClassTable table = _classes[c];
+                hash.AddByte((byte)table.Class);
+                hash.AddInt(table.BaseSpeedCmPerTick);
+                hash.AddInt(table.MaxOffRoadSlopePerMille);
+                hash.AddByte(table.IgnoreTerrain ? (byte)1 : (byte)0);
+                AddInts(hash, table.LandCoverPpt);
+                AddInts(hash, table.RoadSurfacePpt);
+                AddInts(hash, table.SlopePpt);
+            }
+
+            return hash.Digest();
+        }
+
+        private static void AddInts(XxHash64Builder hash, int[] values)
+        {
+            hash.AddInt(values.Length);
+            for (int i = 0; i < values.Length; i++)
+            {
+                hash.AddInt(values[i]);
+            }
         }
 
         public static MovementTables Default()

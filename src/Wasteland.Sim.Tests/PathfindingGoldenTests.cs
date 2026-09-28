@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.IO;
 using Wasteland.Sim.Movement;
 using Xunit;
 
@@ -436,6 +438,125 @@ namespace Wasteland.Sim.Tests
             Assert.True(svc.CutBridge(100));
             PathResult after = svc.PathOnRoads(1, 2, MovementClass.Foot, RoadCostWeights.Uniform());
             Assert.NotEqual(before.Hash, after.Hash);
+        }
+    }
+
+    public sealed class HierarchyBuildTests
+    {
+        [Fact]
+        public void SerialAndParallelBuilds_AreByteIdentical()
+        {
+            MovementService serial = SyntheticMaps.WalledTerrain(
+                64,
+                64,
+                new MovementServiceConfig(8, 8, 4096, 32, 0, null, 1));
+            MovementService parallel = SyntheticMaps.WalledTerrain(
+                64,
+                64,
+                new MovementServiceConfig(8, 8, 4096, 32, 0, null, 8));
+
+            for (int c = 0; c < MovementTables.ClassCount; c++)
+            {
+                MovementClass clas = (MovementClass)c;
+                Assert.Equal(serial.HierarchyFingerprint(clas), parallel.HierarchyFingerprint(clas));
+            }
+
+            PathResult a = serial.PathOffRoad(
+                serial.Terrain.CellCenterXCm(0),
+                serial.Terrain.CellCenterYCm(0),
+                serial.Terrain.CellCenterXCm(63),
+                serial.Terrain.CellCenterYCm(63),
+                MovementClass.Foot);
+            PathResult b = parallel.PathOffRoad(
+                parallel.Terrain.CellCenterXCm(0),
+                parallel.Terrain.CellCenterYCm(0),
+                parallel.Terrain.CellCenterXCm(63),
+                parallel.Terrain.CellCenterYCm(63),
+                MovementClass.Foot);
+            Assert.Equal(a.Hash, b.Hash);
+            Assert.Equal(a.TotalCostTicks, b.TotalCostTicks);
+        }
+
+        [Fact]
+        public void GridHierarchyBuild_SerialVsParallel_UniformAndMixedAreByteIdentical()
+        {
+            TerrainGrid terrain = Wrmb.ReadTerrain(
+                new TerrainGridBuilder(64, 64, MovementConfig.SyntheticFixtureCellSizeCm)
+                    .Fill(0, LandCover.Field)
+                    .ToBlob());
+            int cells = terrain.CellCount;
+            int[] uniform = new int[cells];
+            for (int i = 0; i < cells; i++)
+            {
+                uniform[i] = 10;
+            }
+
+            ulong uniformSerial = GridHierarchy.Build(terrain, uniform, 32, 1).Fingerprint();
+            ulong uniformParallel = GridHierarchy.Build(terrain, uniform, 32, 4).Fingerprint();
+            Assert.Equal(uniformSerial, uniformParallel);
+            Assert.NotEqual(0UL, uniformSerial);
+
+            int[] mixed = new int[cells];
+            Array.Copy(uniform, mixed, cells);
+            mixed[32 * 64 + 16] = 25;
+            mixed[40 * 64 + 40] = 0;
+            ulong mixedSerial = GridHierarchy.Build(terrain, mixed, 32, 1).Fingerprint();
+            ulong mixedParallel = GridHierarchy.Build(terrain, mixed, 32, 4).Fingerprint();
+            Assert.Equal(mixedSerial, mixedParallel);
+            Assert.NotEqual(uniformSerial, mixedSerial);
+        }
+
+        [Fact]
+        public void UniformOpenField_SkipsHierarchy_AirSkipsWalledWater()
+        {
+            MovementServiceConfig cfg = new MovementServiceConfig(8, 8, 4096, 32, 0, null, 1);
+            MovementService open = SyntheticMaps.OpenTerrain(64, 64, cfg);
+            Assert.Equal(0UL, open.HierarchyFingerprint(MovementClass.Foot));
+            Assert.Equal(0UL, open.HierarchyFingerprint(MovementClass.Wheeled));
+            Assert.Equal(0UL, open.HierarchyFingerprint(MovementClass.Tracked));
+            Assert.Equal(0UL, open.HierarchyFingerprint(MovementClass.Air));
+
+            MovementService walled = SyntheticMaps.WalledTerrain(64, 64, cfg);
+            Assert.NotEqual(0UL, walled.HierarchyFingerprint(MovementClass.Foot));
+            Assert.Equal(0UL, walled.HierarchyFingerprint(MovementClass.Air));
+        }
+
+        [Fact]
+        public void HierarchyCache_RoundtripsAndRejectsTamper()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "wasteland-whpa-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(dir);
+            try
+            {
+                MovementServiceConfig cfg = new MovementServiceConfig(8, 8, 4096, 32, 0, dir, 1);
+                MovementService cold = SyntheticMaps.WalledTerrain(64, 64, cfg);
+                Assert.False(cold.LoadStats.HierarchyCacheHit);
+                ulong foot = cold.HierarchyFingerprint(MovementClass.Foot);
+
+                MovementService warm = SyntheticMaps.WalledTerrain(64, 64, cfg);
+                Assert.True(warm.LoadStats.HierarchyCacheHit);
+                Assert.Equal(foot, warm.HierarchyFingerprint(MovementClass.Foot));
+
+                string[] files = Directory.GetFiles(dir, "*.bin");
+                Assert.True(files.Length >= 1);
+                byte[] blob = File.ReadAllBytes(files[0]);
+                blob[blob.Length - 1] ^= 0xFF;
+                File.WriteAllBytes(files[0], blob);
+
+                MovementService afterTamper = SyntheticMaps.WalledTerrain(64, 64, cfg);
+                Assert.False(afterTamper.LoadStats.HierarchyCacheHit);
+                Assert.Equal(foot, afterTamper.HierarchyFingerprint(MovementClass.Foot));
+            }
+            finally
+            {
+                try
+                {
+                    Directory.Delete(dir, true);
+                }
+                catch (IOException)
+                {
+                }
+            }
         }
     }
 }

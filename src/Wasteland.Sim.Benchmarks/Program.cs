@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.IO;
 using Wasteland.Sim.Movement;
 
 namespace Wasteland.Sim.Benchmarks
@@ -14,27 +15,38 @@ namespace Wasteland.Sim.Benchmarks
         {
             MovementTables tables = MovementTables.Default();
             BenchmarkRoads(tables);
-            BenchmarkGrid(tables, 1600);
-            BenchmarkGrid(tables, 3200);
+            string cacheDir = Path.Combine(Path.GetTempPath(), "wasteland-whpa-bench");
+            BenchmarkGrid(tables, 1800, cacheDir);
+            BenchmarkGrid(tables, 3600, cacheDir);
             return 0;
         }
 
         private static void PrintLoad(MovementLoadStats s)
         {
             Console.WriteLine(
-                "  load {0} ms  clusters={1} size={2} absNodes/class={3} absEdges/class={4} landmarks={5}",
+                "  load {0} ms  cacheHit={1} workers={2} costGrid={3} ms hierarchy={4} ms clusters={5} size={6} absNodes/class={7} absEdges/class={8} landmarks={9}",
                 s.LoadMilliseconds,
+                s.HierarchyCacheHit,
+                s.BuildWorkers,
+                s.CostGridMilliseconds,
+                s.HierarchyMilliseconds,
                 s.ClusterCount,
                 s.ClusterSize,
                 s.AbstractNodesPerClass,
                 s.AbstractDirectedEdgesPerClass,
                 s.LandmarkCount);
             Console.WriteLine(
-                "  memory/class: costGrid={0:F1} MB  hierarchy={1:F1} MB  landmarks={2:F1} MB  scratch={3:F1} MB",
+                "  memory/class: costGrid={0:F1} MB  hierarchy={1:F1} MB  landmarks={2:F1} MB  scratch={3:F1} MB  total≈{4:F1} MB",
                 s.CostGridBytesPerClass / 1048576.0,
                 s.HierarchyBytesPerClass / 1048576.0,
                 s.LandmarkBytesPerClass / 1048576.0,
-                s.ScratchBytes / 1048576.0);
+                s.ScratchBytes / 1048576.0,
+                (s.CostGridBytesPerClass * 4 + s.HierarchyBytesPerClass * 4 + s.LandmarkBytesPerClass * 4 + s.ScratchBytes) / 1048576.0);
+            Process proc = Process.GetCurrentProcess();
+            Console.WriteLine(
+                "  process: workingSet={0:F1} MB  gcHeap={1:F1} MB",
+                proc.WorkingSet64 / 1048576.0,
+                GC.GetTotalMemory(false) / 1048576.0);
         }
 
         private static void BenchmarkRoads(MovementTables tables)
@@ -115,13 +127,35 @@ namespace Wasteland.Sim.Benchmarks
                 mix);
         }
 
-        private static void BenchmarkGrid(MovementTables tables, int side)
+        private static void BenchmarkGrid(MovementTables tables, int side, string cacheDir)
         {
-            Console.WriteLine("Building {0}×{0} terrain grid ({1} cells)...", side, side * side);
-            TerrainGridBuilder terrain = new TerrainGridBuilder(side, side, MovementConfig.SyntheticFixtureCellSizeCm).Fill(0, LandCover.Field);
-            RoadGraphBuilder roads = new RoadGraphBuilder().AddNode(1, 5000, 5000);
-            MovementService svc = MovementService.Create(roads.ToBlob(), terrain.ToBlob(), tables);
+            int cell = MovementConfig.ProductionCellSizeCm;
+            Console.WriteLine(
+                "Building {0}×{0} mixed terrain ({1} cells, cellSizeCm={2}, field/forest bands + river)...",
+                side,
+                side * side,
+                cell);
+            TerrainGridBuilder terrain = MixedCover(side, cell);
+            RoadGraphBuilder roads = new RoadGraphBuilder().AddNode(1, cell / 2, cell / 2);
+            byte[] mapBlob = roads.ToBlob();
+            byte[] terrainBlob = terrain.ToBlob();
+            MovementServiceConfig coldCfg = new MovementServiceConfig(
+                MovementConfig.DefaultPathRequestsPerTick,
+                MovementConfig.DefaultMaxGateways,
+                MovementConfig.DefaultExpansionsPerTick,
+                MovementConfig.DefaultClusterSize,
+                MovementConfig.DefaultLandmarkCount,
+                cacheDir,
+                0);
+            MovementService svc = MovementService.Create(mapBlob, terrainBlob, tables, coldCfg);
             PrintLoad(svc.LoadStats);
+
+            MovementServiceConfig warmCfg = coldCfg;
+            MovementService warm = MovementService.Create(mapBlob, terrainBlob, tables, warmCfg);
+            Console.WriteLine(
+                "  cache reload {0} ms hit={1}",
+                warm.LoadStats.LoadMilliseconds,
+                warm.LoadStats.HierarchyCacheHit);
 
             int fromX = svc.Terrain.CellCenterXCm(0);
             int fromY = svc.Terrain.CellCenterYCm(0);
@@ -163,11 +197,7 @@ namespace Wasteland.Sim.Benchmarks
                 expSum / (double)n,
                 mix);
 
-            MovementService queued = MovementService.Create(
-                roads.ToBlob(),
-                terrain.ToBlob(),
-                tables,
-                MovementServiceConfig.Default);
+            MovementService queued = svc;
             int qid = queued.Enqueue(PathRequest.OffRoad(fromX, fromY, toX, toY, MovementClass.Foot));
             int ticks = 0;
             long maxExp = 0;
@@ -200,6 +230,48 @@ namespace Wasteland.Sim.Benchmarks
                 queued.ExpansionsPerTick,
                 maxTickMs,
                 committed.Reachable);
+        }
+
+        /// <summary>
+        /// Production-like mixed cover: 16-cell field / forest bands (every 32-cell
+        /// cluster has two costs, so intra-cluster Dijkstra actually runs) plus a
+        /// 2-cell water river with periodic fords so ground classes stay connected.
+        /// Air is still uniform and skips HPA*.
+        /// </summary>
+        private static TerrainGridBuilder MixedCover(int side, int cellSizeCm)
+        {
+            TerrainGridBuilder terrain = new TerrainGridBuilder(side, side, cellSizeCm).Fill(0, LandCover.Field);
+            for (int y = 16; y < side; y += 32)
+            {
+                int y1 = y + 15;
+                if (y1 >= side)
+                {
+                    y1 = side - 1;
+                }
+
+                terrain.FillRect(0, y, side - 1, y1, 0, LandCover.Forest);
+            }
+
+            int river = side / 2;
+            int river1 = river + 1;
+            if (river1 >= side)
+            {
+                river1 = side - 1;
+            }
+
+            terrain.FillRect(river, 0, river1, side - 1, 0, LandCover.Water);
+            for (int y = 0; y < side; y += 64)
+            {
+                int y1 = y + 3;
+                if (y1 >= side)
+                {
+                    y1 = side - 1;
+                }
+
+                terrain.FillRect(river, y, river1, y1, 0, LandCover.Ford);
+            }
+
+            return terrain;
         }
     }
 }
