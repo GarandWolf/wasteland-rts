@@ -1,0 +1,17 @@
+{
+  "name": "com.wasteland.sim",
+  "version": "0.1.0",
+  "displayName": "Wasteland Simulation Core",
+  "description": "Deterministic, lockstep-ready simulation core. No UnityEngine dependency. Consumed by Unity via asmdef and by headless dotnet tests.",
+  "unity": "6000.3",
+  "documentationUrl": "https://github.com/GarandWolf/wasteland-rts/blob/main/docs/ARCHITECTURE.md",
+  "keywords": [
+    "simulation",
+    "deterministic",
+    "lockstep",
+    "rts"
+  ],
+  "author": {
+    "name": "GarandWolf"
+  }
+}

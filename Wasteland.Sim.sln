@@ -1,0 +1,34 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{B812EC56-6848-44F5-B072-56B7636B67BC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wasteland.Sim", "src\Wasteland.Sim\Wasteland.Sim.csproj", "{CC9E38F2-C8A1-4690-95A5-E3E16E832A9E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Wasteland.Sim.Tests", "src\Wasteland.Sim.Tests\Wasteland.Sim.Tests.csproj", "{42DCF6F4-22A1-4610-8FDA-169B87EC438F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{CC9E38F2-C8A1-4690-95A5-E3E16E832A9E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CC9E38F2-C8A1-4690-95A5-E3E16E832A9E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CC9E38F2-C8A1-4690-95A5-E3E16E832A9E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CC9E38F2-C8A1-4690-95A5-E3E16E832A9E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{42DCF6F4-22A1-4610-8FDA-169B87EC438F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{42DCF6F4-22A1-4610-8FDA-169B87EC438F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{42DCF6F4-22A1-4610-8FDA-169B87EC438F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{42DCF6F4-22A1-4610-8FDA-169B87EC438F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{CC9E38F2-C8A1-4690-95A5-E3E16E832A9E} = {B812EC56-6848-44F5-B072-56B7636B67BC}
+		{42DCF6F4-22A1-4610-8FDA-169B87EC438F} = {B812EC56-6848-44F5-B072-56B7636B67BC}
+	EndGlobalSection
+EndGlobal
