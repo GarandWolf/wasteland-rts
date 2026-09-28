@@ -9,7 +9,8 @@ Locked with the enemy AI design (`docs/ai/enemy-ai-design.md` §4.3): **20 Hz**,
 | Layer | Assembly | May use | Owns |
 | --- | --- | --- | --- |
 | Simulation | `Wasteland.Sim` (`noEngineReferences`) | Plain C#, integers, `Fixed64` for internal math only | Authoritative state, commands, RNG, hashes, events |
-| Presentation | `Wasteland.Presentation` | UnityEngine, Entities.Graphics, UI | Cameras, meshes, interpolation, audio, HUD |
+| Presentation | `Wasteland.Presentation` | UnityEngine, Entities Graphics, URP, UI | Cameras, meshes, interpolation, audio, HUD |
+| Prototypes | `Wasteland.Prototypes` (`autoReferenced: false`) | Same as presentation | Throwaway scenes (5k-unit test). Shipping assemblies must not reference it. |
 | Bridge (future) | DOTS systems that *read* sim snapshots | Both, but write only commands | Spawning view entities, culling |
 
 Rules:

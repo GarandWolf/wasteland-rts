@@ -15,7 +15,7 @@ A `Wasteland.Sim.Headless` (or equivalent) host will run playerless matches for 
 Editor, PlayMode, and player builds need [GameCI](https://game.ci/) (`game-ci/unity-builder`, `game-ci/unity-test-runner`) plus a Unity license secret (`UNITY_LICENSE` / floating license). That is intentionally **not** wired up in this skeleton:
 
 - It requires a seat and a stored secret this repo does not have yet.
-- First-open ProjectSettings and URP/Entities baking still need a human in the editor before a player build is meaningful.
+- First-open still needs a human in the editor: remaining ProjectSettings YAML, Bootstrap scene, and creating/assigning the Forward+ URP assets in `Assets/_Project/Settings/` (URP 17.3.0 and Entities Graphics 1.4.21 are already in the manifest).
 
 When we add it, the expected shape is a second workflow (e.g. `.github/workflows/unity.yml`) that:
 
