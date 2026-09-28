@@ -68,7 +68,7 @@ These are **decisions**, not drafts. They lock the sim seams the AI is written a
 | Command queue | The lead engineer’s in-progress foundation PR defines the first command queue. The AI **plugs into it**. |
 | Threading | Launch: **fixed-step sim on the main thread**. A dedicated sim thread comes later. The AI stays **inside the sim tick** either way. |
 | Core / headless | Core is **pure C# with no `UnityEngine`**. Headless runs via `dotnet test` or a console host in GitHub Actions. |
-| Blobs | **WRMB** is the single map format (Map Pipeline Engineer’s versioned little-endian container, directory-by-tag, per-section CRCs). Layout spec: `blob-layout-v0.md` (map pipeline). Arrays sorted by id. Variable-length fields are `(offset, count)` into shared pools. **No hash-set rebuild on load.** Terrain is a **second WRMB**; each file stores the other’s `contentHash`. |
+| Blobs | **WRMB** is the single map format (Map Pipeline Engineer’s versioned little-endian container, directory-by-tag, per-section CRCs). Layout spec: `blob-layout-v0.md` (map pipeline). Arrays sorted by id. Variable-length fields are `(offset, count)` into shared pools. **No hash-set rebuild on load.** Terrain is a **second WRMB** (elevation in whole decimetres on the 1,800×1,800 grid, plus slope‰ and land-cover); each file stores the other’s `contentHash`. |
 | Hash / PRNG | **xxHash64** and **PCG32**, both in-repo with golden tests. `hash64` means xxHash64 over the listed fields. |
 | Perf targets | **1.5 ms AI** and **8 ms sim** are the accepted targets. The wall-clock **ship gate waits for a vertical slice**. The **AI work-unit cap alone** governs behavior. |
 | Per-PR CI | Frozen golden **100×100** map under `data/golden/` (Git LFS + SHA-256), **2 AI** factions, **12,000 ticks** (10 game minutes), run **twice** with the same seed, identical hashes every **200** ticks, finish in **under 5 minutes**. |
@@ -85,10 +85,10 @@ Accepted field-level contract for §3. The CI golden map is **approved (Sep 28, 
 | Topic | Decision |
 | --- | --- |
 | When derived | Chokepoints, territories, `strategicValue`, and neighbour lists are computed **after** the post-apocalyptic transform. Destroyed bridges are already gone from the passable graph. |
-| Chokepoints | Record in §3.1. AI scores with **`defensibility` and `detourRatioPpt`**. Flag **`wheeledOnly`** (road pass whose off-road slopes on both sides exceed the wheeled limit): prioritize for defense and raids. |
+| Chokepoints | Record in §3.1. AI scores with **`defensibility` and `detourRatioPpt`**. Each record stores **`bypassMaxGradePpt`** (uint16): gentlest worst-case off-road bypass grade, or **65535** if none. **Do not bake `wheeledOnly`.** At match load the AI derives `wheeledOnly = bypassMaxGradePpt > wheeledMaxGradePpt` (designer table, currently 299‰); same for tracked (599‰) and foot (999‰). Prioritize class-forced-to-road chokes for defense and raids. |
 | `strategicValue` | 0–1000 from per-map percentile ranks: population 40%, road connectivity 25%, chokepoint proximity 15%, high ground 10%, resources 10%, plus a `populationClass` absolute anchor. **Designer owns the weights.** Per-town components go in optional `TDBG` for the overlay. |
 | Road budget | ~**8k nodes / 12k edges** on 200×200; ~**2k / 3k** on 100×100. Towns collapse to a gate plus **exit edges**. Edge geometry is a polyline. **Over-budget bake fails** (never truncates). |
-| AI grid | Coarse **AI cells** from META `cellSizeCm` — **never assume a round mile**. **18** terrain cells (89 m slope‰ + land-cover grid) make one 1-mile AI cell. Gorge terrain WRMB is **1,800×1,800**. `ElevationCell` plus `CellExt` on the AI grid. |
+| AI grid | Coarse **AI cells** from META `cellSizeCm` — **never assume a round mile**. **18** terrain cells (89 m slope‰ + land-cover + elevation in **whole decimetres**) make one 1-mile AI cell. Gorge terrain WRMB is **1,800×1,800**. `ElevationCell` plus `CellExt` on the AI grid. |
 | Format | **WRMB** (approved): versioned little-endian, directory-by-tag, per-section CRCs. Spec: `blob-layout-v0.md`. Variable-length fields are `(offset, count)` into shared int32 / point / string pools. JSON/GeoJSON debug export with a **binary → JSON → binary** round-trip test. Map + terrain are **two WRMB files** that record each other’s `contentHash`. |
 | Gameplay fields | `supplyCapacity`, `fortificationSlots`, `defaultFortification`, `resourceYield` are **not** in the map blob. Designer table, applied at load (keyed by `populationClass`). |
 | Golden maps | CI: **Mid-Columbia Gorge** 100×100 (`golden-ci-columbia-gorge-100`), committed under `data/golden/` via **Git LFS** with SHA-256 files, **approved Sep 28, 2026**. Soak: **Illinois–Iowa** and **Central Alps** at 200×200. |
@@ -267,7 +267,7 @@ All terms are `int32` millipoints. Features are already in parts-per-thousand (p
 | `defenderSupplyPpt` | Low if we have cut their road to the town — assault sooner. High if they are supplied — isolate first. |
 | `ownSupplySafetyPpt` | Penalty if the assigned force would go OOS on the approach or during the hold timer. |
 | `roadAccessPpt` | 1000 if a friendly-controlled, supplied road reaches it; less if off-graph. |
-| `chokepointBonus` | `defensibility * detourRatioPpt / 1000` (both 0–1000 / 1000–10000). Prefer cuts that disconnect (`detourRatioPpt` near 10000). Extra weight if `flags.wheeledOnly` (defense and raids). |
+| `chokepointBonus` | `defensibility * detourRatioPpt / 1000` (both 0–1000 / 1000–10000). Prefer cuts that disconnect (`detourRatioPpt` near 10000). Extra weight if derived `wheeledOnly` (or the assigned class cannot bypass): `bypassMaxGradePpt > classMaxGradePpt` (defense and raids). |
 | `bridgeJunctionValue` | Extra for bridge **edges** and high-flag junctions (cut or guard). |
 | `visionGroundBonus` | High-ground / ridge cells (`elevationCm`, `CellExt.coverPpt`) that would reveal a road or zone. |
 | `economyNeedPpt` | High when income < upkeep + planned spend. |
@@ -539,15 +539,14 @@ A node is **held** (supply cut) at runtime when an enemy combat unit occupies it
 
 #### Chokepoints
 
-Computed on the **post-transform** passable graph. AI scoring uses `defensibility` and `detourRatioPpt`. **`wheeledOnly`**: a road pass whose off-road slopes on both sides exceed the wheeled limit (299‰). The AI **prioritizes** these for `HoldChokepoint` and `Raid` / `CutSupply`.
+Computed on the **post-transform** passable graph. AI scoring uses `defensibility` and `detourRatioPpt`. **`bypassMaxGradePpt`** (`uint16`) is the gentlest worst-case grade of any off-road route around the chokepoint, or **65535** if there is no bypass. **Do not store `wheeledOnly` in the map file.** At match load the AI derives `wheeledOnly = bypassMaxGradePpt > wheeledMaxGradePpt` (designer movement table, currently **299‰**). The same test applies to tracked (**599‰**) and foot (**999‰**). A balance change to those limits never forces a map rebuild. The AI **prioritizes** class-forced-to-road chokes for `HoldChokepoint` and `Raid` / `CutSupply`.
 
 ```
 ChokepointRecord                           // fixed size; arrays via (offset,count) → I32P
   id                    int32
   kind                  int8               // 0 Bridge, 1 Pass, 2 Causeway, 3 Dam, 4 Gap, 5 Tunnel, 6 Junction
   flags                 uint8              // bit0 inferredBridge, bit1 onlyCrossing,
-                                           // bit2 destroyedByTransform, bit3 roadless,
-                                           // bit4 wheeledOnly
+                                           // bit2 destroyedByTransform, bit3 roadless
   widthClass            int8               // 0..3, same scale as RoadEdge
   _pad                  int8
   positionCm            int32 x, y
@@ -557,6 +556,8 @@ ChokepointRecord                           // fixed size; arrays via (offset,cou
   widthCm               int32
   defensibility         int16              // 0..1000
   detourRatioPpt        int16              // 1000..10000 (10000 = disconnects)
+  bypassMaxGradePpt     uint16             // gentlest worst-case off-road bypass; 65535 = none
+  _pad2                 uint16
   approachReliefCmA     int32              // relief toward sideA
   approachReliefCmB     int32
   sideATerritoryId      int32              // the two territories it connects (A < B); 0 if interior
@@ -569,7 +570,7 @@ ChokepointRecord                           // fixed size; arrays via (offset,cou
 
 #### Elevation, cells, CellExt
 
-Terrain (89 m slope‰ + land-cover grid) lives in a **separate WRMB**. On the Gorge that grid is **1,800×1,800**. **18** terrain cells make one 1-mile **AI** cell. The AI reads **`cellSizeCm` from META** and **never assumes** a round mile (do not hardcode 160934). Map extent is `gridWidth × cellSizeCm`. Index = `xCm / cellSizeCm` (integer division), row-major `y * gridWidth + x`. Each WRMB records the other’s `contentHash`.
+Terrain (89 m slope‰ + land-cover + elevation in **whole decimetres**) lives in a **separate WRMB**. On the Gorge that grid is **1,800×1,800**. **18** terrain cells make one 1-mile **AI** cell. The AI reads **`cellSizeCm` from META** and **never assumes** a round mile (do not hardcode 160934). Map extent is `gridWidth × cellSizeCm`. Index = `xCm / cellSizeCm` (integer division), row-major `y * gridWidth + x`. Each WRMB records the other’s `contentHash`.
 
 AI-grid `elevationCm` = **median** of the terrain samples in the cell; `slopePpt` from those samples; `class` from sub-cell fractions (not the mean).
 
@@ -653,7 +654,7 @@ MapAiHeader
                         // rivers, bridges, water bodies, cells
 ```
 
-Section directory (locked; `blob-layout-v0.md`): `META`, `TOWN`, `TERR`, `RNOD`, `REDG`, `CHOK`, `RIVR`, `BRDG`, `WATR`, `CELL`, `CELX`, `I32P`, `PTSP`, `STRP`, optional `TDBG`. Terrain WRMB holds the 89 m slope‰ + land-cover grid (Gorge: 1,800×1,800).
+Section directory (locked; `blob-layout-v0.md`): `META`, `TOWN`, `TERR`, `RNOD`, `REDG`, `CHOK`, `RIVR`, `BRDG`, `WATR`, `CELL`, `CELX`, `I32P`, `PTSP`, `STRP`, optional `TDBG`. Terrain WRMB holds the 89 m slope‰ + land-cover + elevation-in-dm grid (Gorge: 1,800×1,800).
 
 #### Golden maps
 
@@ -687,7 +688,7 @@ Enemy units the faction cannot see do not write into Threat as truth; they write
 - Owned or snapshotted town: add `town.strategicValue` into Value, plus `anchorBonus`, plus `fortificationLevel * FortValueMul` (from snapshot if fogged).
 - Capture zone currently ticking (visible): add `captureProgressPpt` into Value for both the attacker’s finish-hold and the defender’s contest.
 - Bridges and high-degree junctions: add `bridgeJunctionValue` into Value if they sit on a known supply path (own: guard; enemy: cut).
-- Pipeline chokepoint: add `defensibility * detourRatioPpt / 1000` if we own or contest a gated territory (`gatesTerritoryIds` / `sideA/BTerritoryId`) or supply path. Extra stamp if `flags.wheeledOnly` (defense / raid priority).
+- Pipeline chokepoint: add `defensibility * detourRatioPpt / 1000` if we own or contest a gated territory (`gatesTerritoryIds` / `sideA/BTerritoryId`) or supply path. Extra stamp if derived `wheeledOnly` / class-forced-to-road (`bypassMaxGradePpt > classMaxGradePpt`).
 - Ridge / high-elevation cells (`ridgeHint`, `CellExt.coverPpt`) that LoS-hint a fogged road: scout value, not threat.
 
 **Incremental update.** Full-grid rebuilds are forbidden on 200×200 (40,000 cells × 4 layers × N factions).
@@ -935,7 +936,7 @@ Shared fields (all ppt unless noted):
 | `weightThreat` | Reacting to threat map |
 | `weightForceRatio` | Patience before entering a capture zone |
 | `weightEconomy` | ExpandEconomy vs army |
-| `weightChokepoint` | Hold/take gates; extra on `wheeledOnly` passes |
+| `weightChokepoint` | Hold/take gates; extra on derived `wheeledOnly` / class-forced-to-road passes |
 | `weightSupplyCut` | Raiding nodes/bridges vs frontal assault |
 | `weightSupplyGuard` | Protecting own depot paths |
 | `weightDistance` | Preference for nearby goals (higher = more local) |
@@ -1132,7 +1133,7 @@ All previous items are **decided**, including WRMB as the single map format (`bl
 
 ### 9.3 Map pipeline engineer
 
-Answered items (chokepoints including `wheeledOnly`, `strategicValue` formula, road LOD budget, AI cells + `cellSizeCm` from META, terrain WRMB split, rivers/lakes, territories, neighbour lists, `areaCells`, bridges-as-edges, surface/condition split, golden maps under `data/golden/`, **WRMB section layout**) are recorded as [Map pipeline decisions](#map-pipeline-decisions). Layout spec: **`blob-layout-v0.md`**.
+Answered items (chokepoints including `bypassMaxGradePpt` with `wheeledOnly` derived at load, `strategicValue` formula, road LOD budget, AI cells + `cellSizeCm` from META, terrain WRMB split with elevation in dm, rivers/lakes, territories, neighbour lists, `areaCells`, bridges-as-edges, surface/condition split, golden maps under `data/golden/`, **WRMB section layout**) are recorded as [Map pipeline decisions](#map-pipeline-decisions). Layout spec: **`blob-layout-v0.md`**.
 
 Nothing remaining in this section. Soak golden regions stay under §9.1 (Garand).
 
@@ -1169,7 +1170,9 @@ Locked values from lead-engineer decisions are marked **locked**. The rest are p
 | `TickDurationMs` | 50 | ms (**locked**) |
 | `commandDelayTicks` | 2 in SP; higher in MP | ticks (**locked as match-setup**; never hardcoded) |
 | `CellSizeCm` | from META | cm (never assume a round mile; 18 terrain cells = 1 AI cell) |
-| `WheeledOffRoadMaxSlopePpt` | 299 | ppt (wheeled impassable off-road above this) |
+| `wheeledMaxGradePpt` | 299 | ppt (designer movement table v0.1; off-road) |
+| `trackedMaxGradePpt` | 599 | ppt |
+| `footMaxGradePpt` | 999 | ppt |
 | `StrategicCadenceTicks` | 40 | ticks |
 | `FactionPlanOffsetTicks` | 3 | ticks |
 | `MaxCandidateGoals` | 64 | count |
