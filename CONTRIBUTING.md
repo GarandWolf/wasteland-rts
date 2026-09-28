@@ -106,6 +106,9 @@ python3 tools/map/stable_ids.py \
   --check data/golden/golden-ci-columbia-gorge-100.v1.wrmb \
   --against data/golden/golden-ci-columbia-gorge-100.v0.wrmb \
   --manifest data/golden/stable-ids.json
+python3 tools/map/tests/test_reader_final_v1.py \
+  data/golden/golden-ci-columbia-gorge-100.v1.wrmb \
+  data/golden/golden-ci-columbia-gorge-100.terrain.v1.wrmb
 ```
 
 Unity: **Unity 6.3 LTS** (`6000.3.24f1`). Open the repo root as the project. First open regenerates `Library/`, `Packages/packages-lock.json`, extra `ProjectSettings/` YAML, and `.meta` files for any assets that shipped without them.

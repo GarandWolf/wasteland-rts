@@ -1,22 +1,32 @@
-# WRMB map files, layout v1 (formatVersion 1, container approved)
+# WRMB map files, layout v1 (formatVersion 1, FINAL layout)
 
-> **Status: container and section directory APPROVED by the Lead Engineer (2026-09-28).** This is layout **v1**: `formatVersion` = 1. Header flag bit0 `DRAFT_LAYOUT` **stays set** in v1 files: the record layouts are still not frozen (v1 only adds fields). Readers must find sections through the directory by tag, never by fixed offsets, and must pick the record schema by the header `formatVersion`.
-> The files under `data/golden/` are the CI golden pair for formatVersion 1 of `golden-ci-columbia-gorge-100`. They sit next to the unchanged v0 pair. Record layouts are not frozen; the committed bytes are.
+> **Status: `formatVersion` 1 is the FINAL v1 layout** (Lead Engineer review of PR #6, 2026-09-28). The container and section directory were approved earlier the same day. v1 was never merged or consumed from the repo, so everything below *is* formatVersion 1; there are no v1 sub-revisions for readers.
+> - **Final v1 means:**
+>   - `MVLC` has the blocking-water semantics of §4.6: 6 = impassable blocking water, 5 = marsh / fordable water.
+>   - `WTRA` is **required** in every v1 terrain file (§4.7).
+>   - `CHOK.defenseGroupId` sits at offset 7 (§4.8) and `CHOK.bypassWheeledBlocked` at offset 79 (§4.9). The record size stays 88 B.
+> - **Record layouts are frozen:** header flag bit0 `DRAFT_LAYOUT` is **cleared**. Any record or field change needs `formatVersion` 2.
+> - **Stale-file marker:** every final v1 file sets header flag **bit2 `V1_FINAL`**. The reader **rejects** a formatVersion 1 file without it: files built before the final definition lack the bit and would otherwise be misread (for example, pad bytes read as group ids). The validator also rejects a v1 terrain file without `WTRA`. The header has no reserved slot, so a flag bit is the marker.
+> - The reader checks `elementSize` on every section: record schemas, pools (4 / 8 / 1) and raw sections (MVSL 2, MVLC 1, MVFD 1, MVEL 2, WTRA 1).
+> - Readers must find sections through the directory by tag, never by fixed offsets, and must pick the record schema by the header `formatVersion`.
+> The files under `data/golden/` are the CI golden pair for formatVersion 1 of `golden-ci-columbia-gorge-100`. They sit next to the unchanged v0 pair. Record layouts are frozen (`V1_FINAL`); the committed bytes are the golden.
 >
-> **Changes from v0 (summary, details in §4.1-§4.7):**
+> **Changes from v0 (summary, details in §4.1-§4.8):**
 > - `TERR` +`stableKey` u64 (40 → 48 B), `BRDG` +`stableKey` u64 (32 → 40 B), `CHOK`: the 2 padding bytes after `bypassMaxGradePpt` become `bypassSurfaceClass` u8 + 1 pad byte, then +`stableKey` u64 (80 → 88 B), `RNOD`: the 2 padding bytes after `kind` become `territoryId` u16 (size unchanged, 24 B). All other records are byte-for-byte the v0 layout.
 > - Ids of territories, bridges and chokepoints are pinned by the committed manifest `data/golden/stable-ids.json` (seeded from v0, so every v1 id equals its v0 id).
 > - Territory partition follows the terrain movement layer (v1.2, §4.4): a border can only be a movement cell that is impassable to both foot and wheeled units (`MVLC` code 6). This changes territory, side and gate fields, not the layout.
 > - **v1.2 terrain movement data (§4.6):** blocking rivers and lakes, chosen by a measurable rule with no river names, are baked into `MVLC` as code 6 and made watertight against 8-way movement. Fordable water is baked as 5 (marsh). Bridges and fords are the only crossings. `CELX.edgeBlockMask` and `CHOK.bypass*` are derived from this baked data (§4.1).
 > - **v1.2 new terrain section `WTRA`** (§4.7): art-only water marks (land / blocking water / fordable water / ford) and a ford list. It is not a sim input, is not part of `terrainPayloadSha256`, and has no GRID descriptor. v0 files do not have it.
 > - `Town.sourceFlags` bit4: population from the US Census 2020 (P.L. 94-171) fallback; bit5: population is a manual **design override** (not sourced data, §4.5).
-> - `RNOD.territoryId` (u16, §4.4): permanent node territory (ids pinned by the manifest, i.e. keyed to `TERR.stableKey`).
+> - `RNOD.territoryId` (u16, §4.4): the node's territory; the value **equals `TERR.id`** (ids pinned by the manifest, i.e. keyed to `TERR.stableKey`). Never 0 in a final v1 file.
+> - **`CHOK.defenseGroupId`** (u8 at offset 7, the v0 padding byte after `widthClass`; §4.8): border chokepoints that guard the same approach share a group. The AI garrisons by group, and the tactical map draws one bracket per group. 255 = no group (internal chokepoint).
+> - **`CHOK.bypassWheeledBlocked`** (u8 at offset 79, the last padding byte; §4.9): 1 if no bypass is passable for wheeled units. The `CHOK` record is 88 B with no padding left.
 > - `wrmb_reader.py` reads and validates both formatVersion 0 and 1 files.
 
 - **Two files per map** (each a complete WRMB container with its own header, META, directory, CRCs and content hash):
   - `<map>.v1.wrmb`: **main/AI file**, `META.fileKind` = 0. Sections: META, SRCS, GRID, TOWN, TDBG, TERR, RNOD, REDG, CHOK, RIVR, BRDG, WATR, WRNG, MSET, RSRC, CELL, CELX, pools.
   - `<map>.terrain.v1.wrmb`: **terrain file**, `META.fileKind` = 1. Sections: META, SRCS, GRID, MVSL, MVLC, MVFD, MVEL, WTRA (v1.2, art only, §4.7), pools (strings for META/SRCS).
-  - **Pair binding:** both METAs carry `terrainPayloadSha256` = SHA-256 of the terrain sections' bytes concatenated in the order MVSL, MVLC, MVFD, MVEL. The terrain META carries `pairedContentSha256` = the main file's header `contentHash`. The main META leaves `pairedContentSha256` zero, because the terrain file points at the main file and not the other way round. Each META names the other file in `pairedFileName`. Build order: terrain payload → main file → terrain file.
+  - **Pair binding:** both METAs carry `terrainPayloadSha256` = SHA-256 of the terrain sections' bytes concatenated in the order MVSL, MVLC, MVFD, MVEL (**not** WTRA). The header `contentHash` of each file covers the whole file, WTRA included, so an art-only WTRA change alters the terrain file's `contentHash` but not `terrainPayloadSha256`. The terrain META carries `pairedContentSha256` = the main file's header `contentHash`. The main META leaves `pairedContentSha256` zero, because the terrain file points at the main file and not the other way round. Each META names the other file in `pairedFileName`. Build order: terrain payload → main file → terrain file.
   - Both METAs share one schema. In the terrain file the AI counts are 0. Map extent, grids, projection, seeds, versions, attribution, SRCS and hashes are identical in both files, and the validator checks this.
 - **Not in v1 (as in v0):** the full-resolution 5400 × 5400 render heightmap (30 m). It will be a later, separate asset. The terrain file's MVEL (1800 × 1800, decimetres) is meant for tactical-map hillshade and AI use.
 - **Schema:** Enemy AI design doc §3.1 schema v1 (`schemaVersion` = 1) plus the accepted contract changes in `ai-contract-review.md` §12: the bridge-head model, `areaCells`/`areaHa`, `seatTownId`, `exitEdgeIds`, `condition`, `climbCmAB/BA` + `elevDeltaCm`, travelCost in metre-equivalents, the `ChokepointRecord` layout from §2.2 (+ `bypassMaxGradePpt`, v1: + `bypassSurfaceClass`, `stableKey`), `CellExt`, `WaterBody`, pools and the provenance/attribution header.
@@ -66,11 +76,11 @@ Cell lookup **must** use `col = floor((xCm - originXCm) * width / extentXCm)` an
 | 4 | `formatVersion` | u16 | 0 = v0; **1 = v1** (adds stable keys + `bypassSurfaceClass`). The record schema is chosen by this value; readers reject unknown versions |
 | 6 | `schemaVersion` | u16 | 1 (AI design doc §3.1 + contract changes) |
 | 8 | `headerSize` | u32 | 64 |
-| 12 | `flags` | u32 | bit0 `DRAFT_LAYOUT`, bit1 `HAS_DEBUG_SECTIONS` (TDBG, main file only) |
+| 12 | `flags` | u32 | bit0 `DRAFT_LAYOUT` (set in v0; **cleared** in final v1), bit1 `HAS_DEBUG_SECTIONS` (TDBG, main file only), bit2 `V1_FINAL` (**required** when `formatVersion` = 1; readers reject a v1 file without it). Other bits 0 |
 | 16 | `sectionCount` | u32 | number of directory entries |
 | 20 | `directoryOffset` | u32 | 64 |
 | 24 | `fileSize` | u64 | total bytes |
-| 32 | `contentHash` | u8[32] | SHA-256 of the whole file with these 32 bytes zeroed |
+| 32 | `contentHash` | u8[32] | SHA-256 of the **whole file** with these 32 bytes zeroed: every section, including `WTRA` in the terrain file. (Only `terrainPayloadSha256` leaves WTRA out.) |
 
 ## 3. Section directory (40 B per entry, at `directoryOffset`)
 
@@ -97,7 +107,7 @@ Cell lookup **must** use `col = floor((xCm - originXCm) * width / extentXCm)` an
 | `TERR` | main | TerritoryRecord with `seatTownId`, `areaCells`, `areaHa`, v1 `stableKey`; `resourceYield` resolved at load | derived |
 | `RNOD` | main | RoadNode with the `flags` bitmask (contract change 9), a legacy `kind` enum kept for §3.1 readers and v1 `territoryId` | OSM-derived graph (+ DEM elevation, Pass nodes) |
 | `REDG` | main | RoadEdge with `surface` (0 dirt / 1 gravel / 2 paved) and `condition` split, climb A→B / B→A, signed `elevDeltaCm`, travelCost in metre-equivalents, geometry, flags, `territoryId`, `controlTownId` | OSM-derived graph (+ DEM, transform) |
-| `CHOK` | main | ChokepointRecord (contract review §2.2 layout) + `bypassMaxGradePpt` (§4.1) + v1 `bypassSurfaceClass` (§4.3) + `stableKey` (§4.2) | derived |
+| `CHOK` | main | ChokepointRecord (contract review §2.2 layout) + `bypassMaxGradePpt` (§4.1) + v1 `bypassSurfaceClass` (§4.3) + `stableKey` (§4.2) + final-v1 `defenseGroupId` @7 (§4.8) and `bypassWheeledBlocked` @79 (§4.9) | derived |
 | `RIVR` | main | RiverSegment (OSM waterway=river/canal; streams are not exported), simplified polylines | OSM |
 | `BRDG` | main | BridgeRecord, one per bridge **span edge**. Its two ends are BridgeHead nodes (bridges over blocking rivers/lakes only; other OSM bridges are ordinary edges with flag bit0 `bridge`); v1 `stableKey` | OSM-derived |
 | `WATR` / `WRNG` | main | WaterBody (OSM water ≥ 25 ha) plus its rings (first ring outer, then holes) | OSM |
@@ -124,7 +134,8 @@ For each chokepoint this is the best cross-country (off-road) way around it, mea
   - As a result, a bridge over blocking water with no other bridge, ford or river end inside the search region reports no bypass (65535 / 255).
   - **CI (build fails, S10 `ciBridgeBypass`):** every chokepoint whose own or removed edges include a bridge over a blocking river, with no other bridge over blocking water and no carved ford cell within radius R, must report 65535 / 255.
 - **Algorithm:** a deterministic minimax-bottleneck Dijkstra with key (maxGrade, cellIndex), in integers only. Parameters are in the pipeline config `chokepoints.bypass` and are copied into `META.provenanceJson`.
-- **No threshold is baked in:** the file does not store `wheeledOnly` or the 299‰ wheeled threshold. The AI derives "wheeled units cannot bypass" at load by comparing `bypassMaxGradePpt` with the designer's movement table.
+- **4-connected search vs 8-way sim:** the search moves 4-connected (N/E/S/W), while the sim moves 8-way. A route that the sim would take diagonally past a steep cell corner is not found. `bypassMaxGradePpt` can therefore come out **higher** (more pessimistic) than the best route an 8-way unit could actually use, and never lower. Treat it as an upper bound.
+- **Grade threshold:** `bypassMaxGradePpt` stores no threshold; the AI compares it with the designer's movement table at load. The separate flag `bypassWheeledBlocked` (§4.9) does bake one: the wheeled slope limit of 299‰, plus marsh closure.
 
 ### 4.2 Stable keys (v1): `TERR.stableKey`, `BRDG.stableKey`, `CHOK.stableKey` (u64)
 
@@ -144,6 +155,8 @@ The discriminator keeps a bridge's `BRDG` key and its Bridge chokepoint key dist
 
 **Id rule and manifest (`data/golden/stable-ids.json`, committed):** for each section the manifest maps key → id (plus OSM type/id, disc and a label). At build time a key found in the manifest keeps its manifest id; keys not in the manifest get the next free ids in the section's deterministic default order. The build **fails** if (a) the ids would not be dense 1..n (a manifest key vanished, which would force renumbering), (b) two records share a key, or (c) the post-build check `stable_ids.py --check <main.wrmb>` finds a manifest key whose id changed or that is missing (report: `blob/stable-ids-check.json`). Changing the manifest is a deliberate, reviewed step (`stable_ids.py --update <main.wrmb>`). The v1 manifest was seeded from the v0 golden file, so all 13 territory, 123 bridge and 49 chokepoint ids equal their v0 ids. Territory ids 1-13 stay: 1 Maupin, 2 Condon, 3 Wasco, 4 The Dalles, 5 Cascade Locks, 6 Hood River, 7 Arlington, 8 Carson, 9 White Salmon, 10 Roosevelt, 11 Goldendale, 12 Trout Lake, 13 Outlook. `BRDG` records are sorted by id (not edge order).
 
+**u64 keys are not doubles:** `stableKey` values use all 64 bits (OSM type in bits 63..60, so every key is ≥ 2^60). They must be read, stored and compared as unsigned 64-bit integers. **Never parse them as IEEE doubles**: JavaScript `Number`, `JSON.parse` defaults, spreadsheet cells and C# `double` all lose precision above 2^53, and distinct keys would collide. In the debug JSON exports and `stable-ids.json` they are exact decimal integers. Read them with a 64-bit integer or bigint parser (C# `ulong`, JS `BigInt`, Python `int`), or as strings.
+
 ### 4.3 `CHOK.bypassSurfaceClass` (u8, v1)
 
 The dominant land cover along the best bypass path of §4.1. Values use the land-cover enum (1 field, 2 scrub_rock, 3 urban, 4 forest, 5 marsh, 6 water, 7 snow_ice). The path is the one found by the minimax-bottleneck search (parent pointers; ties resolved by the same (maxGrade, cellIndex) key). Its cells, including both end cells, are counted by MVLC code; the most frequent code wins, and a tie goes to the lower code. **255** = no bypass; this holds exactly when `bypassMaxGradePpt` = 65535. The validator checks the value range and that consistency.
@@ -151,7 +164,8 @@ The dominant land cover along the best bypass path of §4.1. Values use the land
 ### 4.4 Territory partition (v1.2 movement-layer rule)
 
 - **Seats:** chosen exactly as in v0 (soft-cost flood fill with seed spacing, oversize splits and small-territory merges). The golden map keeps the same 13 seats and ids.
-- **Border rule:** a territory border can only be a terrain movement cell (1800 × 1800, about 89 m) that is impassable to **both** foot and wheeled units. In the baked data that is exactly `MVLC` code 6 (§4.6). Fords are carved passable, and slope never closes a cell to both unit types. Bridges connect territories; they never carry a territory across.
+- **Border rule:** a territory border can only be a terrain movement cell (1800 × 1800, about 89 m) that is impassable to **both** foot and wheeled units. In the baked data that is exactly `MVLC` code 6 (§4.6). Fords are carved passable. Bridges connect territories; they never carry a territory across.
+- **Slope is not a border input, by design.** Slopes of 1000‰ or more (cliffs) close a cell to foot and wheeled units alike (golden map: 717 cliff cells, none on water). Territory borders stay water-only anyway; cliffs matter only through the chokepoint and bypass data (§4.1, §4.9). The S9 cliff check below keeps cliffs away from blocking-river borders.
 - **Cells:**
   - Each 1-mile cell is split into *pieces*: its movement cells grouped by 4-connected ground component. Thanks to §4.6 watertightness, 4-connected components equal the 8-connected ones the sim uses.
   - Pieces are grown from the seats by a multi-source Dijkstra with the v0 step costs. Pieces on a landmass with no seat (islands, sandbars; 51 pieces on the golden map) take the cheapest soft path from a labelled piece.
@@ -161,13 +175,17 @@ The dominant land cover along the best bypass path of §4.1. Values use the land
   - Bridgehead road nodes of bridges over blocking water take the piece of their S8b bridgehead cell (§4.6).
   - A dry edge whose two ends share a territory carries it.
   - `REDG.territoryId` / `RNOD.territoryId` can therefore differ from the containing cell's `CELX.territoryId` along banks.
-- **`RNOD.territoryId` (u16, v1):** the node's territory under this rule. 0 = none, which never happens on the golden map. Ids are pinned by `data/golden/stable-ids.json` (§4.2).
+- **`RNOD.territoryId` (u16, v1):** the node's territory under this rule. The value equals the `TERR.id` of that territory: a u16 holding the same id as the i32 `TERR.id` (ids 1..n, n ≤ 65535). **0 is invalid in final v1**: the validator fails any road node with `territoryId` 0. Ids are pinned by `data/golden/stable-ids.json` (§4.2).
 - **CI (S9, build fails):**
   - **River check:** from the seat piece, every town, node and edge piece of a territory can be reached over ground pieces of that same territory. Pockets are exempt.
   - **Minimum size:** every territory has at least `territories.minTerritoryCells` = 150 cells.
   - **Columbia bridges:** every main-river bridge span links two different territories and two different ground components, and each head lies in the territory of its own bank. The same check runs on every bridge over blocking water whose heads are in different ground components.
   - **Passable-water carve-out** (front consistency): for land-adjacent pieces p in T and q in U, D_U(q) ≤ D_T(q) + w and D_T(p) ≤ D_U(p) + w. Here D is the unrestricted ground distance from each seat and w is the step weight. So no territory is cut off by water that units can cross.
   - **Demotion what-if:** every river in `blockingWater.demoteToFordable` is blocked again in a what-if run, and must then leave a territory below the minimum size.
+  - **Cliff check** (config `territories.cliffCheck`): no cliff cell (MVSL ≥ 1000‰) may lie inside, or 8-adjacent to, a blocking-river border span.
+    - A border span is the set of `MVLC`-6 cells that have bank cells (ground cells 8-adjacent to `MVLC` 6) of at least two different territories within 25 cells (Chebyshev distance).
+    - Golden map: 33 386 span cells, 51 478 cells in span + neighbours; **11 cliff cells hit**, all canyon-wall bank cells, none on water. 2 are on the John Day (territory 3 side) and 9 on the upper Klickitat (territory 11 side). Each is at least 59 cells (5 km) from any bridgehead and at least 78 cells from any ford.
+    - The 11 are listed individually in `territories.cliffCheck.allowedCells`, **pending the Lead Engineer's acceptance**. Any other hit fails the build.
 - **Chokepoint sides and gates:** territory-pair minimum cuts are recomputed on the **final** partition. An edge in a cut of ≤ `maxCutEdges` edges takes that pair; otherwise the territories of its end nodes (0/0 when they are equal).
 - **Selection unchanged:** which chokepoints exist is still decided on S9 `selectionPartition`, the v0 soft partition. The pair from that partition is kept in debug `selectionCutPair`.
 
@@ -217,8 +235,9 @@ Towns with no GeoNames/OSM population get the US Census 2020 P.L. 94-171 redistr
 
 ### 4.7 `WTRA`: art-only water marks (terrain file, v1.2)
 
-- **Tag and purpose:** a new optional terrain section, tag **`WTRA`** ("water art"), placed after `MVEL`. It gives artists and the tactical map the water type of every movement cell, plus a list of fords.
-- **Not sim or path data:** the sim skips unknown tags, and `WTRA` is **not** in `terrainPayloadSha256` and has no GRID descriptor (the section describes itself). Adding or changing it cannot change the sim's movement data or any path hash. No spare bits of the movement sections are used.
+- **Tag and purpose:** a terrain section (required in final v1), tag **`WTRA`** ("water art"), placed after `MVEL`. It gives artists and the tactical map the water type of every movement cell, plus a list of fords.
+- **Not sim or path data:** the sim does not read `WTRA`. It is **not** in `terrainPayloadSha256` and has no GRID descriptor (the section describes itself), so changing it cannot change the sim's movement data or the payload hash. It **is** covered by the terrain file's header `contentHash` (whole file) and by its own directory CRC-32: an art-only change alters `contentHash` (and so the main/terrain pairing via `pairedContentSha256` is rebuilt) but not `terrainPayloadSha256`. No spare bits of the movement sections are used.
+- **Required in final v1:** a formatVersion 1 terrain file without `WTRA` fails validation (a pre-final v1 terrain file).
 - **Encoding** (little-endian; `elementSize` 1, `count` = byte length):
   - Header: `u32 version` (= 1), `u32 width`, `u32 height` (= the META move grid, 1800 × 1800), `u32 fordCount`.
   - Water marks: `u8 code[width × height]`, row-major, row 0 = south, same cell order as `MVLC`. Codes: **0** land, **1** blocking water, **2** fordable water, **3** ford.
@@ -233,6 +252,76 @@ Towns with no GeoNames/OSM population get the US Census 2020 P.L. 94-171 redistr
   - no fordable water on code-6 cells;
   - the ford list is strictly sorted and equals the `MVFD` cells, and an `osmId` is present whenever `osmType` ≠ 0;
   - with `--movement-dir`: the codes equal `movement/water_type.u8`, and the ford list equals `water_bake.json` `fordList`.
+
+### 4.8 `CHOK.defenseGroupId` (u8, final v1)
+
+**Purpose:** chokepoints that guard the same approach between the same two territories form one *defense group*. The AI garrisons by group, and the tactical map draws one bracket per group. Both read this field.
+
+**Encoding:**
+- `u8` at record offset 7, the padding byte after `widthClass` in v0. The record size stays **88 B**, and every other field keeps its offset.
+- **255 = no group.** No aligned 2-byte gap was free, so the field is u8, not u16.
+- **Limit: 254 groups (ids 0-253).** Id 254 is never valid, so an overflow can never alias "no group". The chokepoint global cap is 50.
+- **Enforced by the validator:** `check_defense_groups` fails any map that needs more than 254 groups. `pipeline/tests/test_reader_final_v1.py` proves it with a synthetic 255-group set and with the golden file forced to group id 254; the build runs this test. S10b also fails such a build.
+- v0 files wrote 0 in this byte; the v0 schema does not read it. Pre-final v1 files are rejected (no `V1_FINAL` flag).
+
+**Rule** (config `chokepoints.defenseGroup`, stage S10b `s10b_defgroups.py`, output `ai/defense_groups.json`):
+1. **Only border chokepoints are grouped:** `sideATerritoryId` ≠ `sideBTerritoryId`, both non-zero. Internal chokepoints (0/0) get 255.
+2. **Link:** two border chokepoints are linked when both of these hold:
+   - they have the same unordered (sideA, sideB) pair;
+   - they **cover the same approach**: the shortest passable road route between them is at most `maxSpanM` = **20 000 m**. The route runs from any node of one (its `roadNodeId`, `alsoNodeIds`, and the end nodes of its own and removed edges) to any node of the other. Every third border chokepoint with a **different** side pair is removed from the graph (its nodes and its own/removed edges), so a linking route never passes through a chokepoint that guards another border.
+3. **Groups** are single-linkage components: linked chains join.
+4. **Ids** are dense 0..N-1, assigned in increasing order of each group's lowest member chokepoint id. This is deterministic.
+5. **Permanent group key:** the minimum `CHOK.stableKey` among the members (u64, §4.2). It is **not stored** in the file; derive it with `wrmb_reader.defense_groups(model)`. The committed manifest `data/golden/stable-ids.json` records every group under `defenseGroups` (key → id, side pair, members). `stable_ids.py --check` fails the build if the groups derived from the file do not match exactly. Changing the manifest is a deliberate step (`--update`).
+
+**Threshold choice:**
+- The longest link the Gorge fixture needs is Klickitat bridge 11 to bridge 17 (16.1 km of road).
+- The nearest rejected same-pair link is John Day bridge 1 to junction 42 (23.1 km).
+- 20 km sits between the two.
+
+**CI** (S10b, build fails; the validator re-checks everything except the fixture):
+- all members share one side pair;
+- internal chokepoints have 255, and border chokepoints have a group;
+- ids are dense 0..N-1 in the documented order;
+- at most 254 groups (validator and S10b);
+- group keys match the manifest;
+- Gorge fixture `pipeline/fixtures/gorge-defense-groups.json`: 28 and 45 share a group, 11, 17 and 19 share a group, 20 and 41 share a group, and each Columbia bridge (7, 9, 10, 14) is alone.
+
+**Golden map:** 25 border chokepoints form 16 groups; 24 chokepoints are internal.
+
+| Group | Key (min member stableKey) | Sides | Members (chokepoint id: kind, road) |
+|---:|---|---|---|
+| 0 | 2310346608915341918 | 2/3 | 1: Bridge, Shaniko-Fossil Hwy (John Day) |
+| 1 | 2310346608878939605 | 1/3 | 2: Bridge, US-197 at Maupin (Deschutes); 28: Gap, Sherar's Bridge Hwy; 45: Junction, Sherars Bridge Hwy |
+| 2 | 2310346608846148242 | 2/3 | 6: Bridge, Wasco-Heppner Hwy (John Day); 48: Junction, Cottonwood Rd |
+| 3 | 2310346608979386899 | 4/11 | 7: Bridge, The Dalles Bridge |
+| 4 | 2310346608846260059 | 3/4 | 8: Bridge, Celilo-Wasco Hwy (Deschutes mouth) |
+| 5 | 2310346609387311266 | 5/8 | 9: Bridge, Bridge of the Gods |
+| 6 | 2310346610378898047 | 3/11 | 10: Bridge, Sam Hill Memorial Bridge |
+| 7 | 2310346608880263783 | 9/11 | 11: Bridge, Lewis and Clark Trail Hwy; 17: Bridge, SR 142; 19: Bridge, SR 142; 40: Gap, SR 142 (Klickitat) |
+| 8 | 2310346608931635955 | 6/9 | 14: Bridge, Hood River Bridge |
+| 9 | 2310346609017583161 | 11/12 | 20: Bridge, Glenwood Hwy (Klickitat); 41: Gap, Glenwood Hwy |
+| 10 | 2319353808101921320 | 8/9 | 27: Causeway, Lewis and Clark Trail Hwy |
+| 11 | 2328361007356476416 | 10/11 | 38: Gap, Roosevelt Grade Rd; 49: Junction, Lewis and Clark Trail Hwy |
+| 12 | 2337368207981083403 | 2/3 | 42: Junction, Shaniko-Fossil Hwy |
+| 13 | 2337368206643164723 | 1/6 | 43: Junction, Wapinitia Hwy |
+| 14 | 2337368206610489027 | 2/7 | 44: Junction, Cottonwood Rd; 46: Junction, John Day Hwy |
+| 15 | 2337368206796313568 | 1/4 | 47: Junction, The Dalles-California Hwy |
+
+### 4.9 `CHOK.bypassWheeledBlocked` (u8, final v1)
+
+- **Where:** `u8` at record offset **79**, the last padding byte (after `bypassSurfaceClass`, before `stableKey`). No field moves, the record stays **88 B**, and the `CHOK` record now has no padding left.
+- **Value:** **1** if no cross-country bypass around the chokepoint is passable for wheeled units under the baked movement data, otherwise **0**.
+  - It is always 1 when `bypassMaxGradePpt` = 65535; the validator checks this.
+  - Values other than 0 and 1 are invalid.
+- **Computation** (stage S10c `s10c_wheeled.py`, algorithm `wheeled.py`, config `chokepoints.bypassWheeled`):
+  - **Region and endpoints:** the same as §4.1 — the approach-node A cell to the B cell, R and X as §4.1, endpoints always open.
+  - **Moves:** **8-connected**, as the sim moves.
+  - **A cell is closed to wheeled units if:**
+    - `MVLC` = 6 (blocking water); or
+    - `MVLC` = 5 (marsh / fordable water) and the cell is **not** an OSM ford (`MVFD`); or
+    - `MVSL` > 299‰, the designer movement table's wheeled slope limit on 2026-09-28, baked here on request.
+  - The flag is 1 if the A cell cannot reach the B cell.
+- **Golden map:** 26 of 49 chokepoints are 1. Of these, 21 have no bypass at all (65535). The other 5 (4, 16, 34, 35, 37) have a foot bypass (grade 315-453‰) that wheeled units cannot use.
 
 ### Enums and bit fields
 
@@ -445,7 +534,7 @@ Record size: **64 B**.
 | 4 | `kind` | i8 |  |
 | 5 | `flags` | u8 |  |
 | 6 | `widthClass` | i8 |  |
-| 7 | `pad` | zero padding |  |
+| 7 | `defenseGroupId` | u8 |  |
 | 8 | `positionCm` | pos | int32 x, int32 y (cm) |
 | 16 | `elevationCm` | i32 |  |
 | 20 | `roadNodeId` | i32 |  |
@@ -463,7 +552,7 @@ Record size: **64 B**.
 | 68 | `alsoNodeIds` | ids | u32 offset, u32 count into I32P (int32 elements, sorted) |
 | 76 | `bypassMaxGradePpt` | u16 |  |
 | 78 | `bypassSurfaceClass` | u8 |  |
-| 79 | `pad2` | zero padding |  |
+| 79 | `bypassWheeledBlocked` | u8 |  |
 | 80 | `stableKey` | u64 |  |
 
 Record size: **88 B**.
@@ -582,7 +671,7 @@ Record size: **12 B**.
 
 ## 5. Validator checks (`wrmb_reader.py`)
 
-1. **Header and directory (each file):** magic, `formatVersion` ∈ {0, 1} (selects the schema), header size, `fileSize`, `contentHash`, 8-byte alignment, bounds, per-section CRC-32, `count × elementSize = byteLength`, `elementSize` equal to the schema.
+1. **Header and directory (each file):** magic, `formatVersion` ∈ {0, 1} (selects the schema), **formatVersion 1 requires header flag bit2 `V1_FINAL`** (stale pre-final v1 files are rejected), `elementSize` equal to the schema / pool / raw element size for **every** section (WTRA = 1), header size, `fileSize`, `contentHash`, 8-byte alignment, bounds, per-section CRC-32, `count × elementSize = byteLength`, `elementSize` equal to the schema.
 2. **Pool spans:** every span lies inside its pool.
 3. **Round trips:** `encode(decode(file)) == file`. With the debug exports: the model equals the JSON, and JSON → binary is byte-identical. With `--movement-dir`: MVSL/MVLC/MVFD/MVEL (and v1.2 WTRA) equal the pipeline's source arrays.
 4. **GRID:** every descriptor points at a present section, with origin (0, 0), extent = map, row order south-first, and cell size an exact reduced rational (`num × width = extent × den`). Byte length matches width × height × elemBytes (bitset: ceil(bits / 8)), and dims match META.
@@ -599,7 +688,7 @@ Record size: **12 B**.
    - Territories: each seat is in its own town list, each town is in exactly its own territory, and `areaCells` equals the painted CELX cells.
    - `edgeBlockMask` is symmetric.
    - Value ranges hold (incl. `bypassMaxGradePpt` ≤ 65534 or = 65535).
-   - v1 only: `stableKey` non-zero, unique per section, valid OSM type (TERR node, BRDG way), disc 0 for TERR/BRDG and `kind + 1` for CHOK; `bypassSurfaceClass` ≤ 7 or 255, and 255 exactly when `bypassMaxGradePpt` = 65535. `RNOD.territoryId` is 0 or an existing TERR id. A dry edge (flags without bridge/span/crossesBlockingWater) whose two end nodes share a non-zero territory carries it. A town's gate node lies in the town's territory, unless the gate is shared by towns of several territories. Population-source bits are exclusive, and bit5 requires population > 0.
+   - v1 only: `stableKey` non-zero, unique per section, valid OSM type (TERR node, BRDG way), disc 0 for TERR/BRDG and `kind + 1` for CHOK; `bypassSurfaceClass` ≤ 7 or 255, and 255 exactly when `bypassMaxGradePpt` = 65535. `RNOD.territoryId` is 0 or an existing TERR id. A dry edge (flags without bridge/span/crossesBlockingWater) whose two end nodes share a non-zero territory carries it. A town's gate node lies in the town's territory, unless the gate is shared by towns of several territories. Population-source bits are exclusive, and bit5 requires population > 0. Final v1: **no road node has `territoryId` 0**, `bypassWheeledBlocked` ∈ {0, 1} and 1 whenever `bypassMaxGradePpt` = 65535, at most 254 defense groups, and a terrain file must carry `WTRA`. v1.3 `defenseGroupId` (§4.8): 255 exactly for internal chokepoints, ids dense 0..N-1 in order of each group's lowest member id, one side pair per group; the derived groups (with keys) are reported in `info.defenseGroups`.
    - `attributionSha256` matches the attribution text.
 7. **Pair (`--terrain`):**
    - The file kinds are (main, terrain).
@@ -611,10 +700,10 @@ Record size: **12 B**.
 
 ## 6. Open points
 
-- **Record layouts:** v1 still sets `DRAFT_LAYOUT`; records may change again before they are frozen. Renaming or re-ordering sections is free for readers that use the directory, and adding fields bumps `elementSize`.
+- **Record layouts:** frozen for formatVersion 1 (`DRAFT_LAYOUT` cleared, `V1_FINAL` set). Any record change needs formatVersion 2. Renaming or re-ordering sections is free for readers that use the directory.
 - **Render heightmap:** the full-resolution 5400 × 5400 heightmap is a later separate asset (format TBD: likely a third fileKind or a plain 16-bit raster with the same GRID descriptor conventions).
 - **Terrain file size:** ~16.6 MB uncompressed (+3.3 MB for v1.2 `WTRA`). Slope u16 is 6.5 MB and elevation u16 is 6.5 MB. Container-level compression or u8 slope quantization remain options.
 - **Missing fields:** the gameplay fields (`supplyCapacity`, etc.) are left out, per contract change 4. They are resolved at load from the designer table keyed by `populationClass`.
 - **`TerritoryBorder`** node flag and `RoadEdge.territoryId` exist, but edges are not yet split at territory crossings. `territoryId` is the territory of the edge midpoint's ground piece (§4.4).
 - **String encoding:** the pool has no dedup. Names are debug/UI only.
-- **Stable-key manifest check** in this repo is `tools/map/stable_ids.py` (Golden map CI). The stand-alone `wrmb_reader.py` checks key form/uniqueness only, not the manifest. The map pipeline also runs the check from `pipeline/build.py`.
+- **Stable-key manifest check** in this repo is `tools/map/stable_ids.py` (Golden map CI), including `defenseGroups`. The stand-alone `wrmb_reader.py` checks key form/uniqueness only, not the manifest. The map pipeline also runs the check from `pipeline/build.py`.

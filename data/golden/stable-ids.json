@@ -1302,5 +1302,224 @@
    "osmId": 56235627,
    "label": "Junction: Lewis and Clark Trail Highway"
   }
+ },
+ "defenseGroups": {
+  "2310346608915341918": {
+   "id": 0,
+   "sidePair": [
+    2,
+    3
+   ],
+   "memberChokepointIds": [
+    1
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 74277470
+  },
+  "2310346608878939605": {
+   "id": 1,
+   "sidePair": [
+    1,
+    3
+   ],
+   "memberChokepointIds": [
+    2,
+    28,
+    45
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 37875157
+  },
+  "2310346608846148242": {
+   "id": 2,
+   "sidePair": [
+    2,
+    3
+   ],
+   "memberChokepointIds": [
+    6,
+    48
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 5083794
+  },
+  "2310346608979386899": {
+   "id": 3,
+   "sidePair": [
+    4,
+    11
+   ],
+   "memberChokepointIds": [
+    7
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 138322451
+  },
+  "2310346608846260059": {
+   "id": 4,
+   "sidePair": [
+    3,
+    4
+   ],
+   "memberChokepointIds": [
+    8
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 5195611
+  },
+  "2310346609387311266": {
+   "id": 5,
+   "sidePair": [
+    5,
+    8
+   ],
+   "memberChokepointIds": [
+    9
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 546246818
+  },
+  "2310346610378898047": {
+   "id": 6,
+   "sidePair": [
+    3,
+    11
+   ],
+   "memberChokepointIds": [
+    10
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 1537833599
+  },
+  "2310346608880263783": {
+   "id": 7,
+   "sidePair": [
+    9,
+    11
+   ],
+   "memberChokepointIds": [
+    11,
+    17,
+    19,
+    40
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 39199335
+  },
+  "2310346608931635955": {
+   "id": 8,
+   "sidePair": [
+    6,
+    9
+   ],
+   "memberChokepointIds": [
+    14
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 90571507
+  },
+  "2310346609017583161": {
+   "id": 9,
+   "sidePair": [
+    11,
+    12
+   ],
+   "memberChokepointIds": [
+    20,
+    41
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 176518713
+  },
+  "2319353808101921320": {
+   "id": 10,
+   "sidePair": [
+    8,
+    9
+   ],
+   "memberChokepointIds": [
+    27
+   ],
+   "osmType": "way",
+   "disc": 3,
+   "osmId": 6115880
+  },
+  "2328361007356476416": {
+   "id": 11,
+   "sidePair": [
+    10,
+    11
+   ],
+   "memberChokepointIds": [
+    38,
+    49
+   ],
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 5929984
+  },
+  "2337368207981083403": {
+   "id": 12,
+   "sidePair": [
+    2,
+    3
+   ],
+   "memberChokepointIds": [
+    42
+   ],
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 1375795979
+  },
+  "2337368206643164723": {
+   "id": 13,
+   "sidePair": [
+    1,
+    6
+   ],
+   "memberChokepointIds": [
+    43
+   ],
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 37877299
+  },
+  "2337368206610489027": {
+   "id": 14,
+   "sidePair": [
+    2,
+    7
+   ],
+   "memberChokepointIds": [
+    44,
+    46
+   ],
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 5201603
+  },
+  "2337368206796313568": {
+   "id": 15,
+   "sidePair": [
+    1,
+    4
+   ],
+   "memberChokepointIds": [
+    47
+   ],
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 191026144
+  }
  }
 }

@@ -16,20 +16,20 @@ by the Lead Engineer, record layouts may still change before they are frozen):
 
 Layout: [`docs/map/wrmb-layout-v0.md`](../../docs/map/wrmb-layout-v0.md).
 
-## v1 pair (formatVersion 1, pipeline `0.5.0-golden-v1.2`)
+## v1 pair (formatVersion 1 FINAL, pipeline `0.6.0-golden-v1.3`)
 
-Same map, formatVersion 1 (`DRAFT_LAYOUT` still set). Record layouts add fields; they are not frozen.
+Same map, formatVersion 1. `DRAFT_LAYOUT` is cleared and header flag bit2 `V1_FINAL` is required. `WTRA` is required in the terrain file. Any later record change needs formatVersion 2.
 
 | File | Bytes | SHA-256 | Contents |
 |---|---:|---|---|
-| `golden-ci-columbia-gorge-100.v1.wrmb` | 606552 | `a5fef7f561781abb99d3621d2f28b738a9e780e73789da98a9ebc27017467fe6` | main/AI file (META.fileKind 0): towns, territories, road graph, chokepoints (incl. `bypassMaxGradePpt`, `bypassSurfaceClass`), rivers, bridges, water, minor settlements, resources, 1-mile cells; stable u64 keys on territories, bridges, chokepoints |
-| `golden-ci-columbia-gorge-100.terrain.v1.wrmb` | 19872144 | `688187c4e09a82a2a0bf6084d0517e0bf410a2f0936f7412a48bfb2d2552f626` | terrain file (fileKind 1): 1800 × 1800 movement slope (u16 ppt), land cover (u8; v1.2: code 6 = baked blocking rivers/lakes, impassable, watertight; 5 = fordable water), OSM ford bitset, elevation (u16 dm); v1.2 `WTRA`: art-only water marks (0 land, 1 blocking, 2 fordable water, 3 ford) + ford list (cell index, OSM id), not a sim/path input and not in `terrainPayloadSha256` |
+| `golden-ci-columbia-gorge-100.v1.wrmb` | 606784 | `30a1c6705459ed7060405286f6a5ac1f3820d47a8a2b60bbbf56cbc31b6aebe2` | main/AI file (META.fileKind 0): towns, territories, road graph, chokepoints (incl. `bypassMaxGradePpt`, `bypassSurfaceClass`, `defenseGroupId` at offset 7, `bypassWheeledBlocked` at offset 79; record 88 B), rivers, bridges, water, minor settlements, resources, 1-mile cells; stable u64 keys on territories, bridges, chokepoints |
+| `golden-ci-columbia-gorge-100.terrain.v1.wrmb` | 19872384 | `b6636e6a754b738a4a867b00c03b87a524652ce4ff175339b609003c87266419` | terrain file (fileKind 1): 1800 × 1800 movement slope (u16 ppt), land cover (u8; v1.2: code 6 = baked blocking rivers/lakes, impassable, watertight; 5 = fordable water), OSM ford bitset, elevation (u16 dm); required `WTRA`: art-only water marks (0 land, 1 blocking, 2 fordable water, 3 ford) + ford list (cell index, OSM id), not a sim/path input and not in `terrainPayloadSha256` |
 
 Also in this folder:
 
 | File | Role |
 |---|---|
-| `stable-ids.json` | pinned TERR / BRDG / CHOK id ↔ u64 `stableKey` (seeded from v0, so every v1 id equals its v0 id) |
+| `stable-ids.json` | pinned TERR / BRDG / CHOK id ↔ u64 `stableKey` (seeded from v0, so every v1 id equals its v0 id) plus `defenseGroups` (16 groups) |
 | `territory-roads.v1.json` | territory neighbour lists + 13 × 13 seat-to-seat shortest road distance (cm, length only), from the v1 main file |
 
 Layout: [`docs/map/wrmb-layout-v1.md`](../../docs/map/wrmb-layout-v1.md).
@@ -45,8 +45,11 @@ Layout: [`docs/map/wrmb-layout-v1.md`](../../docs/map/wrmb-layout-v1.md).
   65535 / 255 means no bypass.
 - **Stable ids.** `stableKey` (u64 from OSM ids) on TERR / BRDG / CHOK; ids are pinned by `stable-ids.json`.
 - **`CHOK.bypassSurfaceClass`:** dominant land cover along the best bypass path; 255 = no bypass.
-- **`RNOD.territoryId` (u16):** permanent per-node territory, mapping to `TERR.stableKey` through the pinned territory id.
-- **`WTRA`:** art-only; the sim must skip unknown tags. It is not part of `terrainPayloadSha256`.
+- **`CHOK.defenseGroupId`:** u8 at offset 7; 255 = internal chokepoint. Border chokepoints that share a side pair and a 20 km road approach form groups (golden map: 16).
+- **`CHOK.bypassWheeledBlocked`:** u8 at offset 79; 1 if no wheeled bypass exists.
+- **`RNOD.territoryId` (u16):** permanent per-node territory; 0 is invalid in final v1.
+- **`WTRA`:** required in every v1 terrain file; art-only. The sim must skip unknown tags. It is not part of `terrainPayloadSha256`.
+- **`V1_FINAL`:** a formatVersion 1 file without header flag bit2 is rejected as stale.
 - **Populations:** towns without a GeoNames/OSM population use the US Census 2020 P.L. 94-171 count (`Town.sourceFlags` bit4).
 - **Design override (NOT sourced data):** Welches population = 250 (`Town.sourceFlags` bit5).
 
@@ -93,6 +96,9 @@ python3 tools/map/stable_ids.py \
   --check data/golden/golden-ci-columbia-gorge-100.v1.wrmb \
   --against data/golden/golden-ci-columbia-gorge-100.v0.wrmb \
   --manifest data/golden/stable-ids.json
+python3 tools/map/tests/test_reader_final_v1.py \
+  data/golden/golden-ci-columbia-gorge-100.v1.wrmb \
+  data/golden/golden-ci-columbia-gorge-100.terrain.v1.wrmb
 ```
 
 The sidecar `.sha256` files name the blobs without a directory prefix, so `sha256sum -c` has to run with `data/golden/` as the working directory. `git lfs install` (once per machine) is required before the `.wrmb` files materialize; otherwise you are hashing pointer files.
@@ -102,7 +108,7 @@ Checks header/magic/versions, content hash, directory alignment and per-section 
 stable-key form and bypassSurfaceClass consistency; v1.2 `WTRA`: blocking marks exactly equal `MVLC` code 6, ford marks
 and list equal `MVFD`), the pair binding, and a byte-identical encode(decode(file)) round trip. Exit code 0 and
 `"result": "PASS"` = valid. The validator fails the build on any error. `stable_ids.py` additionally requires every
-TERR / BRDG / CHOK `(stableKey, id)` in the v1 blob to match `stable-ids.json`, and the v0 ids to equal the v1 ids.
+TERR / BRDG / CHOK `(stableKey, id)` in the v1 blob to match `stable-ids.json` (including `defenseGroups`), and the v0 ids to equal the v1 ids. `tools/map/tests/test_reader_final_v1.py` proves stale v1, missing WTRA, bad `elementSize`, 254-group overflow, and `territoryId` 0 all fail.
 
 CI runs the same checks in `.github/workflows/golden-map.yml` after `git lfs pull --include="data/golden/*.wrmb"`.
 

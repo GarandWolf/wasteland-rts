@@ -19,7 +19,8 @@ v1.2 terrain files may carry the optional art-only section WTRA (water marks + f
 water_art()); it is validated against MVLC/MVFD (blocking water == MVLC 6 exactly, fords == MVFD) and is not a path input.
 
 LAYOUT STATUS: container + section directory APPROVED by the Lead Engineer (2026-09-28). formatVersion 1 (this writer's
-default) adds permanent u64 stableKey fields to TERR / BRDG / CHOK, CHOK.bypassSurfaceClass and RNOD.territoryId; formatVersion 0 files still
+default) adds permanent u64 stableKey fields to TERR / BRDG / CHOK, CHOK.bypassSurfaceClass, RNOD.territoryId and (v1.2) CHOK.defenseGroupId
+(u8 in the former pad byte, 255 = no group; group key = min member stableKey, see defense_groups()); formatVersion 0 files still
 decode and validate (schema chosen by the header). Header flag bit0 DRAFT_LAYOUT stays set while record layouts may change.
 Readers must locate sections via the directory (tag lookup), never by fixed offsets.
 The field layout below is the single source of truth; the pipeline writer imports SCHEMA/encode from this file."""
@@ -34,6 +35,8 @@ HEADER_FMT = "<4sHHIIIIQ32s"        # 64 bytes
 DIR_FMT = "<4sIQQIIII"              # 40 bytes
 HEADER_SIZE = struct.calcsize(HEADER_FMT); DIR_SIZE = struct.calcsize(DIR_FMT)
 FLAG_DRAFT_LAYOUT, FLAG_HAS_DEBUG = 1, 2
+FLAG_V1_FINAL = 4          # header flags bit2: formatVersion 1 FINAL layout (MVLC v1.2 semantics, WTRA required in terrain files,
+                           # CHOK.defenseGroupId @7 / bypassWheeledBlocked @79). REQUIRED for formatVersion 1: pre-final v1 blobs lack it -> rejected.
 ALIGN = 8
 
 # field types: i8 u8 i16 u16 i32 u32 u64 | pos (int32 x,y) | b32 (32 raw bytes, hex in model) | str (u32 off,u32 len into STRP)
@@ -124,6 +127,39 @@ def decode_wtra(buf):
         if t not in WTRA_OSM_TYPE: raise BlobError(f"WTRA ford {k}: osmType {t}")
         fords.append({"cellIndex": c, "osmType": WTRA_OSM_TYPE[t], "osmId": i})
     return {"version": ver, "width": w, "height": h, "codes": bytes(buf[16:16 + w * h]), "fords": fords}
+NO_DEFENSE_GROUP = 255     # CHOK.defenseGroupId of an internal chokepoint (v1.2; u8 in the former pad byte at offset 7)
+def defense_groups(model):
+    """Derive the defense-group table from CHOK (v1.2): [{id, key = min member stableKey, sidePair, memberChokepointIds}],
+    sorted by id. The key is not stored in the file; this derivation is normative (blob-layout-v1.md s4.8)."""
+    ch = model["sections"].get("CHOK", [])
+    if not ch or "defenseGroupId" not in ch[0]: return None
+    g = defaultdict(list)
+    for c in ch:
+        if c["defenseGroupId"] != NO_DEFENSE_GROUP: g[c["defenseGroupId"]].append(c)
+    return [{"id": k, "key": min(c["stableKey"] for c in m), "sidePair": sorted({(c["sideATerritoryId"], c["sideBTerritoryId"]) for c in m}),
+             "memberChokepointIds": sorted(c["id"] for c in m)} for k, m in sorted(g.items())]
+MAX_DEFENSE_GROUPS = 254   # ids 0..253; 255 = none; 254 is reserved so a u8 overflow can never alias "no group"
+def check_defense_groups(chok):
+    """Validator rules for CHOK.defenseGroupId (final v1). Returns a list of error strings."""
+    errs = []
+    for c in chok:
+        border = c["sideATerritoryId"] > 0 and c["sideBTerritoryId"] > 0 and c["sideATerritoryId"] != c["sideBTerritoryId"]
+        g = c["defenseGroupId"]
+        if not border and g != NO_DEFENSE_GROUP: errs.append(f"CHOK {c['id']}: internal chokepoint has defenseGroupId {g}")
+        if border and g == NO_DEFENSE_GROUP: errs.append(f"CHOK {c['id']}: border chokepoint without a defense group")
+    groups = defaultdict(list)
+    for c in chok:
+        if c["defenseGroupId"] != NO_DEFENSE_GROUP: groups[c["defenseGroupId"]].append(c)
+    if len(groups) > MAX_DEFENSE_GROUPS or any(g >= MAX_DEFENSE_GROUPS for g in groups):
+        errs.append(f"CHOK.defenseGroupId: {len(groups)} groups (max id {max(groups)}) exceeds the limit of {MAX_DEFENSE_GROUPS} groups (ids 0..253)")
+    ids = sorted(groups)
+    if ids != list(range(len(ids))): errs.append("CHOK.defenseGroupId: ids not dense 0..N-1")
+    mins = [min(c["id"] for c in groups[g]) for g in ids]
+    if mins != sorted(mins): errs.append("CHOK.defenseGroupId: ids not in order of each group's lowest member chokepoint id")
+    for g in ids:
+        ps = {tuple(sorted((c["sideATerritoryId"], c["sideBTerritoryId"]))) for c in groups[g]}
+        if len(ps) != 1: errs.append(f"defense group {g}: members have different side pairs {sorted(ps)}")
+    return errs
 def water_art(model):
     """Expose the terrain file's WTRA section (None if absent, e.g. v0)."""
     b = model["sections"].get("WTRA")
@@ -153,6 +189,8 @@ def _v1(schema):
     s["BRDG"] = s["BRDG"] + [("stableKey", "u64")]
     i = [n for n, _ in s["CHOK"]].index("pad2")
     s["CHOK"] = s["CHOK"][:i] + [("bypassSurfaceClass", "u8"), ("pad2", "pad1"), ("stableKey", "u64")]
+    s["CHOK"] = [("defenseGroupId", "u8") if n == "pad" else ("bypassWheeledBlocked", "u8") if n == "pad2" else (n, t)
+                 for n, t in s["CHOK"]]   # final v1: defenseGroupId @7 (was pad1), bypassWheeledBlocked @79 (was pad2); 88 B
     s["RNOD"] = [("territoryId", "u16") if n == "pad" else (n, t) for n, t in s["RNOD"]]   # v1: node territory (was pad2)
     return s
 SCHEMAS = {0: SCHEMA_V0, 1: _v1(SCHEMA_V0)}
@@ -167,7 +205,8 @@ def fnv1a32(s):
 # ---------------------------------------------------------------- encode
 def encode(model, flags, fv=FORMAT_VERSION):
     """model: {"sections": {tag: [records] | bytes}}; records use expanded lists/strings. Pools filled in ORDER, record id order,
-    field order. Returns bytes (content hash filled)."""
+    field order. Returns bytes (content hash filled). formatVersion 1 always carries header flag bit2 V1_FINAL."""
+    if fv == 1: flags |= FLAG_V1_FINAL
     i32p, ptsp, strp = [], [], bytearray()
     blobs = {}
     for tag in ORDER:
@@ -218,6 +257,9 @@ def decode(buf):
     magic, fv, sv, hs, flags, nsec, doff, fsize, h = struct.unpack_from(HEADER_FMT, buf, 0)
     if magic != MAGIC: raise BlobError(f"bad magic {magic!r}")
     if fv not in SUPPORTED_FORMAT_VERSIONS: raise BlobError(f"unsupported formatVersion {fv}")
+    if fv == 1 and not flags & FLAG_V1_FINAL:
+        raise BlobError("formatVersion 1 file without header flag bit2 V1_FINAL: stale pre-final v1 layout (built before the final v1 "
+                        "definition); rebuild it - it must not be read with the final v1 schema")
     SC, FM, SZ = SCHEMAS[fv], FMTS[fv], SIZES[fv]
     if hs != HEADER_SIZE or doff != HEADER_SIZE: raise BlobError("unexpected header/directory offset")
     if fsize != len(buf): raise BlobError(f"fileSize {fsize} != actual {len(buf)}")
@@ -231,6 +273,8 @@ def decode(buf):
         if zlib.crc32(buf[off:off + ln]) & 0xFFFFFFFF != crc: raise BlobError(f"{tag}: crc32 mismatch")
         if cnt * es != ln: raise BlobError(f"{tag}: count*elementSize != byteLength")
         if tag in SC and es != SZ[tag]: raise BlobError(f"{tag}: elementSize {es} != schema v{fv} {SZ[tag]}")
+        if tag in RAW and es != RAW[tag][1]: raise BlobError(f"{tag}: elementSize {es} != {RAW[tag][1]} (raw section)")
+        if tag in POOL_ELEM and es != POOL_ELEM[tag]: raise BlobError(f"{tag}: elementSize {es} != {POOL_ELEM[tag]} (pool)")
         if tag in dirs: raise BlobError(f"duplicate section {tag}")
         dirs[tag] = (off, ln, cnt, es)
     def raw(tag):
@@ -341,6 +385,8 @@ def validate(model):
         if terrain_payload_sha256(S) != M["terrainPayloadSha256"]: err("terrainPayloadSha256 != SHA-256 of MVSL|MVLC|MVFD|MVEL")
         if "MVEL" in gt and (gt["MVEL"]["valueOffset"], gt["MVEL"]["valueScale"]) != (M["elevOffsetCm"], M["elevUnitCm"]): err("GRID MVEL offset/scale != META")
         if M["pairedContentSha256"] == "0" * 64: err("terrain META.pairedContentSha256 is zero")
+        if "WTRA" not in S and model["header"]["formatVersion"] >= 1:
+            err("terrain file formatVersion 1 without WTRA (required in final v1; a pre-final v1 terrain file)")
         if "WTRA" in S:   # v1.2 art-only water marks: must agree exactly with the sim's movement data
             try: A = decode_wtra(S["WTRA"])
             except BlobError as e: err(str(e)); A = None
@@ -490,6 +536,16 @@ def _validate_main(model, S, M, err, info):
                 if r["stableKey"] >> 60 not in types or r["stableKey"] & ((1 << 52) - 1) == 0: err(f"{tag} {r['id']}: bad stableKey {r['stableKey']}")
         for tr in S["TERR"]:
             if (tr["stableKey"] >> 52) & 0xFF: err(f"TERR {tr['id']}: stableKey discriminator != 0")
+        if S["CHOK"] and "defenseGroupId" in S["CHOK"][0]:   # final v1 defense groups
+            for e in check_defense_groups(S["CHOK"]): err(e)
+            DG = defense_groups(model)
+            info["defenseGroups"] = [{"id": g["id"], "key": g["key"], "sidePair": [list(p) for p in g["sidePair"]], "members": g["memberChokepointIds"]} for g in DG]
+        for c in S["CHOK"]:
+            if "bypassWheeledBlocked" in c:
+                if c["bypassWheeledBlocked"] not in (0, 1): err(f"CHOK {c['id']}: bypassWheeledBlocked {c['bypassWheeledBlocked']} not 0/1")
+                if c["bypassMaxGradePpt"] == NO_BYPASS and c["bypassWheeledBlocked"] != 1: err(f"CHOK {c['id']}: no bypass at all but bypassWheeledBlocked = 0")
+        z = [n["id"] for n in S["RNOD"] if n["territoryId"] == 0]   # final v1: every road node lies in a territory
+        if z: err(f"RNOD territoryId 0 on {len(z)} nodes (first {z[:10]}); every road node must carry its TERR.id")
         tids = {t["id"] for t in S["TERR"]}
         for n in S["RNOD"]:   # node territory: 0 or an existing territory
             if n["territoryId"] and n["territoryId"] not in tids: err(f"RNOD {n['id']}: territoryId {n['territoryId']} not in TERR")

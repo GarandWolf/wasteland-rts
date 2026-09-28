@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Stable ids (v1): check the golden main blob against data/golden/stable-ids.json.
 
-The v1 blob's TERR / BRDG / CHOK ids and u64 stableKeys must match the manifest
-exactly, and those same integer ids must equal the v0 blob's ids.
+The v1 blob's TERR / BRDG / CHOK ids and u64 stableKeys must match the manifest,
+defense groups must match the defenseGroups section, and those same integer ids
+must equal the v0 blob's ids.
 
     python3 tools/map/stable_ids.py \
       --check data/golden/golden-ci-columbia-gorge-100.v1.wrmb \
@@ -40,6 +41,9 @@ def assign(section, keys, path=MANIFEST):
         raise StableIdError(f"{section}: ids not dense 1..{len(ids)}; manifest keys missing from this build (would force renumbering): "
                             f"{[(man[k], split_key(k)) for k in gone]}")
     return ids
+def _blob_groups(path):
+    sys.path.insert(0, HERE); import wrmb_reader as W
+    return W.defense_groups(W.decode(open(path, "rb").read()))
 def _blob_keys(path):
     sys.path.insert(0, HERE); import wrmb_reader as W
     m = W.decode(open(path, "rb").read())
@@ -59,6 +63,16 @@ def check_blob(path, manifest=MANIFEST):
         errs += [f"{sec}: manifest key {split_key(k)} (id {man[sec][k]}) missing" for k in missing]
         errs += [f"{sec}: blob key {split_key(k)} (id {seen[k]}) not in manifest" for k in extra]
         info[sec] = {"records": len(recs), "inManifest": sum(k in man[sec] for k, _ in recs), "new": len(extra)}
+    dg = _blob_groups(path)
+    if dg is not None:
+        mg = {int(k): v for k, v in json.load(open(manifest)).get("defenseGroups", {}).items()} if os.path.exists(manifest) else {}
+        bg = {g["key"]: g for g in dg}
+        errs += [f"defenseGroups: key {k} ({split_key(k)}) not in manifest" for k in bg if k not in mg]
+        errs += [f"defenseGroups: manifest key {k} (id {mg[k]['id']}) missing from blob" for k in mg if k not in bg]
+        errs += [f"defenseGroups: key {k} id {mg[k]['id']} -> {bg[k]['id']}" for k in bg if k in mg and mg[k]["id"] != bg[k]["id"]]
+        errs += [f"defenseGroups: key {k} members {mg[k]['memberChokepointIds']} -> {bg[k]['memberChokepointIds']}" for k in bg
+                 if k in mg and mg[k].get("memberChokepointIds") != bg[k]["memberChokepointIds"]]
+        info["defenseGroups"] = {"groups": len(dg), "inManifest": sum(k in mg for k in bg)}
     return errs, info
 def check_v0_ids(v0_path, v1_path):
     """v0 and v1 TERR / BRDG / CHOK integer ids must be identical (seeded-from-v0 contract)."""
@@ -80,6 +94,10 @@ def update(path, manifest=MANIFEST, labels=None):
     for sec, recs in _blob_keys(path).items():
         out[sec] = {str(k): {"id": i, **split_key(k), **({"label": labels[sec][k]} if labels and k in labels.get(sec, {}) else {})}
                     for k, i in sorted(recs, key=lambda r: r[1])}
+    dg = _blob_groups(path)
+    if dg is not None:
+        out["defenseGroups"] = {str(g["key"]): {"id": g["id"], "sidePair": list(g["sidePair"][0]), "memberChokepointIds": g["memberChokepointIds"],
+                                                **split_key(g["key"])} for g in dg}
     json.dump(out, open(manifest, "w"), indent=1, sort_keys=False); open(manifest, "a").write("\n")
 if __name__ == "__main__":
     import argparse
