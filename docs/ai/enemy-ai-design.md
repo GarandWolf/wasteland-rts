@@ -85,7 +85,7 @@ Accepted field-level contract for §3. The CI golden map is **approved (Sep 28, 
 | Topic | Decision |
 | --- | --- |
 | When derived | Chokepoints, territories, `strategicValue`, and neighbour lists are computed **after** the post-apocalyptic transform. Destroyed bridges are already gone from the passable graph. |
-| Chokepoints | Record in §3.1. Each stores **`bypassMaxGradePpt`** (uint16; **65535** = no bypass). At match load the AI computes per-class **`bypassPenaltyPpt`** (integer ppt) from `detourRatioPpt` plus the designer speed formula at that grade (v0 **field** surface). Rank fortify/raid/assault by that penalty, mixed by force count. **`wheeledOnly`** is an optional debug/overlay flag (wheeled penalty maxed), not a scoring input. |
+| Chokepoints | Record in §3.1. Each stores **`bypassMaxGradePpt`** (uint16; **65535** = no bypass) and optional **`bypassSurfaceClass`** (uint8 land-cover; next golden bump). At match load the AI computes per-class **`bypassPenaltyPpt`** from `detourRatioPpt` plus the designer speed formula at that grade, using that surface’s table modifier or **field** surface if the class is absent. Rank fortify/raid/assault by that penalty, mixed by force count. **`wheeledOnly`** is an optional debug/overlay flag (wheeled penalty maxed), not a scoring input. |
 | `strategicValue` | 0–1000 from per-map percentile ranks: population 40%, road connectivity 25%, chokepoint proximity 15%, high ground 10%, resources 10%, plus a `populationClass` absolute anchor. **Designer owns the weights.** Per-town components go in optional `TDBG` for the overlay. |
 | Road budget | ~**8k nodes / 12k edges** on 200×200; ~**2k / 3k** on 100×100. Towns collapse to a gate plus **exit edges**. Edge geometry is a polyline. **Over-budget bake fails** (never truncates). |
 | AI grid | Coarse **AI cells** from META `cellSizeCm` — **never assume a round mile**. **18** terrain cells (89 m slope‰ + land-cover + elevation in **whole decimetres**) make one 1-mile AI cell. Gorge terrain WRMB is **1,800×1,800**. `ElevationCell` plus `CellExt` on the AI grid. |
@@ -541,13 +541,20 @@ A node is **held** (supply cut) at runtime when an enemy combat unit occupies it
 
 Computed on the **post-transform** passable graph. The map stores **`bypassMaxGradePpt`** (`uint16`): the gentlest worst-case grade of any off-road route around the chokepoint, or **65535** if there is no bypass. **Do not store `wheeledOnly` in the map file.** Rank chokepoints by **bypass cost**, not a boolean.
 
-**Match-load penalty (per movement class, integer, deterministic, floor rounding).** v0 assumes the designer table’s **field** surface for that class. `base`, `fieldSurfacePpt`, `roadSurfacePpt`, `roadSlopePpt`, and `classMaxGradePpt` come from movement table v0.1 (`wheeledMaxGradePpt` currently **299‰**, tracked **599‰**, foot **999‰**).
+**Match-load penalty (per movement class, integer, deterministic, floor rounding).** Optional **`bypassSurfaceClass`** (`uint8`) is the dominant land-cover class along the best bypass (same remapping as `CellExt.landCover`). It is plain terrain data — no balance numbers — and arrives in the **next golden bump**. `bypassPenaltyPpt` uses that class’s **surface modifier from the designer’s table**. If the field is absent (older golden, or `0`), fall back to the table’s **field** surface for that movement class. The tactical map’s **pass symbols** (art side) use the same inputs and fallback and **must match** the AI.
+
+`base`, `fieldSurfacePpt`, `roadSurfacePpt`, `roadSlopePpt`, `classMaxGradePpt`, and per-land-cover `surfacePpt` come from movement table v0.1 (`wheeledMaxGradePpt` currently **299‰**, tracked **599‰**, foot **999‰**).
 
 ```
+if bypassSurfaceClass != 0:                                 // present in this golden
+    bypassSurfacePpt = designerSurfacePpt[class, bypassSurfaceClass]
+else:
+    bypassSurfacePpt = fieldSurfacePpt                      // older golden / absent
+
 if bypassMaxGradePpt == 65535 or bypassMaxGradePpt > classMaxGradePpt:
     bypassSpeed = 0
 else:
-    bypassSpeed = floor(base * fieldSurfacePpt * bypassMaxGradePpt / 1000000)
+    bypassSpeed = floor(base * bypassSurfacePpt * bypassMaxGradePpt / 1000000)
 
 if bypassSpeed == 0:
     bypassPenaltyPpt[class] = 1000          // no bypass: max
@@ -590,7 +597,9 @@ ChokepointRecord                           // fixed size; arrays via (offset,cou
   flags                 uint8              // bit0 inferredBridge, bit1 onlyCrossing,
                                            // bit2 destroyedByTransform, bit3 roadless
   widthClass            int8               // 0..3, same scale as RoadEdge
-  _pad                  int8
+  bypassSurfaceClass    uint8              // dominant land-cover on best bypass;
+                                           // 0 = absent (older golden → field surface).
+                                           // Next golden bump. Not a balance number.
   positionCm            int32 x, y
   elevationCm           int32
   roadNodeId            int32              // primary node (0 only if flags.roadless)
