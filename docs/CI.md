@@ -6,9 +6,15 @@
 
 This is the gate for the lockstep contract: `Fixed64` internals, integer-cm state, PCG32 / xxHash64 goldens, delayed command logs, per-tick hashes, and the headless movement/pathfinding service (`dotnet test` does **not** run `src/Wasteland.Sim.Benchmarks`).
 
+## Golden map (WRMB)
+
+`.github/workflows/golden-map.yml` is a separate job. It does **not** run `dotnet test` and does not load the blobs into the sim. After checkout it pulls only `data/golden/*.wrmb` through Git LFS, checks the sidecar SHA-256 files, and runs `tools/map/wrmb_reader.py` on the Columbia Gorge pair.
+
+Keep it off `simulation.yml` so math CI stays free of LFS bandwidth. The two `.wrmb` files are ~17 MB together; every run of this workflow downloads them from Git LFS (GitHub LFS bandwidth quota). Pathfinding still uses synthetic WRMB fixtures until that work switches onto this pair.
+
 ## Headless AI-vs-AI (later)
 
-A `Wasteland.Sim.Headless` (or equivalent) host will run playerless matches for the soak described in the AI design: seed × difficulty × personality, `HashState()` every N ticks. Wire that into this workflow (or a sibling `simulation-soak.yml`) once the AI and map blob exist. It still needs **no Unity license**. Fail the job on crash, deadlock, or hash mismatch — not on poor play.
+A `Wasteland.Sim.Headless` (or equivalent) host will run playerless matches for the soak described in the AI design: seed × difficulty × personality, `HashState()` every N ticks. Wire that into this workflow (or a sibling `simulation-soak.yml`) once the AI exists; the map blobs are already in `data/golden/`. It still needs **no Unity license**. Fail the job on crash, deadlock, or hash mismatch — not on poor play.
 
 ## Unity builds (later)
 

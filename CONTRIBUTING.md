@@ -15,6 +15,9 @@ src/Wasteland.Sim/        dotnet wrapper csproj that compiles the package source
 src/Wasteland.Sim.Tests/  xUnit, runs on CI without the Unity editor
 src/Wasteland.Sim.Benchmarks/  pathfinding micro-benchmark (`dotnet run -c Release`, not CI)
 docs/                     Architecture, movement, blob formats
+docs/map/                 WRMB v0 layout spec
+data/golden/              Columbia Gorge WRMB goldens (Git LFS)
+tools/map/                Standalone WRMB reader/validator (Python stdlib)
 ProjectSettings/          Hand-authored Unity 6.3 LTS skeleton
 ```
 
@@ -39,6 +42,7 @@ Root namespace for Unity-generated scripts is `Wasteland` (see Editor Settings).
 - Runtime scripts sit next to their asmdef.
 - Do not dump loose scripts under `Assets/`.
 - Shipping art goes under `Assets/_Project/Art/{Type}/...`; binary formats are Git LFS (see `.gitattributes`).
+- Compiled map blobs (`.wrmb`) live under `data/golden/` and are Git LFS. Keep `ATTRIBUTION.txt` next to the data.
 - Shader Graph and handwritten HLSL **prototypes** live in `Assets/_Project/Art/Shaders/`. Production shaders move to a named folder under `Art/` once they leave scratch.
 - Throwaway scenes (the 5k-unit Entities Graphics stress test, spawners) live in `Assets/_Project/Prototypes/`. That folder has its own asmdef; do not mix it with shipping presentation or sim.
 - Tests that need the editor (EditMode/PlayMode) will live under `Assets/_Project/Tests/` later. Logic tests belong in `src/Wasteland.Sim.Tests` so CI can run them without a Unity license.
@@ -88,6 +92,11 @@ Do not treat `ProjectSettings/ProjectSettings.asset` as sacred after first open 
 git lfs install          # once per machine
 dotnet test Wasteland.Sim.sln
 dotnet run -c Release --project src/Wasteland.Sim.Benchmarks   # pathfinding micro-benchmark, not CI
+(cd data/golden && sha256sum -c golden-ci-columbia-gorge-100.v0.wrmb.sha256 --strict \
+  && sha256sum -c golden-ci-columbia-gorge-100.terrain.v0.wrmb.sha256 --strict)
+python3 tools/map/wrmb_reader.py \
+  data/golden/golden-ci-columbia-gorge-100.v0.wrmb \
+  --terrain data/golden/golden-ci-columbia-gorge-100.terrain.v0.wrmb
 ```
 
 Unity: **Unity 6.3 LTS** (`6000.3.24f1`). Open the repo root as the project. First open regenerates `Library/`, `Packages/packages-lock.json`, extra `ProjectSettings/` YAML, and `.meta` files for any assets that shipped without them.
