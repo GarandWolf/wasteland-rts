@@ -29,9 +29,10 @@ Open this folder in the Unity Hub with 6000.3.24f1. First open downloads package
 - [`docs/formats/`](docs/formats/) — WRMB map container (roads + terrain)
 - [`Packages/com.wasteland.sim/`](Packages/com.wasteland.sim/) — simulation core
 - [`Assets/_Project/`](Assets/_Project/) — presentation, art/shader prototypes, throwaway Prototypes assembly
-- [`data/golden/`](data/golden/) — Columbia Gorge 100×100 mile WRMB goldens (Git LFS)
+- [`data/golden/`](data/golden/) — Columbia Gorge 100×100 mile WRMB goldens (Git LFS; v0 + v1)
 - [`docs/map/wrmb-layout-v0.md`](docs/map/wrmb-layout-v0.md) — WRMB v0 map container (main + terrain)
-- [`tools/map/wrmb_reader.py`](tools/map/wrmb_reader.py) — standalone WRMB reader/validator
+- [`docs/map/wrmb-layout-v1.md`](docs/map/wrmb-layout-v1.md) — WRMB v1 map container (stable keys, WTRA)
+- [`tools/map/wrmb_reader.py`](tools/map/wrmb_reader.py) — standalone WRMB reader/validator (format 0 and 1)
 - [`src/Wasteland.Sim.Tests/`](src/Wasteland.Sim.Tests/) — xUnit
 - [`src/Wasteland.Sim.Benchmarks/`](src/Wasteland.Sim.Benchmarks/) — pathfinding micro-benchmark (not a CI gate)
 

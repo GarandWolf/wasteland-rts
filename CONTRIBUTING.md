@@ -15,9 +15,9 @@ src/Wasteland.Sim/        dotnet wrapper csproj that compiles the package source
 src/Wasteland.Sim.Tests/  xUnit, runs on CI without the Unity editor
 src/Wasteland.Sim.Benchmarks/  pathfinding micro-benchmark (`dotnet run -c Release`, not CI)
 docs/                     Architecture, movement, blob formats
-docs/map/                 WRMB v0 layout spec
-data/golden/              Columbia Gorge WRMB goldens (Git LFS)
-tools/map/                Standalone WRMB reader/validator (Python stdlib)
+docs/map/                 WRMB v0 and v1 layout specs
+data/golden/              Columbia Gorge WRMB goldens (Git LFS; v0 + v1)
+tools/map/                Standalone WRMB reader/validator and stable-id check (Python stdlib)
 ProjectSettings/          Hand-authored Unity 6.3 LTS skeleton
 ```
 
@@ -93,10 +93,19 @@ git lfs install          # once per machine
 dotnet test Wasteland.Sim.sln
 dotnet run -c Release --project src/Wasteland.Sim.Benchmarks   # pathfinding micro-benchmark, not CI
 (cd data/golden && sha256sum -c golden-ci-columbia-gorge-100.v0.wrmb.sha256 --strict \
-  && sha256sum -c golden-ci-columbia-gorge-100.terrain.v0.wrmb.sha256 --strict)
+  && sha256sum -c golden-ci-columbia-gorge-100.terrain.v0.wrmb.sha256 --strict \
+  && sha256sum -c golden-ci-columbia-gorge-100.v1.wrmb.sha256 --strict \
+  && sha256sum -c golden-ci-columbia-gorge-100.terrain.v1.wrmb.sha256 --strict)
 python3 tools/map/wrmb_reader.py \
   data/golden/golden-ci-columbia-gorge-100.v0.wrmb \
   --terrain data/golden/golden-ci-columbia-gorge-100.terrain.v0.wrmb
+python3 tools/map/wrmb_reader.py \
+  data/golden/golden-ci-columbia-gorge-100.v1.wrmb \
+  --terrain data/golden/golden-ci-columbia-gorge-100.terrain.v1.wrmb
+python3 tools/map/stable_ids.py \
+  --check data/golden/golden-ci-columbia-gorge-100.v1.wrmb \
+  --against data/golden/golden-ci-columbia-gorge-100.v0.wrmb \
+  --manifest data/golden/stable-ids.json
 ```
 
 Unity: **Unity 6.3 LTS** (`6000.3.24f1`). Open the repo root as the project. First open regenerates `Library/`, `Packages/packages-lock.json`, extra `ProjectSettings/` YAML, and `.meta` files for any assets that shipped without them.

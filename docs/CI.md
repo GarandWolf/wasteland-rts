@@ -8,9 +8,9 @@ This is the gate for the lockstep contract: `Fixed64` internals, integer-cm stat
 
 ## Golden map (WRMB)
 
-`.github/workflows/golden-map.yml` is a separate job. It does **not** run `dotnet test`. After checkout it pulls only `data/golden/*.wrmb` through Git LFS, checks the sidecar SHA-256 files, and runs `tools/map/wrmb_reader.py` on the Columbia Gorge pair.
+`.github/workflows/golden-map.yml` is a separate job. It does **not** run `dotnet test`. After checkout it pulls only `data/golden/*.wrmb` through Git LFS, checks the sidecar SHA-256 files for the v0 and v1 pairs, runs `tools/map/wrmb_reader.py` on each pair (the validator fails the build on any error), and runs `tools/map/stable_ids.py` so the v1 blob's territory, bridge and chokepoint ids and `stableKey`s match `data/golden/stable-ids.json` and the v0 ids equal the v1 ids.
 
-The two `.wrmb` files are ~17 MB together. Both workflows download them from Git LFS (GitHub LFS bandwidth quota). Keep the Python validator off `simulation.yml` so a layout-only change still fails in a cheap job.
+The four `.wrmb` files are ~37 MB together. Both workflows download them from Git LFS (GitHub LFS bandwidth quota). Keep the Python validator off `simulation.yml` so a layout-only change still fails in a cheap job. The sim still loads the v0 pair only.
 
 ## Headless AI-vs-AI (later)
 

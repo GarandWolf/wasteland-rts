@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WRMB map blob v0 - standalone reader / encoder / validator. Python 3 stdlib only.
+"""WRMB map blob (formatVersion 0 and 1) - standalone reader / encoder / validator. Python 3 stdlib only.
 
     python3 wrmb_reader.py <main.wrmb> [--terrain <terrain.wrmb>] [--debug-json <main.debug.json>]
                            [--terrain-debug-json <terrain.debug.json>] [--movement-dir <dir>] [--report out.json]
@@ -14,17 +14,21 @@ META counts, GRID descriptors (exact rational cell size, extents, byte sizes), p
 equality with the JSON debug export (if given), and map invariants: dense sorted ids, a < b, every reference valid,
 sorted id lists, one connected passable road graph, every town gate reachable, bridge-head model (every span edge has two
 BridgeHead ends, every BridgeHead touches a span), territories/cells consistency, value ranges, terrain grid sizes/codes and
-(with --movement-dir) byte equality of MVSL/MVLC/MVFD/MVEL with the pipeline source arrays.
+(with --movement-dir) byte equality of MVSL/MVLC/MVFD/MVEL (and WTRA) with the pipeline source arrays.
+v1.2 terrain files may carry the optional art-only section WTRA (water marks + ford list, see encode_wtra/decode_wtra and
+water_art()); it is validated against MVLC/MVFD (blocking water == MVLC 6 exactly, fords == MVFD) and is not a path input.
 
-LAYOUT STATUS: container + section directory APPROVED by the Lead Engineer (2026-09-28); still formatVersion 0 with header
-flag bit0 DRAFT_LAYOUT set (record layouts may still change before v1). Readers must locate sections via the directory (tag
-lookup), never by fixed offsets.
+LAYOUT STATUS: container + section directory APPROVED by the Lead Engineer (2026-09-28). formatVersion 1 (this writer's
+default) adds permanent u64 stableKey fields to TERR / BRDG / CHOK, CHOK.bypassSurfaceClass and RNOD.territoryId; formatVersion 0 files still
+decode and validate (schema chosen by the header). Header flag bit0 DRAFT_LAYOUT stays set while record layouts may change.
+Readers must locate sections via the directory (tag lookup), never by fixed offsets.
 The field layout below is the single source of truth; the pipeline writer imports SCHEMA/encode from this file."""
 import hashlib, json, struct, sys, zlib
 from collections import defaultdict
 
 MAGIC = b"WRMB"
-FORMAT_VERSION = 0          # 0 = v0 (container approved, records still draft); 1 when records are frozen
+FORMAT_VERSION = 1          # written by default. 0 = v0 (2026-09-28 golden v0); 1 = v1 (stable keys, bypassSurfaceClass). Both decode.
+SUPPORTED_FORMAT_VERSIONS = (0, 1)
 SCHEMA_VERSION = 1          # Enemy AI design doc s3.1 schema v1 + accepted contract changes (ai-contract-review.md s12)
 HEADER_FMT = "<4sHHIIIIQ32s"        # 64 bytes
 DIR_FMT = "<4sIQQIIII"              # 40 bytes
@@ -86,12 +90,44 @@ SCHEMA = {
 RAW = {"MVSL": ("uint16 LE per-mille slope, 1800x1800, row 0 = south, index y*w+x", 2),
        "MVLC": ("uint8 land-cover code (see META provenance / docs/map/wrmb-layout-v0.md), 1800x1800", 1),
        "MVFD": ("OSM ford flag bitset (bit i = byte i>>3, bit i&7), 1800x1800", 1),
-       "MVEL": ("uint16 LE elevation: elevationCm = META.elevOffsetCm + value * META.elevUnitCm (10 = decimetres), 1800x1800", 2)}
+       "MVEL": ("uint16 LE elevation: elevationCm = META.elevOffsetCm + value * META.elevUnitCm (10 = decimetres), 1800x1800", 2),
+       "WTRA": ("art-only water marks (v1.2, NOT a sim/path input): u32 version=1, u32 width, u32 height, u32 fordCount, u8[w*h] codes "
+                "(0 land, 1 blocking water == MVLC 6, 2 fordable water, 3 ford), zero pad to 8, fordCount x {u32 cellIndex, u8 osmType "
+                "(0 none, 1 node, 2 way, 3 relation), pad3, u64 osmId}", 1)}
 ORDER = ["META", "SRCS", "GRID", "TOWN", "TDBG", "TERR", "RNOD", "REDG", "CHOK", "RIVR", "BRDG", "WATR", "WRNG", "MSET", "RSRC", "CELL",
-         "CELX", "MVSL", "MVLC", "MVFD", "MVEL", "I32P", "PTSP", "STRP"]
+         "CELX", "MVSL", "MVLC", "MVFD", "MVEL", "WTRA", "I32P", "PTSP", "STRP"]
 TERRAIN_PAYLOAD = ["MVSL", "MVLC", "MVFD", "MVEL"]     # terrainPayloadSha256 = SHA-256 of these section bytes concatenated in this order
 MAIN_SECTIONS = ["META", "SRCS", "GRID", "TOWN", "TERR", "RNOD", "REDG", "CHOK", "RIVR", "BRDG", "WATR", "WRNG", "MSET", "RSRC", "CELL", "CELX"]
 TERRAIN_SECTIONS = ["META", "SRCS", "GRID"] + TERRAIN_PAYLOAD
+# v1.2 optional terrain section WTRA (art-only water marks + ford list): self-describing, no GRID descriptor, NOT part of
+# terrainPayloadSha256; sims skip it (unknown tag). Absent in v0 / v1.0 / v1.1 files.
+WTRA_VERSION = 1
+WTRA_CODES = {0: "land", 1: "blocking_water", 2: "fordable_water", 3: "ford"}
+WTRA_OSM_TYPE = {0: "", 1: "n", 2: "w", 3: "r"}
+def encode_wtra(width, height, codes, fords):
+    """codes: bytes (w*h, row 0 = south); fords: [{"cellIndex", "osmType" ('n'/'w'/'r'/''), "osmId"}] sorted by cellIndex."""
+    inv = {v: k for k, v in WTRA_OSM_TYPE.items()}
+    out = bytearray(struct.pack("<IIII", WTRA_VERSION, width, height, len(fords))) + bytes(codes)
+    out += b"\0" * ((-len(out)) % 8)
+    for f in fords: out += struct.pack("<IB3xQ", f["cellIndex"], inv[f["osmType"]], f["osmId"])
+    return bytes(out)
+def decode_wtra(buf):
+    """-> {"version", "width", "height", "codes": bytes, "fords": [{"cellIndex", "osmType", "osmId"}]}; raises BlobError."""
+    if len(buf) < 16: raise BlobError("WTRA shorter than its header")
+    ver, w, h, n = struct.unpack_from("<IIII", buf, 0)
+    if ver != WTRA_VERSION: raise BlobError(f"WTRA version {ver}")
+    o = 16 + w * h; o += (-o) % 8
+    if len(buf) != o + 16 * n: raise BlobError(f"WTRA length {len(buf)} != {o + 16 * n}")
+    fords = []
+    for k in range(n):
+        c, t, i = struct.unpack_from("<IB3xQ", buf, o + 16 * k)
+        if t not in WTRA_OSM_TYPE: raise BlobError(f"WTRA ford {k}: osmType {t}")
+        fords.append({"cellIndex": c, "osmType": WTRA_OSM_TYPE[t], "osmId": i})
+    return {"version": ver, "width": w, "height": h, "codes": bytes(buf[16:16 + w * h]), "fords": fords}
+def water_art(model):
+    """Expose the terrain file's WTRA section (None if absent, e.g. v0)."""
+    b = model["sections"].get("WTRA")
+    return decode_wtra(b) if b is not None else None
 GRID_ELEM = {"struct": 0, "u8": 1, "u16le": 2, "bitset": 3}      # GRID.elemType
 GRID_ROW_SOUTH_FIRST = 0                                        # GRID.rowOrder
 POOL_ELEM = {"I32P": 4, "PTSP": 8, "STRP": 1}
@@ -110,15 +146,26 @@ def fmt_of(fields):
         elif t in ("str", "ids", "pts"): f += "II"
         elif t.startswith("pad"): f += f"{int(t[3:])}x"
     return f
-FMT = {k: fmt_of(v) for k, v in SCHEMA.items()}
-SIZE = {k: struct.calcsize(v) for k, v in FMT.items()}
+SCHEMA_V0 = SCHEMA
+def _v1(schema):
+    s = {k: list(v) for k, v in schema.items()}
+    s["TERR"] = s["TERR"] + [("stableKey", "u64")]
+    s["BRDG"] = s["BRDG"] + [("stableKey", "u64")]
+    i = [n for n, _ in s["CHOK"]].index("pad2")
+    s["CHOK"] = s["CHOK"][:i] + [("bypassSurfaceClass", "u8"), ("pad2", "pad1"), ("stableKey", "u64")]
+    s["RNOD"] = [("territoryId", "u16") if n == "pad" else (n, t) for n, t in s["RNOD"]]   # v1: node territory (was pad2)
+    return s
+SCHEMAS = {0: SCHEMA_V0, 1: _v1(SCHEMA_V0)}
+FMTS = {fv: {k: fmt_of(v) for k, v in sc.items()} for fv, sc in SCHEMAS.items()}
+SIZES = {fv: {k: struct.calcsize(v) for k, v in f.items()} for fv, f in FMTS.items()}
+SCHEMA, FMT, SIZE = SCHEMAS[FORMAT_VERSION], FMTS[FORMAT_VERSION], SIZES[FORMAT_VERSION]   # default (writer) layout
 def fnv1a32(s):
     h = 0x811C9DC5
     for b in s.encode("utf-8"): h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
     return h - (1 << 32) if h >= 1 << 31 else h
 
 # ---------------------------------------------------------------- encode
-def encode(model, flags):
+def encode(model, flags, fv=FORMAT_VERSION):
     """model: {"sections": {tag: [records] | bytes}}; records use expanded lists/strings. Pools filled in ORDER, record id order,
     field order. Returns bytes (content hash filled)."""
     i32p, ptsp, strp = [], [], bytearray()
@@ -128,10 +175,10 @@ def encode(model, flags):
         sec = model["sections"].get(tag)
         if sec is None: continue
         if tag in RAW: blobs[tag] = (bytes(sec), len(sec) // RAW[tag][1], RAW[tag][1]); continue
-        out = bytearray(); st = struct.Struct(FMT[tag])
+        out = bytearray(); st = struct.Struct(FMTS[fv][tag])
         for r in sec:
             vals = []
-            for name, t in SCHEMA[tag]:
+            for name, t in SCHEMAS[fv][tag]:
                 if t.startswith("pad"): continue
                 v = r[name]
                 if t == "pos": vals += [v[0], v[1]]
@@ -144,7 +191,7 @@ def encode(model, flags):
                 else: vals.append(v)
             try: out += st.pack(*vals)
             except struct.error as ex: raise ValueError(f"{tag} record {r.get('id', '?')}: {ex}: {vals}") from None
-        blobs[tag] = (bytes(out), len(sec), SIZE[tag])
+        blobs[tag] = (bytes(out), len(sec), SIZES[fv][tag])
     blobs["I32P"] = (struct.pack(f"<{len(i32p)}i", *i32p), len(i32p), 4)
     blobs["PTSP"] = (struct.pack(f"<{2 * len(ptsp)}i", *[c for p in ptsp for c in p]), len(ptsp), 8)
     blobs["STRP"] = (bytes(strp), len(strp), 1)
@@ -159,10 +206,10 @@ def encode(model, flags):
     dir_bytes = b"".join(dirs)
     pre = b"\0" * (start - HEADER_SIZE - len(dir_bytes))
     total = start + len(body)
-    hdr0 = struct.pack(HEADER_FMT, MAGIC, FORMAT_VERSION, SCHEMA_VERSION, HEADER_SIZE, flags, len(tags), HEADER_SIZE, total, b"\0" * 32)
+    hdr0 = struct.pack(HEADER_FMT, MAGIC, fv, SCHEMA_VERSION, HEADER_SIZE, flags, len(tags), HEADER_SIZE, total, b"\0" * 32)
     blob = hdr0 + dir_bytes + pre + bytes(body)
     h = hashlib.sha256(blob).digest()
-    return struct.pack(HEADER_FMT, MAGIC, FORMAT_VERSION, SCHEMA_VERSION, HEADER_SIZE, flags, len(tags), HEADER_SIZE, total, h) + blob[HEADER_SIZE:]
+    return struct.pack(HEADER_FMT, MAGIC, fv, SCHEMA_VERSION, HEADER_SIZE, flags, len(tags), HEADER_SIZE, total, h) + blob[HEADER_SIZE:]
 
 # ---------------------------------------------------------------- decode
 class BlobError(Exception): pass
@@ -170,6 +217,8 @@ def decode(buf):
     if len(buf) < HEADER_SIZE: raise BlobError("file shorter than header")
     magic, fv, sv, hs, flags, nsec, doff, fsize, h = struct.unpack_from(HEADER_FMT, buf, 0)
     if magic != MAGIC: raise BlobError(f"bad magic {magic!r}")
+    if fv not in SUPPORTED_FORMAT_VERSIONS: raise BlobError(f"unsupported formatVersion {fv}")
+    SC, FM, SZ = SCHEMAS[fv], FMTS[fv], SIZES[fv]
     if hs != HEADER_SIZE or doff != HEADER_SIZE: raise BlobError("unexpected header/directory offset")
     if fsize != len(buf): raise BlobError(f"fileSize {fsize} != actual {len(buf)}")
     z = bytearray(buf); z[HEADER_SIZE - 32:HEADER_SIZE] = b"\0" * 32
@@ -181,7 +230,7 @@ def decode(buf):
         if off % ALIGN or off + ln > len(buf): raise BlobError(f"{tag}: bad offset/length")
         if zlib.crc32(buf[off:off + ln]) & 0xFFFFFFFF != crc: raise BlobError(f"{tag}: crc32 mismatch")
         if cnt * es != ln: raise BlobError(f"{tag}: count*elementSize != byteLength")
-        if tag in SCHEMA and es != SIZE[tag]: raise BlobError(f"{tag}: elementSize {es} != schema {SIZE[tag]}")
+        if tag in SC and es != SZ[tag]: raise BlobError(f"{tag}: elementSize {es} != schema v{fv} {SZ[tag]}")
         if tag in dirs: raise BlobError(f"duplicate section {tag}")
         dirs[tag] = (off, ln, cnt, es)
     def raw(tag):
@@ -193,11 +242,11 @@ def decode(buf):
     for tag in ORDER:
         if tag not in dirs or tag in POOL_ELEM: continue
         if tag in RAW: secs[tag] = bytes(raw(tag)); continue
-        if tag not in SCHEMA: continue       # unknown sections are skipped (forward compatible)
-        o, l, cnt, es = dirs[tag]; st = struct.Struct(FMT[tag]); recs = []
+        if tag not in SC: continue       # unknown sections are skipped (forward compatible)
+        o, l, cnt, es = dirs[tag]; st = struct.Struct(FM[tag]); recs = []
         for k in range(cnt):
             vals = list(st.unpack_from(buf, o + k * es)); r = {}; j = 0
-            for name, t in SCHEMA[tag]:
+            for name, t in SC[tag]:
                 if t.startswith("pad"): continue
                 if t == "pos": r[name] = [vals[j], vals[j + 1]]; j += 2
                 elif t == "b32": r[name] = vals[j].hex(); j += 1
@@ -230,6 +279,7 @@ def debug_view(model):
     return out
 
 # ---------------------------------------------------------------- invariants
+NO_SURFACE = 255           # CHOK.bypassSurfaceClass when there is no bypass (v1)
 NO_BYPASS = 65535          # CHOK.bypassMaxGradePpt when no cross-country bypass exists in the search region
 MAX_GRADE_PPT = 65534
 def terrain_payload_sha256(sections):
@@ -271,7 +321,7 @@ def validate(model):
         if d <= 0 or _gcd(n, d) != 1 or n * g["width"] != g["extentXCm"] * d or n * g["height"] != g["extentYCm"] * d: err(f"GRID {t}: cellSize {n}/{d} not exact reduced extent/width")
         cnt = g["width"] * g["height"]; v = S[t]
         if g["elemType"] == GRID_ELEM["struct"]:
-            if len(v) != cnt or g["elemBytes"] != SIZE[t]: err(f"GRID {t}: record count/size")
+            if len(v) != cnt or g["elemBytes"] != SIZES[model["header"]["formatVersion"]][t]: err(f"GRID {t}: record count/size")
         else:
             nb = (cnt + 7) // 8 if g["elemType"] == GRID_ELEM["bitset"] else cnt * g["elemBytes"]
             if len(v) != nb: err(f"GRID {t}: byte length {len(v)} != {nb}")
@@ -291,6 +341,27 @@ def validate(model):
         if terrain_payload_sha256(S) != M["terrainPayloadSha256"]: err("terrainPayloadSha256 != SHA-256 of MVSL|MVLC|MVFD|MVEL")
         if "MVEL" in gt and (gt["MVEL"]["valueOffset"], gt["MVEL"]["valueScale"]) != (M["elevOffsetCm"], M["elevUnitCm"]): err("GRID MVEL offset/scale != META")
         if M["pairedContentSha256"] == "0" * 64: err("terrain META.pairedContentSha256 is zero")
+        if "WTRA" in S:   # v1.2 art-only water marks: must agree exactly with the sim's movement data
+            try: A = decode_wtra(S["WTRA"])
+            except BlobError as e: err(str(e)); A = None
+            if A is not None:
+                n = M["moveWidth"] * M["moveHeight"]; lcv = S["MVLC"]; fdv = S["MVFD"]; cod = A["codes"]
+                if (A["width"], A["height"]) != (M["moveWidth"], M["moveHeight"]): err("WTRA dims != META move grid")
+                elif len(lcv) == n:
+                    fbit = lambda i: (fdv[i >> 3] >> (i & 7)) & 1
+                    if max(cod) > 3: err("WTRA code > 3")
+                    blk_bad = sum(1 for i in range(n) if (cod[i] == 1) != (lcv[i] == 6))
+                    if blk_bad: err(f"WTRA blocking-water cells != MVLC impassable water (code 6) at {blk_bad} cells")
+                    ford_bad = sum(1 for i in range(n) if (cod[i] == 3) != bool(fbit(i)))
+                    if ford_bad: err(f"WTRA ford cells != MVFD at {ford_bad} cells")
+                    fw_bad = sum(1 for i in range(n) if cod[i] == 2 and lcv[i] == 6)
+                    if fw_bad: err(f"WTRA fordable water on impassable cells: {fw_bad}")
+                    fc = [f["cellIndex"] for f in A["fords"]]
+                    if fc != sorted(set(fc)): err("WTRA ford list not strictly sorted by cellIndex")
+                    if fc != [i for i in range(n) if fbit(i)]: err("WTRA ford list cells != MVFD cells")
+                    if any(f["osmType"] and f["osmId"] <= 0 for f in A["fords"]): err("WTRA ford with osmType but no osmId")
+                    info["wtra"] = {"codeCounts": {WTRA_CODES[k]: cod.count(k) for k in range(4)}, "fords": len(fc),
+                                    "blockingEqualsMvlcWater": blk_bad == 0}
     info["counts"] = {t: len(v) for t, v in S.items()}
     return errs, info
 def validate_pair(main, terrain, main_name, terrain_name):
@@ -405,8 +476,35 @@ def _validate_main(model, S, M, err, info):
         if not ((c["sideATerritoryId"] == 0 == c["sideBTerritoryId"]) or 0 < c["sideATerritoryId"] < c["sideBTerritoryId"]): err(f"CHOK {c['id']}: sideA/B")
         if not (0 <= c["kind"] <= 6 and 0 <= c["defensibility"] <= 1000 and 1000 <= c["detourRatioPpt"] <= 10000): err(f"CHOK {c['id']}: range")
         if not (c["bypassMaxGradePpt"] == NO_BYPASS or c["bypassMaxGradePpt"] <= MAX_GRADE_PPT): err(f"CHOK {c['id']}: bypassMaxGradePpt range")
+        if "bypassSurfaceClass" in c:
+            if (c["bypassMaxGradePpt"] == NO_BYPASS) != (c["bypassSurfaceClass"] == NO_SURFACE) or not (c["bypassSurfaceClass"] <= 7 or c["bypassSurfaceClass"] == NO_SURFACE):
+                err(f"CHOK {c['id']}: bypassSurfaceClass {c['bypassSurfaceClass']} inconsistent with bypassMaxGradePpt")
+        if "stableKey" in c and (c["stableKey"] >> 52) & 0xFF != c["kind"] + 1: err(f"CHOK {c['id']}: stableKey discriminator != kind + 1")
         if c["roadNodeId"] in ids["RNOD"] and not nodes[c["roadNodeId"] - 1]["flags"] & RNOD_FLAGS["Chokepoint"]: err(f"CHOK {c['id']}: node not flagged")
         inb(c["positionCm"], f"CHOK {c['id']}")
+    if model["header"]["formatVersion"] >= 1:   # stable keys: non-zero, valid OSM type, unique per section
+        for tag, types in (("TERR", (1,)), ("BRDG", (2,)), ("CHOK", (1, 2, 3))):
+            ks = [r["stableKey"] for r in S[tag]]
+            if len(set(ks)) != len(ks): err(f"{tag}: duplicate stableKey")
+            for r in S[tag]:
+                if r["stableKey"] >> 60 not in types or r["stableKey"] & ((1 << 52) - 1) == 0: err(f"{tag} {r['id']}: bad stableKey {r['stableKey']}")
+        for tr in S["TERR"]:
+            if (tr["stableKey"] >> 52) & 0xFF: err(f"TERR {tr['id']}: stableKey discriminator != 0")
+        tids = {t["id"] for t in S["TERR"]}
+        for n in S["RNOD"]:   # node territory: 0 or an existing territory
+            if n["territoryId"] and n["territoryId"] not in tids: err(f"RNOD {n['id']}: territoryId {n['territoryId']} not in TERR")
+        gate_t = {}
+        for t in S["TOWN"]:
+            if t["roadNodeId"] in ids["RNOD"]: gate_t.setdefault(t["roadNodeId"], set()).add(t["territoryId"])
+        for nid, ts in gate_t.items():   # a town's gate node lies in the town's territory (unless shared by towns of several)
+            if len(ts) == 1 and nodes[nid - 1]["territoryId"] not in ts: err(f"RNOD {nid}: gate node territory {nodes[nid - 1]['territoryId']} != town territory {sorted(ts)}")
+        for e in edges:   # a dry edge (both ends one territory) carries that territory
+            na, nb = nodes[e["a"] - 1]["territoryId"], nodes[e["b"] - 1]["territoryId"]
+            if na == nb and na and e["territoryId"] != na and not e["flags"] & (1 | 2 | 128): err(f"REDG {e['id']}: territoryId {e['territoryId']} != both end nodes' {na}")
+        for t in S["TOWN"]:   # population provenance bits are exclusive; bit5 (design override) needs a population
+            sf = t["sourceFlags"]
+            if bin(sf & (1 | 2 | 16 | 32)).count("1") > 1: err(f"TOWN {t['id']}: more than one population-source bit in sourceFlags {sf}")
+            if sf & 32 and t["population"] <= 0: err(f"TOWN {t['id']}: design-override flag with population 0")
     for b in S["BRDG"]:
         ref(b["roadEdgeId"], "REDG", f"BRDG {b['id']}.roadEdgeId"); ref(b["riverId"], "RIVR", f"BRDG {b['id']}.riverId", True)
         if b["roadEdgeId"] in ids["REDG"]:
@@ -457,7 +555,7 @@ def _check_file(path, debug_json, movement_dir):
         rep["checks"]["headerDirectoryCrcHash"] = f"FAIL: {e}"; return rep, None
     h = model["header"]; rep["header"] = h; rep["draftLayout"] = bool(h["flags"] & FLAG_DRAFT_LAYOUT)
     rep["fileKind"] = ["main", "terrain"][model["sections"]["META"][0]["fileKind"]] if model["sections"]["META"][0]["fileKind"] in (0, 1) else "?"
-    rt = encode({"sections": model["sections"]}, h["flags"])
+    rt = encode({"sections": model["sections"]}, h["flags"], h["formatVersion"])
     rep["checks"]["roundTripBinaryIdentical"] = "PASS" if rt == buf else "FAIL"
     dv = debug_view(model)
     if debug_json:
@@ -468,7 +566,7 @@ def _check_file(path, debug_json, movement_dir):
         if same:   # JSON -> binary -> identical bytes (raw arrays are taken from the blob; their sha256 is compared above)
             back = {"sections": {t: (model["sections"][t] if isinstance(model["sections"][t], (bytes, bytearray)) else dj["sections"][t])
                                  for t in dj["sections"]}}
-            rep["checks"]["jsonToBinaryIdentical"] = "PASS" if encode(back, h["flags"]) == buf else "FAIL"
+            rep["checks"]["jsonToBinaryIdentical"] = "PASS" if encode(back, h["flags"], h["formatVersion"]) == buf else "FAIL"
     if movement_dir and rep["fileKind"] == "terrain":
         md = movement_dir; ok = {}
         ok["MVSL"] = open(os.path.join(md, "slope_ppt.u16"), "rb").read() == model["sections"]["MVSL"]
@@ -479,6 +577,11 @@ def _check_file(path, debug_json, movement_dir):
             if v: bits[i >> 3] |= 1 << (i & 7)
         ok["MVFD"] = bytes(bits) == model["sections"]["MVFD"]
         ok["MVEL"] = open(os.path.join(md, "elevation_dm.u16"), "rb").read() == model["sections"]["MVEL"]
+        if "WTRA" in model["sections"]:
+            A = decode_wtra(model["sections"]["WTRA"])
+            ok["WTRA.codes"] = open(os.path.join(md, "water_type.u8"), "rb").read() == A["codes"]
+            wb = json.load(open(os.path.join(md, "water_bake.json")))
+            ok["WTRA.fords"] = wb["fordList"] == A["fords"]
         rep["checks"]["gridsMatchSourceArrays"] = "PASS" if all(ok.values()) else f"FAIL: {ok}"
     errs, info = validate(model)
     rep["checks"]["invariants"] = "PASS" if not errs else f"FAIL ({len(errs)})"
