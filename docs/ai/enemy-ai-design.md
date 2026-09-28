@@ -7,7 +7,7 @@
 
 This is the working contract for enemy AI. Numbers marked **placeholder** are starting values for the first playable; they are not balance commitments.
 
-Designer answers in [Draft designer positions](#draft-designer-positions-pending-garand-sign-off) are **draft pending Garand’s sign-off**. Lead-engineer answers in [Lead engineer decisions](#lead-engineer-decisions) are **locked decisions**, not drafts. Map-pipeline answers in [Map pipeline decisions](#map-pipeline-decisions) are **accepted contract changes** (golden *regions* still need Garand’s approval).
+Designer answers in [Draft designer positions](#draft-designer-positions-pending-garand-sign-off) are **draft pending Garand’s sign-off**. Lead-engineer answers in [Lead engineer decisions](#lead-engineer-decisions) are **locked decisions**, not drafts. Map-pipeline answers in [Map pipeline decisions](#map-pipeline-decisions) are **accepted contract changes** (CI golden map approved Sep 28, 2026; soak regions still pending Garand).
 
 ---
 
@@ -79,7 +79,7 @@ These are **decisions**, not drafts. They lock the sim seams the AI is written a
 
 ## Map pipeline decisions
 
-Accepted field-level contract for §3. Golden *regions* are proposed and **pending Garand’s approval**. The blob **section layout still needs the Lead Engineer’s schema spec or approval** (§9.3).
+Accepted field-level contract for §3. The CI golden map is **approved (Sep 28, 2026)**; soak regions are still pending Garand. The blob **section layout still needs the Lead Engineer’s schema spec or approval** (§9.3).
 
 | Topic | Decision |
 | --- | --- |
@@ -90,7 +90,7 @@ Accepted field-level contract for §3. Golden *regions* are proposed and **pendi
 | AI grid | **1-mile cells** (`cellSizeCm = 160934`). `ElevationCell` plus `CellExt` (`territoryId`, water/steep/cover fractions, `edgeBlockMask`). |
 | Format | Lead Engineer’s **little-endian** versioned binary. Variable-length fields are `(offset, count)` into shared int32 / point / string pools. JSON/GeoJSON debug export with a **binary → JSON → binary** round-trip test. |
 | Gameplay fields | `supplyCapacity`, `fortificationSlots`, `defaultFortification`, `resourceYield` are **not** in the map blob. Designer table, applied at load (keyed by `populationClass`). |
-| Golden maps | CI: **Mid-Columbia Gorge** 100×100 (`golden-ci-columbia-gorge-100`), committed under `tests/golden/` with checksum, **pending Garand**. Soak: **Illinois–Iowa** and **Central Alps** at 200×200. |
+| Golden maps | CI: **Mid-Columbia Gorge** 100×100 (`golden-ci-columbia-gorge-100`), committed under `tests/golden/` with checksum, **approved Sep 28, 2026**. Soak: **Illinois–Iowa** and **Central Alps** at 200×200. |
 
 ---
 
@@ -645,7 +645,7 @@ Section directory (proposed; **Lead Engineer must spec/approve**): `META`, `TOWN
 
 | Id | Size | Role | Region |
 | --- | --- | --- | --- |
-| `golden-ci-columbia-gorge-100` | 100×100 | **Per-PR CI** | Mid-Columbia Gorge, Hood River to The Dalles (~45.62°N, 121.10°W). **Pending Garand.** |
+| `golden-ci-columbia-gorge-100` | 100×100 | **Per-PR CI** | Mid-Columbia Gorge, Hood River to The Dalles (~45.62°N, 121.10°W). **Approved Sep 28, 2026.** |
 | `golden-soak-illinois-iowa-200` | 200×200 | Soak | Mississippi / Quad Cities grid |
 | `golden-soak-central-alps-200` | 200×200 | Soak | Tyrol / South Tyrol / Trentino |
 
@@ -1041,7 +1041,7 @@ A playerless sim host loads a baked map blob, N AI factions, a seed, a tick limi
 - Final score / winner
 - `HashWorld` (**xxHash64**) every `HashPeriodTicks` (**200**)
 
-**Per-PR CI (locked):** frozen golden **`golden-ci-columbia-gorge-100`** (Mid-Columbia Gorge, 100×100 miles, Hood River to The Dalles — **pending Garand**), **2 AI** factions, **12,000 ticks**, run **twice** with the same seed, assert identical hashes every 200 ticks, finish in **under 5 minutes**. Blob + manifest + checksum live under **`tests/golden/`**. CI verifies the checksum before the run.
+**Per-PR CI (locked):** frozen golden **`golden-ci-columbia-gorge-100`** (Mid-Columbia Gorge, 100×100 miles, Hood River to The Dalles — **approved Sep 28, 2026**), **2 AI** factions, **12,000 ticks**, run **twice** with the same seed, assert identical hashes every 200 ticks, finish in **under 5 minutes**. Blob + manifest + checksum live under **`tests/golden/`**. CI verifies the checksum before the run.
 
 **Nightly soak:** start at about **200** matches; grow toward **1,000** once there are perf numbers. Soak maps: **`golden-soak-illinois-iowa-200`** and **`golden-soak-central-alps-200`**. Fail the soak on crash, deadlock, or hash mismatch — not on “AI played poorly.”
 
@@ -1109,7 +1109,7 @@ Still open:
 6. Fill the gameplay table (`supplyCapacity`, `fortificationSlots`, `defaultFortification`, `resourceYield`) keyed by `populationClass`.
 7. Territory counts / generated travel-cost partitions vs any designer overlay for anchors.
 8. In-match demolish/repair of roads and bridges (`graphVersion`), or initial state only?
-9. **Garand:** approve golden regions (Mid-Columbia Gorge CI; Illinois–Iowa and Central Alps soak).
+9. **Garand:** approve soak golden regions (Illinois–Iowa and Central Alps).
 
 ### 9.2 Lead engineer
 
@@ -1200,4 +1200,4 @@ If a programmer is tempted to “just for now” do any of the following, that c
 
 ---
 
-*End of proposed contract. Designer positions are draft pending Garand sign-off. Lead-engineer seams and map-pipeline field contract above are **decisions** (golden *regions* pending Garand). Next step: M0 against the foundation command queue, Lead Engineer blob schema approval, and `golden-ci-columbia-gorge-100` under `tests/golden/`.*
+*End of proposed contract. Designer positions are draft pending Garand sign-off. Lead-engineer seams and map-pipeline field contract above are **decisions** (CI golden map approved Sep 28, 2026; soak regions still pending Garand). Next step: M0 against the foundation command queue, Lead Engineer blob schema approval, and `golden-ci-columbia-gorge-100` under `tests/golden/`.*
