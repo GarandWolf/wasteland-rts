@@ -4,7 +4,7 @@
 
 `.github/workflows/simulation.yml` restores the headless solution and runs `dotnet test Wasteland.Sim.sln` on every push and pull request. No Unity editor, no license.
 
-This is the gate for the lockstep contract: `Fixed64` internals, integer-cm state, PCG32 / xxHash64 goldens, delayed command logs, and per-tick hashes.
+This is the gate for the lockstep contract: `Fixed64` internals, integer-cm state, PCG32 / xxHash64 goldens, delayed command logs, per-tick hashes, and the headless movement/pathfinding service (`dotnet test` does **not** run `src/Wasteland.Sim.Benchmarks`).
 
 ## Headless AI-vs-AI (later)
 

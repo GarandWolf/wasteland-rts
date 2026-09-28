@@ -13,7 +13,8 @@ Assets/_Project/          Unity presentation, scenes, authoring
 Packages/com.wasteland.sim/   Deterministic sim (UPM embedded package, no UnityEngine)
 src/Wasteland.Sim/        dotnet wrapper csproj that compiles the package sources
 src/Wasteland.Sim.Tests/  xUnit, runs on CI without the Unity editor
-docs/                     Architecture and process
+src/Wasteland.Sim.Benchmarks/  pathfinding micro-benchmark (`dotnet run -c Release`, not CI)
+docs/                     Architecture, movement, blob formats
 ProjectSettings/          Hand-authored Unity 6.3 LTS skeleton
 ```
 
@@ -86,6 +87,7 @@ Do not treat `ProjectSettings/ProjectSettings.asset` as sacred after first open 
 ```bash
 git lfs install          # once per machine
 dotnet test Wasteland.Sim.sln
+dotnet run -c Release --project src/Wasteland.Sim.Benchmarks   # pathfinding micro-benchmark, not CI
 ```
 
 Unity: **Unity 6.3 LTS** (`6000.3.24f1`). Open the repo root as the project. First open regenerates `Library/`, `Packages/packages-lock.json`, extra `ProjectSettings/` YAML, and `.meta` files for any assets that shipped without them.

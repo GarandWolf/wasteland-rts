@@ -115,11 +115,11 @@ Netcode for Entities is not the lockstep path. Lockstep exchanges `SimCommand` b
 
 ## Road pathfinding (`PathOnRoads`)
 
-**Sim-owned service, not implemented in this PR.**
+Sim-owned `Wasteland.Sim.Movement.MovementService`. Integer A* on a versioned road-graph blob, 8-connected grid A* on a versioned terrain blob, and a combined query that takes a road shortcut when that is cheaper. Costs are `int64` ticks; `costWeights` are parts-per-thousand. Both player UI path preview and AI call the same functions. Do **not** put a private float A* inside the AI module.
 
-AI design §4.3: `PathOnRoads(fromNode, toNode, costWeights)` returns a node list + integer total cost, or unreachable. Both player UI path preview and AI call the same function. Costs are `int64`; threat samples that feed weights are fog-filtered integers. Do **not** put a private float A* inside the AI module.
+Blobs: [docs/formats/road-graph-v1.md](formats/road-graph-v1.md), [docs/formats/terrain-grid-v1.md](formats/terrain-grid-v1.md). Algorithms, budget, cache, and the hierarchical gateway rule: [docs/movement.md](movement.md). Per-class cost grids are computed at **match load** from `movement-tables-v1.json`, not at map bake.
 
-Until the road graph exists, no caller should invent a parallel pathfinder. Local formation following around a squad stays in the sim (integer/fixed internal math, cm state).
+Until `SimWorld.Move` is wired to follow a `PathResult`, local motion is still a straight cm line. Local formation following around a squad stays in the sim (integer/fixed internal math, cm state).
 
 Unity NavMesh is presentation/authoring only.
 

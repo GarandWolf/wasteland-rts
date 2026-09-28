@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "classes": [
+    {
+      "class": "wheeled",
+      "baseSpeedCmPerTick": 80,
+      "maxOffRoadSlopePerMille": 299,
+      "ignoreTerrain": false,
+      "landCoverPpt": {
+        "field": 400,
+        "scrub": 200,
+        "urban": 700,
+        "forest": 80,
+        "marsh": 0,
+        "water": 0,
+        "ford": 200
+      },
+      "roadSurfacePpt": {
+        "dirt": 700,
+        "gravel": 850,
+        "asphalt": 1000,
+        "bridgeDeck": 900
+      },
+      "slopeBands": [
+        { "maxExclusive": 50, "ppt": 1000 },
+        { "maxExclusive": 100, "ppt": 850 },
+        { "maxExclusive": 200, "ppt": 600 },
+        { "maxExclusive": 300, "ppt": 350 },
+        { "maxExclusive": 600, "ppt": 200 },
+        { "maxExclusive": 1000, "ppt": 100 },
+        { "maxExclusive": 100000, "ppt": 0 }
+      ]
+    },
+    {
+      "class": "tracked",
+      "baseSpeedCmPerTick": 50,
+      "maxOffRoadSlopePerMille": 599,
+      "ignoreTerrain": false,
+      "landCoverPpt": {
+        "field": 700,
+        "scrub": 500,
+        "urban": 800,
+        "forest": 400,
+        "marsh": 200,
+        "water": 0,
+        "ford": 400
+      },
+      "roadSurfacePpt": {
+        "dirt": 800,
+        "gravel": 900,
+        "asphalt": 1000,
+        "bridgeDeck": 950
+      },
+      "slopeBands": [
+        { "maxExclusive": 50, "ppt": 1000 },
+        { "maxExclusive": 100, "ppt": 900 },
+        { "maxExclusive": 200, "ppt": 750 },
+        { "maxExclusive": 300, "ppt": 550 },
+        { "maxExclusive": 600, "ppt": 350 },
+        { "maxExclusive": 1000, "ppt": 150 },
+        { "maxExclusive": 100000, "ppt": 0 }
+      ]
+    },
+    {
+      "class": "foot",
+      "baseSpeedCmPerTick": 8,
+      "maxOffRoadSlopePerMille": 999,
+      "ignoreTerrain": false,
+      "landCoverPpt": {
+        "field": 1000,
+        "scrub": 800,
+        "urban": 1000,
+        "forest": 700,
+        "marsh": 400,
+        "water": 0,
+        "ford": 600
+      },
+      "roadSurfacePpt": {
+        "dirt": 1000,
+        "gravel": 1000,
+        "asphalt": 1000,
+        "bridgeDeck": 900
+      },
+      "slopeBands": [
+        { "maxExclusive": 50, "ppt": 1000 },
+        { "maxExclusive": 100, "ppt": 950 },
+        { "maxExclusive": 200, "ppt": 850 },
+        { "maxExclusive": 400, "ppt": 800 },
+        { "maxExclusive": 1000, "ppt": 700 },
+        { "maxExclusive": 100000, "ppt": 0 }
+      ]
+    },
+    {
+      "class": "air",
+      "baseSpeedCmPerTick": 200,
+      "maxOffRoadSlopePerMille": 100000,
+      "ignoreTerrain": true,
+      "landCoverPpt": {
+        "field": 1000,
+        "scrub": 1000,
+        "urban": 1000,
+        "forest": 1000,
+        "marsh": 1000,
+        "water": 1000,
+        "ford": 1000
+      },
+      "roadSurfacePpt": {
+        "dirt": 1000,
+        "gravel": 1000,
+        "asphalt": 1000,
+        "bridgeDeck": 1000
+      },
+      "slopeBands": [
+        { "maxExclusive": 100000, "ppt": 1000 }
+      ]
+    }
+  ]
+}
