@@ -32,7 +32,7 @@ These are the Game Designer’s draft answers. They are **not final** until Gara
 
 | Topic | Draft position | AI consequence |
 | --- | --- | --- |
-| Scale | **Operational.** The balance unit is a **battalion**. Players zoom from the strategic map down into fights; figures and trucks on screen are **presentation** (count scales with HP ‰). | The sim **`squad` is the battalion**: one entity (e.g. `remnant_motor_rifles`) with pooled HP, one position/path, one command queue. That is the AI’s smallest commandable unit. Coordinated action uses AI-side **task forces** (ordered battalion ids + a goal; not sim state). Tactical layer is route, capture-zone, and supply, not soldier spacing. |
+| Scale | **Operational.** The balance unit is a **battalion**. Players zoom from the strategic map down into fights; figures and trucks on screen are **presentation** (count scales with HP ‰). | The sim **`squad` is the battalion**: one entity (e.g. `remnant_motor_rifles`) with pooled HP, one position/path, one command queue. That is the AI’s smallest commandable unit. Coordinated action uses **task forces** (ordered battalion ids + a goal) in **AI-owned deterministic state**. Tactical layer is route, capture-zone, and supply, not soldier spacing. |
 | Factions | Working names: **Remnant**, **Compact**, **Clans**. Compact personality is `homestead_compact_settler`. Compact **+150‰ manpower is a faction trait**, not an AI bonus. | Personalities live in `data/balance/ai_personalities.json`; difficulty in `ai_difficulty.json`. Any personality runs at any difficulty. Do not fork the planner. |
 | Capture | Every town has a **capture zone** and a **garrison**. Clear all enemy combat **battalions** from the zone, then hold it uncontested for a timer (**60 s village, 120 s town, 180 s city**). An enemy combat battalion in the zone **pauses** the timer; it does not reset. A territory belongs to whoever holds its **anchor town(s)**; some regions have several anchors and you need **all** of them. Fortified buildings **slow** capture; they do not block it. | Assault = clear then hold. Contest = park a combat battalion in the zone to pause. Score multi-anchor regions as a set. Defend and reinforce capture zones first. `minGarrisonPerTown` counts battalions. |
 | Supply | Cutting roads **does** starve supply. Supply traces the **road graph** from depots and HQ to battalions. A segment is cut when an enemy **holds its node** or a **bridge is destroyed**. A battalion is out of supply when it has no friendly road path back to a depot within a **short off-road** snap distance. Out-of-supply battalions stop refilling fuel and ammo. After ~**60 s** grace, fire rate and speed drop and they **cannot reinforce**. Off-road movement penalties are a separate rule. Supply is recomputed on a **fixed tick** with integer graph math. | Raid/cut enemy roads and bridges, guard own lines, do not over-extend, bake supply into routes and assault timing, value bridges and junctions. Read supply from sim hooks. |
@@ -46,7 +46,7 @@ These are the Game Designer’s draft answers. They are **not final** until Gara
 | Term | Meaning |
 | --- | --- |
 | **Battalion** (sim **squad**) | The balance unit and the AI’s smallest commandable unit. One sim entity: e.g. `remnant_motor_rifles` has pooled HP, one position/path, and one command queue. The sim name is `squad`; this doc treats **squad = battalion**. Figures and trucks on screen are presentation only; the count shown scales with HP ‰. |
-| **Task force** | AI-side only: an ordered list of battalion ids plus a goal. **Never sim state, never hashed.** Rebuilt from ids and validated each strategic tick. Orders still issue **per battalion** on the normal command queue. |
+| **Task force** | Ordered list of battalion ids plus a goal. Lives in **AI-owned deterministic state** (serialized, hashed, id-sorted). Other sim systems cannot read it. Orders still issue **per battalion** on the normal command queue. |
 | **Capture zone** | The town volume that must be empty of enemy combat battalions, then held, to capture. |
 | **Anchor** | A town that must be held to own its territory. Some territories have several; all are required. |
 | **Depot / HQ** | Supply sources. Battalions need a friendly road path to one (plus a short off-road snap). |
@@ -65,11 +65,12 @@ These are **decisions**, not drafts. They lock the sim seams the AI is written a
 | Road A\* | **Core sim owns it.** `PathOnRoads` and `EstimateTravelTicks` are sim services. Both take a **movement class** (`wheeled`, `tracked`, `foot`, `air`) per the designer’s movement table v0.1. `PathRequestsPerTick` and the unreachable cache keyed on `(from, to, weightKey, graphVersion, movementClass)` live in that service. `costWeights` are integer ppt. Per-class edge costs are computed at **match load**, not bake. |
 | Axes | Sim **x = east** (Unity +X), sim **y = north** (Unity +Z), elevation = Unity +Y. Origin is the **SW corner**. Sim stays in **absolute int cm**; rendering uses a floating origin. |
 | Entity model | The sim **`squad` is the battalion**: one first-class entity, pooled HP, one position/path, one command queue. Orders target that entity. **Battalion split/merge is out of scope for v0**; if ever needed it is a separate sim command. Presentation figures are not sim entities. |
+| AI-owned state | Task forces and all other AI memory (strategic goals, influence caches that are not pure functions of the world, cooldowns, RNG state) live in **AI-owned deterministic state**. Serialized with save/load, folded into the periodic state hash, stored in **fixed id-sorted order** so a reload or desync check restores it exactly. Other sim systems **cannot** read it. Anything the AI can fully recompute from world state may be excluded, **only if** it is recomputed deterministically. |
 | Command queue | The lead engineer’s in-progress foundation PR defines the first command queue. The AI **plugs into it**. |
 | Threading | Launch: **fixed-step sim on the main thread**. A dedicated sim thread comes later. The AI stays **inside the sim tick** either way. |
 | Core / headless | Core is **pure C# with no `UnityEngine`**. Headless runs via `dotnet test` or a console host in GitHub Actions. |
 | Blobs | **WRMB** is the single map format (Map Pipeline Engineer’s versioned little-endian container, directory-by-tag, per-section CRCs). Layout spec: `blob-layout-v0.md` (map pipeline). Arrays sorted by id. Variable-length fields are `(offset, count)` into shared pools. **No hash-set rebuild on load.** Terrain is a **second WRMB** (elevation in whole decimetres on the 1,800×1,800 grid, plus slope‰ and land-cover); each file stores the other’s `contentHash`. |
-| Hash / PRNG | **xxHash64** and **PCG32**, both in-repo with golden tests. `hash64` means xxHash64 over the listed fields. `ai_personalities.json` and `ai_difficulty.json` hashes are **match config**. Task forces are not hashed. |
+| Hash / PRNG | **xxHash64** and **PCG32**, both in-repo with golden tests. `hash64` means xxHash64 over the listed fields. `ai_personalities.json` and `ai_difficulty.json` hashes are **match config**. AI-owned state (task forces, goals, non-pure caches, cooldowns, RNG) is **in the periodic hash**. |
 | Perf targets | **1.5 ms AI** and **8 ms sim** are the accepted targets. The wall-clock **ship gate waits for a vertical slice**. The **AI work-unit cap alone** governs behavior. |
 | Per-PR CI | Frozen golden **100×100** map under `data/golden/` (Git LFS + SHA-256), **2 AI** factions, **12,000 ticks** (10 game minutes), run **twice** with the same seed, identical hashes every **200** ticks, finish in **under 5 minutes**. |
 | Nightly soak | Starts at about **200** matches and grows toward **1,000** once there are perf numbers. |
@@ -207,7 +208,7 @@ planThisTick(faction) =
 - Static map contract (§3.1), including anchors and capture-zone radii.
 - Derived maps (§3.2), last fully committed slice, plus last-seen structure snapshots.
 - Own economy snapshot: resources, build queues, upkeep.
-- Own army snapshot: battalions (sim squads), supply state, pooled HP ‰, orders, recovery. **Task forces are rebuilt this tick from ids** (not read from sim).
+- Own army snapshot: battalions (sim squads), supply state, pooled HP ‰, orders, recovery. **Task forces** are read from AI-owned state (id-sorted), then validated this tick.
 - Own supply graph view: depots, HQ, held nodes, intact bridges, units at risk of OOS.
 - Observed enemy: towns, battalions, and threats inside fog-honest vision plus memory with a TTL / snapshots.
 - Recent `SquadReport`s since the last plan tick.
@@ -286,7 +287,7 @@ Weights live in the personality profile (§6). Difficulty scales a subset: react
 
 Cap accepted goals at `MaxActiveOrders` = **12** per faction. Drop the rest. Idle leftover strength is assigned to `HoldCaptureZone` on the highest-threat owned **anchor** that is in supply (implicit, not a generated candidate). Garrison that town with at least `minGarrisonPerTown` **battalions**.
 
-For each accepted goal the AI builds a **task force**: an ordered list of battalion ids plus the goal. Task forces are **AI-side only** — not written into sim state, not hashed. They are rebuilt from those ids and **validated** each strategic tick (drop dead/missing ids, re-issue if the goal is still live). Commands still go out **per battalion** on the foundation queue.
+For each accepted goal the AI builds a **task force**: an ordered list of battalion ids plus the goal. Task forces live in **AI-owned deterministic state** — serialized with save/load, folded into the periodic hash, stored in **fixed id-sorted order**. Other sim systems cannot read them. They are **validated** each strategic tick (drop dead/missing ids, re-issue if the goal is still live). Commands still go out **per battalion** on the foundation queue.
 
 Do **not** accept an `AssaultTown` whose hold duration (capture timer, slowed by visible fortification) exceeds the time the force can stay in supply. Isolate first, or cancel.
 
@@ -397,7 +398,7 @@ Orders and reports are sim data, serialized the same way player commands are. Th
 | `targetKind` | `enum` | `Town`, `Territory`, `RoadNode`, `Chokepoint`, `Bridge`, `Region`, `None`. |
 | `targetId` | `int32` | Id in that space; 0 if none. |
 | `stagingNodeId` | `int32` | Optional road node. |
-| `squadIds` | `int32[]` | Battalion ids (sim squad ids), sorted ascending. The **task force** list is AI-side and is not this field’s persistence. |
+| `squadIds` | `int32[]` | Battalion ids (sim squad ids), sorted ascending. The **task force** (same ids + goal) is persisted in AI-owned state, not only this field. |
 | `priority` | `int16` | Higher wins conflicts. Capture-zone contest > field raid. |
 | `resourceBudget` | `int32` | Spent via economy commands; 0 if N/A. |
 | `issuedTick` | `int32` | |
@@ -721,7 +722,7 @@ CI map: inputs frozen; map WRMB + terrain WRMB + manifest + SHA-256 files under 
 
 ### 3.2 AI-derived maps
 
-Per faction, on the same coarse grid:
+Per faction, on the same coarse grid. Decaying influence / threat / confidence and last-seen battalion memory are **not** pure functions of the world: they live in **AI-owned deterministic state** (save/load + periodic hash, id-sorted). Layers that can be fully rebuilt from world + snapshots this tick may be omitted from that blob **only if** the rebuild is deterministic.
 
 | Layer | Cell payload | Meaning |
 | --- | --- | --- |
@@ -787,7 +788,7 @@ The core sim is **pure C# with no `UnityEngine`**. Launch runs a **fixed-step si
 | No Unity | Core has no `UnityEngine`. No `Raycast`, `Overlap`, `NavMesh.CalculatePath`, `Rigidbody` reads. Sim provides integer queries, including vision/LoS. |
 | Numeric types | Positions: **integer cm**, `int32` per axis (**x east** = Unity +X, **y north** = Unity +Z, elevation = Unity +Y; origin SW). Squared distances and path costs: **`int64`**. Ratios: **int ppt**. Sim stays in absolute int cm; rendering uses a floating origin. AI decision code uses those integers only — no `float`/`double`/`Vector3` in scoring, path cost, supply, or PRNG. |
 | Fixed64 | Core **Fixed64 (Q32.32)** is for **internal math only** (sqrt, movement stepping, angles). Results are always stored back as cm or ppt. **Nothing** in sim state, hashes, or events is Fixed. **Q16.16 in int32 is ruled out** (cannot cover a 200-mile map). |
-| Ids only | Across ticks the AI keeps **ids only**, never references to sim objects. Re-query by id each tick. |
+| Ids only | Across ticks the AI keeps **ids only**, never references to sim objects. Re-query by id each tick. AI-owned state (task forces, goals, caches, cooldowns, RNG) is still ids and integers, serialized and hashed in fixed id-sorted order. |
 | Seeded PRNG | **PCG32**, in-repo with golden tests. Per-faction streams derived with **xxHash64**. Never `UnityEngine.Random`. |
 | Stable iteration | No `foreach` on `Dictionary` / `HashSet`. Iterate arrays, or copy keys and sort by id. Blobs load with arrays already sorted; **no hash-set rebuild on load**. |
 | Time-slicing | Expensive work is sliced on a schedule that is a pure function of `tick` and `factionId` (§7.2). A slice that hits the **work-unit cap** **defers** remainder; it does not “do less because the frame was heavy.” Wall-clock must not change behavior. |
@@ -1138,7 +1139,7 @@ Inputs `I` for AI-vs-AI are empty (no player commands). Later, a recorded player
 - Using `float` or storing Fixed64 in scoring / events / hash inputs.
 - Wall-clock slice: force the thread to sleep in a test double of the host; hashes must not change.
 
-Hash includes: town owners, capture ticks, resources, battalion (squad) positions (cm), pooled HP ‰, supply states, order tables, PRNG states, derived-map cell values, structure snapshots, and **match-config hashes** of `ai_personalities.json` and `ai_difficulty.json`. It does **not** include Unity transforms, debug names, Fixed64 scratch, presentation figure counts, or **task forces**.
+Hash includes: town owners, capture ticks, resources, battalion (squad) positions (cm), pooled HP ‰, supply states, order tables, **AI-owned state** (task forces, strategic goals, non-pure influence caches, cooldowns, AI RNG) in **fixed id-sorted order**, PRNG states, derived-map cell values that are not a pure rebuild, structure snapshots, and **match-config hashes** of `ai_personalities.json` and `ai_difficulty.json`. It does **not** include Unity transforms, debug names, Fixed64 scratch, or presentation figure counts. Other sim systems do not read AI-owned state. Anything the AI can fully recompute from world state may be excluded from the hash **only if** it is recomputed deterministically on load.
 
 ### 8.3 Debug visualizations
 
@@ -1202,7 +1203,7 @@ No Unity scaffolding in this PR. Milestones assume the sim and map blob exist or
 
 | Milestone | Deliverable | Exit |
 | --- | --- | --- |
-| **M0 — Seams** | Plug into the foundation command queue. `AiMatchInit` / `AiOnTick` stubs, PCG32 + xxHash64, empty battalion order tables, ids-only across ticks, personality/difficulty JSON hashes in match config. | Determinism check on empty match (hash stable over 10k ticks). |
+| **M0 — Seams** | Plug into the foundation command queue. `AiMatchInit` / `AiOnTick` stubs, PCG32 + xxHash64, empty battalion order tables, AI-owned state (id-sorted, hashed, save/load), personality/difficulty JSON hashes in match config. | Determinism check on empty match (hash stable over 10k ticks). |
 | **M1 — Map ingest + derived maps** | Load WRMB pair (map + terrain, mutual `contentHash`) per `blob-layout-v0.md`; `cellSizeCm` from META; `CellExt` / `WaterBody`; influence maps; `TDBG` overlay. | Overlay matches stamped battalions; corridor fallback respects `edgeBlockMask`; binary→JSON→binary round-trip; companion hashes match; reconcile hash. |
 | **M2 — Strategy** | Posture, candidate generation (including Contest/HoldCapture/CutSupply/GuardSupply), utility selection, spend envelope, anchor-set scoring. | In AI-vs-AI on the golden 100×100 blob, factions issue `HoldCaptureZone` / `Fortify` / `AssaultTown` / `CutSupply` with stable hashes. |
 | **M3 — Tactical movement** | Battalions call sim `PathOnRoads` (movement class, ppt weights, `int64` cost); column vs deployed; reports flow back; `executeTick = issuedTick + commandDelayTicks`. | A battalion given `AssaultTown` reaches staging via **supplied** roads, not crow-flies; held-node / destroyed-bridge repath works; wheeled refuses >299‰ off-road. |
@@ -1270,7 +1271,8 @@ If a programmer is tempted to “just for now” do any of the following, that c
 - Path through impassable slope cells or blocking rivers without a bridge.
 - Skip `commandDelayTicks` or hardcode it instead of reading match setup.
 - Command a presentation figure, or invent nested unit ids. Command the **battalion** (`squadId`).
-- Hash **task forces** (rebuild from ids each strategic tick; never sim state).
+- Drop task forces or other AI memory from save/load or the periodic hash (or store them in non-id-sorted order). Other sim systems must not read AI-owned state.
+- Omit a cache from AI-owned state without a deterministic recompute from world state.
 - Run strategic planning every tick “because the CPU is idle.”
 - Recompute supply with floats or a private graph that ignores fogged node holders.
 - Store Fixed64 or object references in AI state, events, or hashes.
