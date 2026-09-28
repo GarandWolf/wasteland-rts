@@ -7,7 +7,7 @@
 
 This is the working contract for enemy AI. Numbers marked **placeholder** are starting values for the first playable; they are not balance commitments.
 
-Designer answers in [Draft designer positions](#draft-designer-positions-pending-garand-sign-off) are **draft pending Garand’s sign-off**. Lead-engineer answers in [Lead engineer decisions](#lead-engineer-decisions) are **locked decisions**, not drafts.
+Designer answers in [Draft designer positions](#draft-designer-positions-pending-garand-sign-off) are **draft pending Garand’s sign-off**. Lead-engineer answers in [Lead engineer decisions](#lead-engineer-decisions) are **locked decisions**, not drafts. Map-pipeline answers in [Map pipeline decisions](#map-pipeline-decisions) are **accepted contract changes** (golden *regions* still need Garand’s approval).
 
 ---
 
@@ -67,13 +67,30 @@ These are **decisions**, not drafts. They lock the sim seams the AI is written a
 | Command queue | The lead engineer’s in-progress foundation PR defines the first command queue. The AI **plugs into it**. |
 | Threading | Launch: **fixed-step sim on the main thread**. A dedicated sim thread comes later. The AI stays **inside the sim tick** either way. |
 | Core / headless | Core is **pure C# with no `UnityEngine`**. Headless runs via `dotnet test` or a console host in GitHub Actions. |
-| Blobs | Map and AI blobs: **custom versioned little-endian binary**. Arrays sorted by id. **No hash-set rebuild on load.** |
+| Blobs | Map and AI blobs: **custom versioned little-endian binary**. Arrays sorted by id. Variable-length fields are `(offset, count)` into shared pools. **No hash-set rebuild on load.** |
 | Hash / PRNG | **xxHash64** and **PCG32**, both in-repo with golden tests. `hash64` means xxHash64 over the listed fields. |
 | Perf targets | **1.5 ms AI** and **8 ms sim** are the accepted targets. The wall-clock **ship gate waits for a vertical slice**. The **AI work-unit cap alone** governs behavior. |
 | Per-PR CI | Frozen golden **100×100** map, **2 AI** factions, **12,000 ticks** (10 game minutes), run **twice** with the same seed, identical hashes every **200** ticks, finish in **under 5 minutes**. |
 | Nightly soak | Starts at about **200** matches and grows toward **1,000** once there are perf numbers. |
 | Cross-check | Windows-vs-Linux hash-stream check is added **later, before multiplayer**. |
 | Headless speed | Goal (not a commitment): at least **50× realtime** on 100×100 with 2 AIs. |
+
+---
+
+## Map pipeline decisions
+
+Accepted field-level contract for §3. Golden *regions* are proposed and **pending Garand’s approval**. The blob **section layout still needs the Lead Engineer’s schema spec or approval** (§9.3).
+
+| Topic | Decision |
+| --- | --- |
+| When derived | Chokepoints, territories, `strategicValue`, and neighbour lists are computed **after** the post-apocalyptic transform. Destroyed bridges are already gone from the passable graph. |
+| Chokepoints | Record in §3.1. AI scores with **`defensibility` and `detourRatioPpt`**. |
+| `strategicValue` | 0–1000 from per-map percentile ranks: population 40%, road connectivity 25%, chokepoint proximity 15%, high ground 10%, resources 10%, plus a `populationClass` absolute anchor. **Designer owns the weights.** Per-town components go in optional `TDBG` for the overlay. |
+| Road budget | ~**8k nodes / 12k edges** on 200×200; ~**2k / 3k** on 100×100. Towns collapse to a gate plus **exit edges**. Edge geometry is a polyline. **Over-budget bake fails** (never truncates). |
+| AI grid | **1-mile cells** (`cellSizeCm = 160934`). `ElevationCell` plus `CellExt` (`territoryId`, water/steep/cover fractions, `edgeBlockMask`). |
+| Format | Lead Engineer’s **little-endian** versioned binary. Variable-length fields are `(offset, count)` into shared int32 / point / string pools. JSON/GeoJSON debug export with a **binary → JSON → binary** round-trip test. |
+| Gameplay fields | `supplyCapacity`, `fortificationSlots`, `defaultFortification`, `resourceYield` are **not** in the map blob. Designer table, applied at load (keyed by `populationClass`). |
+| Golden maps | CI: **Mid-Columbia Gorge** 100×100 (`golden-ci-columbia-gorge-100`), committed under `tests/golden/` with checksum, **pending Garand**. Soak: **Illinois–Iowa** and **Central Alps** at 200×200. |
 
 ---
 
@@ -132,7 +149,7 @@ flowchart TB
   end
 
   subgraph Pipeline["Map pipeline — static for the match"]
-    Contract["Towns, anchors, capture zones, roads, chokepoints, elevation, rivers, adjacency"]
+    Contract["Towns, exit edges, chokepoints, CellExt, roads, water"]
   end
 
   subgraph Derived["Derived maps — incremental, coarse grid"]
@@ -249,11 +266,11 @@ All terms are `int32` millipoints. Features are already in parts-per-thousand (p
 | `defenderSupplyPpt` | Low if we have cut their road to the town — assault sooner. High if they are supplied — isolate first. |
 | `ownSupplySafetyPpt` | Penalty if the assigned force would go OOS on the approach or during the hold timer. |
 | `roadAccessPpt` | 1000 if a friendly-controlled, supplied road reaches it; less if off-graph. |
-| `chokepointBonus` | Set if taking/holding it gates a high-value town **or** a supply path. |
-| `bridgeJunctionValue` | Extra for bridges and high-degree road nodes (cut or guard). |
-| `visionGroundBonus` | High-ground / ridge cells that would reveal a road or zone (scout and overwatch). |
+| `chokepointBonus` | `defensibility * detourRatioPpt / 1000` (both 0–1000 / 1000–10000). Prefer cuts that disconnect (`detourRatioPpt` near 10000). |
+| `bridgeJunctionValue` | Extra for bridge **edges** and high-flag junctions (cut or guard). |
+| `visionGroundBonus` | High-ground / ridge cells (`elevationCm`, `CellExt.coverPpt`) that would reveal a road or zone. |
 | `economyNeedPpt` | High when income < upkeep + planned spend. |
-| `distanceCost` | Travel ticks on the road graph from nearest owned staging town **that is in supply**. |
+| `distanceCost` | From sim `EstimateTravelTicks`, not raw `travelCost`. Staging town must be in supply. |
 | `fogUncertainty` | Penalty (or scout bonus) when confidence is low; never treated as vision. |
 | `recentFailurePenalty` | Same goal type+target failed within `FailureMemoryTicks`. |
 
@@ -276,7 +293,7 @@ Do **not** accept an `AssaultTown` whose hold duration (capture timer, slowed by
 spendable = currentResources - ReservePpt * netIncomePerCadence / 1000
 ```
 
-`ReservePpt` is a personality field. Spend priority within the envelope: (1) repairs / fortify on threatened anchors and their capture zones, (2) unit production to reach `TargetArmyStrength` (including recon if confidence is stale), (3) expansion buildings, (4) extra scouts. Exact building IDs are a designer fill-in; the AI only needs a tagged catalog: `Production`, `Fortification`, `Economy`, `Intel` (recon).
+`ReservePpt` is a personality field. Spend priority within the envelope: (1) repairs / fortify on threatened anchors and their capture zones, (2) unit production to reach `TargetArmyStrength` (including recon if confidence is stale), (3) expansion buildings, (4) extra scouts. Building IDs and the gameplay table (`supplyCapacity`, `fortificationSlots`, `defaultFortification`, `resourceYield`) are designer fill-ins applied at load; the AI only needs a tagged catalog: `Production`, `Fortification`, `Economy`, `Intel` (recon).
 
 Brutal’s `EconomyBonusPpt` is applied by the **sim economy**, not by the AI inventing extra builds.
 
@@ -300,19 +317,19 @@ The player may zoom into the fight those battalions are in; the AI does not swit
 Edge cost (integer):
 
 ```
-cost(e) =
-    e.travelCost
+cost(e, dir) =
+    e.travelCost                         // metre-equivalents, symmetric
   + ThreatWeight * sampleThreat(e)
-  + SlopeWeight * e.slopeCost
-  − HighGroundWeight * e.highGroundBonus   // assault approach and scout overwatch
-  + EnemyControlPenalty * e.controlRisk    // enemy-held node = cut
+  + ClimbWeight * climbCm(e, dir)        // climbCmAB if a→b else climbCmBA
+  − HighGroundWeight * max(0, signedElev(e, dir))  // from elevDeltaCm
+  + EnemyControlPenalty * e.controlRisk  // enemy-held node or destroyed/condition-3 edge
   + SupplyBreakPenalty * e.wouldBreakSupply
-  − VisionWeight * e.visionFromHighGround  // scout / overwatch orders
+  − VisionWeight * visionFromHighGround(e, dir)
 ```
 
-`wouldBreakSupply` is 1 when occupying or traversing `e` (or a planned off-road snap) would leave the squad with no path to a depot. Raids that *intend* to cut may pay this; assaults and holds may not.
+`wouldBreakSupply` is 1 when occupying or traversing `e` (or a planned off-road snap) would leave the squad with no path to a depot. Raids that *intend* to cut may pay this; assaults and holds may not. Directional slope/high-ground terms are computed from `climbCmAB` / `climbCmBA` / `elevDeltaCm`; they are **not** stored as undirected bonuses.
 
-Weights come from personality + current order type (a raid pays more to avoid threat; an assault pays more for high ground on the approach **and** refuses OOS approaches; a scout pays for vision). `costWeights` passed to `PathOnRoads` are integer ppt; the service returns an `int64` cost. If the road graph cannot reach the target, fall back to a coarse-grid corridor (same 1-mile cells as influence) and rejoin the road graph at the nearest node **within `SupplySnapCm`**. Last-mile into a capture zone is a short operational path on a local integer grid provided by sim, not Unity NavMesh. Off-road movement penalties are sim rules; the AI only chooses when a snap is worth it.
+Weights come from personality + current order type. `costWeights` passed to `PathOnRoads` are integer ppt; the service returns an `int64` cost. If the road graph cannot reach the target (`offRoadDistanceCm > 0`, or no passable edge), fall back to a coarse-grid corridor that **honours `CellExt.edgeBlockMask`** (no walking a `blocksLand` river, lake/sea edge, or cliff band without a bridge) and rejoin the road graph at the nearest node **within `SupplySnapCm`**. Last-mile into a capture zone is a short operational path on a local integer grid provided by sim, not Unity NavMesh. Off-road movement penalties are sim rules; the AI only chooses when a snap is worth it.
 
 **Movement postures** (operational, not fire-team formations).
 
@@ -320,7 +337,7 @@ Weights come from personality + current order type (a raid pays more to avoid th
 | --- | --- | --- |
 | Road travel | Column / convoy | Stay on the edge; do not leave the road on a bridge. |
 | Open approach | Deployed | Face the capture zone; prefer adjacent high-ground cells for vision into the zone. |
-| Chokepoint / junction hold | Compact | Occupy the **node** (this is what cuts or guards supply). |
+| Chokepoint / junction hold | Compact | Occupy the **node** or the chokepoint’s `roadEdgeId` (bridge span). Prefer adjacent cells with high `CellExt.coverPpt`. |
 | Capture clear / hold | Zone occupy | Combat units **inside** the capture zone. Do not sit on the ring and hope. |
 | Contest | Zone occupy | At least one combat unit inside the enemy ticking zone — enough to pause. |
 | Retreat | Column | Fastest **supplied** road toward a depot or in-supply owned town; ignore high-ground bonus. |
@@ -332,7 +349,7 @@ Posture is a squad stance command. Unit spacing on the road is the sim’s forma
 | Phase | Entry | Behavior | Exit |
 | --- | --- | --- | --- |
 | Approach | Order assigned | Road route that **stays in supply** to staging; prefer high ground with LoS into the zone. | Staging reached, or aborted (path/supply). |
-| Isolate | Personality / force ratio / `defenderSupplyPpt` | `CutSupply`: hold nodes or destroy a bridge on the town’s depot path so the garrison goes OOS (no refill; after grace they slow and cannot reinforce). | Defenders OOS, **or** skip if `forceRatioPpt` already ≥ `SiegeAssaultRatioPpt`, **or** `MaxIsolateTicks`. |
+| Isolate | Personality / force ratio / `defenderSupplyPpt` | `CutSupply`: hold or destroy the town’s **`exitEdgeIds`** (and any bridge on those edges) so the garrison goes OOS. | Defenders OOS, **or** skip if `forceRatioPpt` already ≥ `SiegeAssaultRatioPpt`, **or** `MaxIsolateTicks`. |
 | Clear | Combat units enter the capture zone | Attack-move until **no enemy combat units** remain in the zone. Fortified buildings are fought through; they do not gate this phase. | Zone clear, or retreat. |
 | Hold | Zone clear of enemy combat | Stay inside the zone. Timer runs (`CaptureTicksVillage/Town/City`, then slowed by visible fortification). | Town captured; **or** an enemy combat unit enters (timer **pauses**, phase stays Hold); **or** retreat. |
 
@@ -412,147 +429,227 @@ Maps are not handmade. The AI cannot be given designer ink. It needs a **stable,
 
 ### 3.1 Map pipeline contract (match-static)
 
-Pipeline bakes one blob (or a small set of blobs) that the sim loads at match start. Map and AI blobs use a **custom versioned little-endian binary** format. Arrays are stored pre-sorted by id. Load must not rebuild a `HashSet`/`Dictionary` iteration order. The AI reads the blob read-only. If a field cannot be produced yet, the pipeline still reserves the field and fills a documented default so the AI does not branch on “data missing.”
+Pipeline bakes one blob at match start. Format: the Lead Engineer’s **custom versioned little-endian binary**. Records are fixed-size with explicit zero padding. Variable-length arrays are `{uint32 offset, uint32 count}` into shared pools (`I32P` int32 ids, `PTSP` int32 x/y points, `STRP` UTF-8). Arrays and pool spans are pre-sorted by id. Load memory-maps or copies arrays; **no hash-set rebuild**. No floats in the file. `bool` is `uint8` 0/1.
 
-A **frozen golden 100×100** blob is required for per-PR CI (§8). Do not churn that file.
+Debug next to every blob (game never loads these): `<map>.debug.json` and `<map>.geojson`. CI **round-trip**: binary → JSON → binary must be byte-identical.
 
-Ids are dense `int32` starting at 1.
+A **frozen golden 100×100** blob is required for per-PR CI (§8). Over-budget road graphs **fail the bake**; they are never truncated.
+
+Ids are dense `int32` starting at 1. Chokepoints, territories, `strategicValue`, and neighbour lists are computed **after** the post-apocalyptic transform.
+
+Gameplay values **not** in this blob: `supplyCapacity`, `fortificationSlots`, `defaultFortification`, `resourceYield`. A designer table keyed by `populationClass` is applied at load into the runtime records the AI reads. `fortificationLevel` is sim state.
 
 #### Towns
 
 ```
-TownRecord
+TownRecord                                 // fixed size; lists via (offset,count) → I32P
   id                    int32
-  positionCm            int32 x, y          // world centimeters
+  positionCm            int32 x, y
   territoryId           int32
-  nameHash              int32               // debug only; not used in decisions
-  populationClass       int8                // 0 village, 1 town, 2 city (3–4 reserved)
-  isAnchor              bool                // must be held to own territoryId
-  captureZoneRadiusCm   int32               // capture volume, integer
-  captureTicks          int32               // 1200 / 2400 / 3600 at 20 Hz for 60/120/180 s
-  strategicValue        int16               // 0..1000, pipeline-authored
-  supplyCapacity        int32               // abstract supply units / depot potential
-  fortificationSlots    int8
-  defaultFortification  int8                // 0 = open town; slows capture, does not block
-  roadNodeId            int32               // gate / center node on the road graph
-  neighborTownIds       int32[]             // sorted; towns sharing a road or territory edge
+  population            int32              // GeoNames / GHSL rule
+  populationClass       int8               // 0 <1k, 1 1k–10k, 2 10k–50k, 3 50k–250k, 4 >250k
+                                           // (thresholds designer-confirm)
+  isAnchor              uint8              // designer overlay at load if not baked
+  captureZoneRadiusCm   int32              // designer table at load if not baked
+  captureTicks          int32              // designer table at load (60/120/180 s)
+  strategicValue        int16              // 0..1000, formula below
+  roadNodeId            int32              // town gate; 0 if off-graph
+  offRoadDistanceCm     int32              // >0 ⇒ no synthetic connector; use corridor fallback
+  neighborTownIds       (off,count)        // road-neighbours only (no other town gate on the path)
+  territoryNeighborTownIds (off,count)     // optional; towns in adjacent territories
+  exitEdgeIds           (off,count)        // boundary-crossing edges after town-interior collapse
+  nameStrOffset/Len     uint32, uint32     // STRP; UI/debug only
+  sourceFlags           uint8
 ```
 
-`strategicValue` is the pipeline’s opinion (population, road degree, chokepoint proximity). The AI may add situational value (anchor-set completion, supply); it does not replace this field.
+`strategicValue` (pipeline implements; **designer owns weights** in `strategic_value_weights.v1.json`, hash in the header):
 
-`captureTicks` is baked from class so the AI does not re-derive 60/120/180 s in float. Fortification slow is **runtime** (sim): AI reads `captureSlowMulPpt` from `TownState`, not from this blob.
+```
+P, R, C, H, X  = per-map percentile ranks in ppt (0..1000)
+                 population 40%, road connectivity 25%, chokepoint proximity 15%,
+                 high ground 10%, resources 10%
+base           = (400*P + 250*R + 150*C + 100*H + 100*X) / 1000
+abs            = populationClass * 250
+strategicValue = clamp( (850*base + 150*abs) / 1000, 0, 1000 )
+```
+
+Percentile rank: sort by `(rawValue, townId)`; tied towns share the first index of the tie group. Optional `TDBG` section stores the five component ppt values per town for the §8.3 overlay. The AI may add situational value (anchor-set completion, supply); it does not replace this field.
 
 #### Territories
+
+Generated as a travel-cost partition on the 1-mile grid (not admin boundaries). Canonical painted boundary = `CellExt.territoryId`. Adjacency = shared cell edge.
 
 ```
 TerritoryRecord
   id                    int32
-  townIds               int32[]             // sorted
-  anchorTownIds         int32[]             // sorted; ALL must be held to own the territory
-  neighborTerritoryIds  int32[]             // sorted, adjacency for the core loop
-  areaSqM               int32               // square meters, integer
-  resourceYield         int32               // placeholder economy units per cadence
+  seatTownId            int32              // seed town
+  townIds               (off,count)
+  anchorTownIds         (off,count)        // ALL must be held to own the territory (designer overlay)
+  neighborTerritoryIds  (off,count)        // sorted
+  areaCells             int32              // 1-mile cell count (NOT areaSqM — that overflows int32)
+  areaHa                int32              // optional hectares
   centroidCm            int32 x, y
 ```
 
-Ownership is **anchor-complete**, not majority-of-towns. Adjacency is the assault graph: you assault a neighbor, not a territory two hops away, unless a later design change says otherwise. The AI will still *raid* through a neighbor into a deeper road node if the road graph allows.
+`resourceYield` is **not** here; designer table at load. Ownership is **anchor-complete**. Assault graph = territory adjacency. Raids may still follow the road graph through a neighbor.
 
 #### Road graph
+
+Budget: **~8k nodes / 12k edges** on 200×200; **~2k / 3k** on 100×100. Town interiors collapse to one `TownGate` plus `exitEdgeIds`. Over budget → bake **fails**.
 
 ```
 RoadNode
   id                    int32
   positionCm            int32 x, y
   elevationCm           int32
-  kind                  int8                // 0 Junction, 1 TownGate, 2 Bridge, 3 Chokepoint, 4 Way, 5 Depot
-  chokepointId          int32               // 0 if none
-  degree                int8                // baked edge count; junctions score higher
+  flags                 uint8              // bitmask: TownGate, BridgeEnd, Chokepoint, Way, TerritoryBorder
+                                           // (categories overlap; not an exclusive enum)
+  chokepointId          int32              // 0 if none
+  degree                int8               // incident simplified edges
 
 RoadEdge
   id                    int32
-  a, b                  int32               // node ids, a < b
+  a, b                  int32              // node ids, a < b
   lengthCm              int32
-  travelCost            int32               // length × surface × slope, integer
-  slopeCost             int32               // extra cost from grade
-  highGroundBonus       int32               // for the endpoint with higher elevation
-  widthClass            int8                // 0 trail .. 3 highway; convoy width
-  surface               int8                // 0 dirt, 1 paved, 2 wrecked, 3 impassable
-  isBridge              bool
-  bridgeId              int32               // 0 if none; destroyed bridges bump graphVersion
-  controlTownId         int32               // town whose owner is treated as controlling this edge; 0 if none
+  travelCost            int32              // metre-equivalents, symmetric base
+                                           // (paved, intact, flat = 1 per metre). Sim converts to ticks.
+  climbCmAB             int32              // climb a→b
+  climbCmBA             int32
+  elevDeltaCm           int32              // signed (b − a)
+  widthClass            int8               // 0 trail .. 3 highway
+  surface               int8               // pre-war material: 0 dirt, 1 gravel, 2 paved
+  condition             int8               // post-apocalyptic: 0 intact, 1 damaged, 2 wrecked, 3 destroyed
+  flags                 uint8              // bit: bridge, tunnel, destructible, repairable, ford, isBridge
+  bridgeId              int32              // 0 if none; details in BridgeRecord
+  territoryId           int32              // edge belongs to exactly one territory (split at borders)
+  controlTownId         int32              // lowest-cost town in that territory within 15 mi; else 0
+  geometry              (off,count)        // PTSP polyline; overlay/render only, not A*
 ```
 
-Pathfinding uses `travelCost`, never raw meters alone. Impassable edges stay in the blob with `surface = 3` so debug tools can still draw them; the AI skips them.
+A\* uses `travelCost` plus AI/sim directional terms from `climbCm*` / `elevDeltaCm`. `distanceCost` scoring uses `EstimateTravelTicks`, not raw `travelCost`. Destroyed edges stay in the blob with `condition = 3` for debug; they are skipped for pathing. In-match demolition/repair is sim-owned and bumps `graphVersion` (designer+lead still decide whether that exists).
 
-A node is **held** (and its incident supply segments cut) when an enemy combat unit occupies it — runtime, not baked. The blob only marks candidates (junctions, bridges, chokepoints).
+A node is **held** (supply cut) at runtime when an enemy combat unit occupies it.
 
 #### Chokepoints
 
+Computed on the **post-transform** passable graph. AI scoring uses `defensibility` and `detourRatioPpt`.
+
 ```
-ChokepointRecord
+ChokepointRecord                           // fixed size; arrays via (offset,count) → I32P
   id                    int32
-  roadNodeId            int32
+  kind                  int8               // 0 Bridge, 1 Pass, 2 Causeway, 3 Dam, 4 Gap, 5 Tunnel, 6 Junction
+  flags                 uint8              // bit0 inferredBridge, bit1 onlyCrossing,
+                                           // bit2 destroyedByTransform, bit3 roadless
+  widthClass            int8               // 0..3, same scale as RoadEdge
+  _pad                  int8
+  positionCm            int32 x, y
+  elevationCm           int32
+  roadNodeId            int32              // primary node (0 only if flags.roadless)
+  roadEdgeId            int32              // bridge/tunnel/causeway edge; 0 for node-type chokes
   widthCm               int32
-  defensibility         int16               // 0..1000
-  gatesTerritoryIds     int32[]             // sorted; territories this point controls access to
-  relatedTownId         int32               // 0 if none
-  onLikelySupply        bool                // pipeline hint: sits on a highway between towns
+  defensibility         int16              // 0..1000
+  detourRatioPpt        int16              // 1000..10000 (10000 = disconnects)
+  approachReliefCmA     int32              // relief toward sideA
+  approachReliefCmB     int32
+  sideATerritoryId      int32              // the two territories it connects (A < B); 0 if interior
+  sideBTerritoryId      int32
+  gatesTerritoryIds     (off,count)        // sorted; access it controls (can be >2)
+  relatedTownId         int32              // nearest town by road cost within 5 km; 0 if none
+  riverId               int32              // Bridge/Tunnel/Causeway; else 0
+  alsoNodeIds           (off,count)        // merged nearby nodes, sorted
 ```
 
-How the pipeline detects a chokepoint is its problem (narrow road corridor, river crossing, mountain pass). The AI consumes `defensibility`, `gatesTerritoryIds`, and `onLikelySupply`.
+#### Elevation, cells, CellExt
 
-#### Elevation and slope (coarse)
-
-Same resolution as the AI grid (§3.2): **1 mile** cells, origin at map min corner, row-major, `index = y * widthCells + x`.
+**1 mile** cells. `cellSizeCm = 160934`. Map extent is exactly `gridWidth × cellSizeCm` (100 cells → 16,093,400 cm; 200 → 32,186,800 cm). Index = `xCm / cellSizeCm`, row-major `y * gridWidth + x`. `elevationCm` = **median** of 90 m samples; `slopePpt` = median Horn slope; `class` from sub-cell fractions (not the mean).
 
 ```
-ElevationCell
-  elevationCm           int32               // representative (mean or centroid sample)
-  slopePpt              int16               // rise/run × 1000, 0..1000+
-  class                 int8                // 0 Flat, 1 Gentle, 2 Steep, 3 Impassable
-  ridgeHint             bool                // pipeline: local LoS block / vision perch
+ElevationCell                              // packed ~7–8 B
+  elevationCm           int32
+  slopePpt              int16
+  class                 int8               // 0 Flat, 1 Gentle, 2 Steep, 3 Impassable
+  ridgeHint             uint8              // LoS / vision perch hint
+
+CellExt                                    // CELX, parallel array
+  territoryId           int32              // canonical painted boundary
+  steepFractionPpt      int16
+  waterFractionPpt      int16
+  coverPpt              int16              // forest + built-up (chokepoint hold cover)
+  landCover             int8               // dominant WorldCover remapped
+  edgeBlockMask         uint8              // bit0 N,1 E,2 S,3 W: blocked by blocksLand river
+                                           // without a bridge, lake/sea edge, or cliff band
 ```
 
-This is **not** the render heightmap. Unit collision, true LoS, and vision range stay in the sim (heightmap LoS). The AI uses this grid for influence, approach bonuses, coarse corridors, and **where to send recon** (high `elevationCm` / `ridgeHint` covering a road or capture zone). It must not raycast the Unity terrain.
+This is **not** the render heightmap. True LoS stays in the sim. Corridor fallback **must** honour `edgeBlockMask`. Later 800 m grid = schema version bump.
 
-#### Rivers and bridges
+#### Rivers, bridges, water
+
+Bridges are **edges**, not nodes.
 
 ```
 RiverSegment
   id                    int32
-  polylineCm            int32[]             // x,y pairs, simplified
-  blocksLand            bool                // true: land path must use a bridge
+  kind                  int8               // river / canal / stream
+  widthCm               int32
+  flags                 uint8              // intermittent, …
+  blocksLand            uint8              // true: land path must use a bridge
+  polylineCm            (off,count)        // PTSP
 
 BridgeRecord
   id                    int32
-  roadNodeId            int32
+  roadEdgeId            int32
+  nodeAId, nodeBId      int32              // abutments (BridgeEnd flags)
   riverId               int32
+  lengthCm              int32
   widthClass            int8
-  destroyable           bool                // default true
+  deckElevationCm       int32              // higher abutment
+  condition             int8               // same scale as RoadEdge.condition
+  flags                 uint8              // inferred, tunnel, dam-crossing
+
+WaterBody                                  // lakes / reservoirs / sea — corridor must not path through
+  id                    int32
+  kind                  int8               // lake / reservoir / sea
+  blocksLand            uint8
+  ringCm                (off,count)        // PTSP
 ```
 
-If `blocksLand` is true, tactical pathing may not cross that polyline except at an **intact** `BridgeRecord`. Destroying a destroyable bridge cuts supply through that node until repaired (sim). Off-road penalties do not let a unit “almost cross” a blocking river for supply.
+`blocksLand` (placeholder): non-intermittent `waterway=river` = true; wide canals = true; streams/ditches/seasonal washes = false. Lakes/sea use `WaterBody` plus `CellExt.edgeBlockMask`. Tactical pathing may not cross a `blocksLand` river except at an **intact** bridge edge (`condition != 3`).
 
-#### Header
+#### Header (META)
 
 ```
 MapAiHeader
-  schemaVersion         int32               // this doc: 1
-  mapWidthCm            int32
-  mapHeightCm           int32
-  cellSizeCm            int32               // must be 160934 (1 mile) unless versioned
-  gridWidth             int32
-  gridHeight            int32
-  townCount             int32
-  territoryCount        int32
-  roadNodeCount         int32
-  roadEdgeCount         int32
-  chokepointCount       int32
-  riverCount            int32
-  bridgeCount           int32
+  magic                 "WRMB"
+  formatVersion         uint16
+  schemaVersion         uint16             // this doc: 1
+  pipelineVersion       // semver + git sha
+  contentHash           uint8[32]          // SHA-256
+  mapWidthCm, mapHeightCm  int32           // = gridWidth/Height × cellSizeCm exactly
+  cellSizeCm            int32              // 160934
+  gridWidth, gridHeight int32
+  projection            // TM centre lat/lon micro-degrees + type; origin SW, x east, y north
+  verticalDatum         // EGM2008 (Copernicus) or NAVD88 (3DEP)
+  transformSeed         uint64
+  transformVersion
+  lodLadderLevel        int32
+  weightsTableHash, gameplayTableHash
+  source manifest       // per-source id, version/snapshot, hash
+  attribution block     // ODbL, Copernicus, CC BY — travels with the map
+  counts                // towns, territories, nodes, edges, chokepoints,
+                        // rivers, bridges, water bodies, cells
 ```
 
-`cellSizeCm` is part of the contract so a later 800 m grid is a version bump, not a silent change.
+Section directory (proposed; **Lead Engineer must spec/approve**): `META`, `TOWN`, `TERR`, `RNOD`, `REDG`, `CHOK`, `RIVR`, `BRDG`, `WATR`, `CELL`, `CELX`, `I32P`, `PTSP`, `STRP`, optional `TDBG`.
+
+#### Golden maps
+
+| Id | Size | Role | Region |
+| --- | --- | --- | --- |
+| `golden-ci-columbia-gorge-100` | 100×100 | **Per-PR CI** | Mid-Columbia Gorge, Hood River to The Dalles (~45.62°N, 121.10°W). **Pending Garand.** |
+| `golden-soak-illinois-iowa-200` | 200×200 | Soak | Mississippi / Quad Cities grid |
+| `golden-soak-central-alps-200` | 200×200 | Soak | Tyrol / South Tyrol / Trentino |
+
+CI map: inputs frozen; blob + manifest + `.sha256` committed under **`tests/golden/`**. CI verifies checksum before the determinism run. Regenerate only on explicit `schemaVersion` / `formatVersion` bump.
 
 ### 3.2 AI-derived maps
 
@@ -576,8 +673,8 @@ Enemy units the faction cannot see do not write into Threat as truth; they write
 - Owned or snapshotted town: add `town.strategicValue` into Value, plus `anchorBonus`, plus `fortificationLevel * FortValueMul` (from snapshot if fogged).
 - Capture zone currently ticking (visible): add `captureProgressPpt` into Value for both the attacker’s finish-hold and the defender’s contest.
 - Bridges and high-degree junctions: add `bridgeJunctionValue` into Value if they sit on a known supply path (own: guard; enemy: cut).
-- Pipeline chokepoint: add `defensibility` if we own or contest a gated territory or supply path.
-- Ridge / high-elevation cells that LoS-hint a fogged road: scout value, not threat.
+- Pipeline chokepoint: add `defensibility * detourRatioPpt / 1000` if we own or contest a gated territory (`gatesTerritoryIds` / `sideA/BTerritoryId`) or supply path.
+- Ridge / high-elevation cells (`ridgeHint`, `CellExt.coverPpt`) that LoS-hint a fogged road: scout value, not threat.
 
 **Incremental update.** Full-grid rebuilds are forbidden on 200×200 (40,000 cells × 4 layers × N factions).
 
@@ -600,9 +697,9 @@ Value map additionally refreshes on plan ticks for cells that overlap active ord
 
 - Render meshes, terrain colliders, Unity NavMesh, camera, or scene hierarchy.
 - Player-only markers, unrevealed resource nodes outside fog rules, or debug gizmos.
-- Heightmap LoS via Unity raycasts. Vision is a sim query; the coarse elevation grid is a **hint** for scout placement.
+- Heightmap LoS via Unity raycasts. Vision is a sim query; the coarse elevation grid and `CellExt` are **hints** for scout placement and corridor blocks.
 - Live enemy structure/unit state that has never been seen this match, including in owned-but-unseen territory.
-- Floating-point GIS source data. If the pipeline still has doubles internally, it quantizes to this contract before the match starts.
+- Floating-point GIS source data, OSM ids, or the JSON/GeoJSON debug export. The game loads only the little-endian blob.
 
 ---
 
@@ -671,8 +768,10 @@ The foundation PR owns the command queue. The AI enqueues onto it; it does not i
 | `GetVisionDelta(factionId)` | Sorted cell indices gained/lost this tick | Own |
 | `EnumerateVisibleCells` / building vision | Current vision set | Own; **not** all owned territory |
 | `SampleElevation(cell)` | `ElevationCell` | Static, public |
+| `GetCellExt(cell)` | `CellExt` (territoryId, fractions, `edgeBlockMask`) | Static, public |
+| `GetWaterBodies()` | Read-only | Static, public |
 | `GetRoadGraph()` | Read-only view of pipeline blob | Static, public |
-| `GetGraphVersion()` | `int32` (bridges destroyed/repaired, surface changes) | Public |
+| `GetGraphVersion()` | `int32` (destroyed/repaired bridges, `condition` changes) | Public |
 | `PathOnRoads(fromNode, toNode, costWeights)` | Node list + `int64` total cost **or** unreachable | Sim-owned A\*. `costWeights` are **integer ppt**. Threat/held-node samples must be fog-filtered |
 | `EstimateTravelTicks(from, to, costWeights)` | `int32` | Same service |
 | `GetChokepoints()` | Read-only | Static, public |
@@ -889,7 +988,7 @@ Budget as if **several AI factions** (placeholder **6 AI + 1 player**) on a **20
 | Coarse grid | 200 × 200 = **40,000** cells; 100 × 100 = 10,000 |
 | Squads per AI faction | Soft cap **48**; excess merge via `CmdMergeSquads` |
 | Active orders per AI faction | `MaxActiveOrders` (difficulty) |
-| Road graph | Assume ≤ **8,000** nodes / **12,000** edges on 200×200; if the pipeline exceeds this, it must LOD the graph |
+| Road graph | **≤ 8,000 nodes / 12,000 edges** on 200×200; **≤ 2,000 / 3,000** on 100×100. Over-budget bake **fails**. |
 | Path requests | `PathRequestsPerTick` = **8**, enforced **inside the sim `PathOnRoads` service** |
 
 Supply BFS is **sim** cost, not AI cost, but it must stay integer and fixed-tick so AI reads are cheap.
@@ -942,9 +1041,9 @@ A playerless sim host loads a baked map blob, N AI factions, a seed, a tick limi
 - Final score / winner
 - `HashWorld` (**xxHash64**) every `HashPeriodTicks` (**200**)
 
-**Per-PR CI (locked):** frozen golden **100×100** map, **2 AI** factions, **12,000 ticks** (10 game minutes), run **twice** with the same seed, assert identical hashes every 200 ticks, finish in **under 5 minutes**.
+**Per-PR CI (locked):** frozen golden **`golden-ci-columbia-gorge-100`** (Mid-Columbia Gorge, 100×100 miles, Hood River to The Dalles — **pending Garand**), **2 AI** factions, **12,000 ticks**, run **twice** with the same seed, assert identical hashes every 200 ticks, finish in **under 5 minutes**. Blob + manifest + checksum live under **`tests/golden/`**. CI verifies the checksum before the run.
 
-**Nightly soak:** start at about **200** matches; grow toward **1,000** once there are perf numbers. Fail the soak on crash, deadlock, or hash mismatch — not on “AI played poorly.”
+**Nightly soak:** start at about **200** matches; grow toward **1,000** once there are perf numbers. Soak maps: **`golden-soak-illinois-iowa-200`** and **`golden-soak-central-alps-200`**. Fail the soak on crash, deadlock, or hash mismatch — not on “AI played poorly.”
 
 **Later, before multiplayer:** Windows-vs-Linux hash-stream cross-check.
 
@@ -984,6 +1083,7 @@ Editor / development build only. Overlay is presentation; it reads a **copy** of
 | Supply | In-supply vs OOS squads; cut nodes; destroyed bridges |
 | Capture | Zone occupancy, timer, paused |
 | Goals | Current accepted orders: type, target, score, assigned squads |
+| Town value | `strategicValue` plus `TDBG` components (P/R/C/H/X) when present |
 | Posture | Faction label + posture + time in posture |
 | Routes | Road-graph polylines for active squads |
 | Dirty AABBs | This-tick influence dirty rects |
@@ -1005,27 +1105,23 @@ Still open:
 2. Neutral towns: empty at start, NPC garrison, or hazards? Can two AIs race an empty town (shared capture zone, whose timer)?
 3. Should Easy **telegraph** attacks (longer staging, fewer raids) beyond the numbers in §5?
 4. Army composition: one battalion type or roles (garrison, field, raid, recon, siege-engineer / bridge) that strategy must request by tag?
+5. Sign-off on `strategicValue` weights (percentile mix + land-cover “resources”) and `populationClass` thresholds.
+6. Fill the gameplay table (`supplyCapacity`, `fortificationSlots`, `defaultFortification`, `resourceYield`) keyed by `populationClass`.
+7. Territory counts / generated travel-cost partitions vs any designer overlay for anchors.
+8. In-match demolish/repair of roads and bridges (`graphVersion`), or initial state only?
+9. **Garand:** approve golden regions (Mid-Columbia Gorge CI; Illinois–Iowa and Central Alps soak).
 
 ### 9.2 Lead engineer
 
-All previous items are **decided**. See [Lead engineer decisions](#lead-engineer-decisions). Nothing remains open in this section.
+All previous items are **decided**. See [Lead engineer decisions](#lead-engineer-decisions). The map-blob **section layout** still needs a schema spec or approval (listed under §9.3).
 
 ### 9.3 Map pipeline engineer
 
-**Required for CI (lead-engineer decision):** a **frozen golden 100×100** map blob is required for the per-PR determinism test (2 AI factions, 12,000 ticks, hash every 200 ticks). Schema versioning (Q7) must keep that file stable. Format: custom versioned little-endian binary, arrays sorted by id, no hash-set rebuild on load.
+Answered items (chokepoints, `strategicValue` formula, road LOD budget, 1-mile cells + `CellExt`, rivers/lakes, territories, neighbour lists, `areaCells`, bridges-as-edges, surface/condition split, golden maps) are recorded as [Map pipeline decisions](#map-pipeline-decisions).
 
 Still open:
 
-1. Can chokepoints be extracted reliably from OSM/terrain (narrow corridors, passes, river crossings), and what is the false-positive rate we should tolerate?
-2. `strategicValue` 0–1000: which inputs (population, road degree, land cover, named places)? Who signs off on the formula?
-3. Road graph LOD: how do we stay under ~8k nodes on 200×200 — contract residential graphs, keep highways + connectors + town gates?
-4. Elevation cell: mean, median, or centroid sample? Slope: which DEM, which quantization?
-5. Rivers: which features `blocksLand`? Seasonal washes? Canals?
-6. Territory boundaries: administrative (counties) vs generated watershed/road partitions? Adjacency must match what the player sees painted on the map.
-7. Schema versioning and golden maps: we need 2–3 frozen blobs (100×100 and 200×200) for AI soak tests that do not churn daily.
-8. Are town `neighborTownIds` road-neighbors, territory-neighbors, or both? This doc wants an explicit list, not inferred at runtime, to keep iteration stable.
-9. Destroyed / wrecked roads (`surface = 2/3`): are they static from the pipeline or mutatable in-match? If mutatable, `graphVersion` must bump.
-10. Cell size: is 1 mile (`160934` cm) acceptable, or do you already bucket at a different native resolution?
+1. Blob **section layout** (`META` / `TOWN` / … tags, header packing) needs the **Lead Engineer’s schema spec or approval**. Pipeline proposes the directory in §3.1; it is not locked until that spec exists.
 
 ---
 
@@ -1036,7 +1132,7 @@ No Unity scaffolding in this PR. Milestones assume the sim and map blob exist or
 | Milestone | Deliverable | Exit |
 | --- | --- | --- |
 | **M0 — Seams** | Plug into the foundation command queue. `AiMatchInit` / `AiOnTick` stubs, PCG32 + xxHash64, empty squad order tables, ids-only across ticks. | Determinism check on empty match (hash stable over 10k ticks). |
-| **M1 — Map ingest + derived maps** | Load schema v1 little-endian blob (anchors, capture radii, ridge hints); influence/threat/value/confidence; snapshots; debug grid overlay. | Overlay matches stamped squads; reconcile at T+2400 equals a from-scratch rebuild (xxHash64). |
+| **M1 — Map ingest + derived maps** | Load schema v1 little-endian blob + pools; `CellExt` / `WaterBody`; influence maps; `TDBG` overlay. | Overlay matches stamped squads; corridor fallback respects `edgeBlockMask`; binary→JSON→binary round-trip; reconcile hash. |
 | **M2 — Strategy** | Posture, candidate generation (including Contest/HoldCapture/CutSupply/GuardSupply), utility selection, spend envelope, anchor-set scoring. | In AI-vs-AI on the golden 100×100 blob, factions issue `HoldCaptureZone` / `Fortify` / `AssaultTown` / `CutSupply` with stable hashes. |
 | **M3 — Tactical movement** | Squads call sim `PathOnRoads` (ppt weights, `int64` cost); column vs deployed; reports flow back; `executeTick = issuedTick + commandDelayTicks`. | A squad given `AssaultTown` reaches staging via **supplied** roads, not crow-flies; held-node / destroyed-bridge repath works. |
 | **M4 — Capture, supply, reinforce, retreat** | Clear/hold/contest phases; isolate by cutting nodes/bridges; contest pauses timers; OOS blocks reinforce after grace. | Fixtures: zone-clear starts timer; enemy combat unit pauses it; multi-anchor territory flips only when all anchors held; OOS past grace cannot reinforce. |
@@ -1104,4 +1200,4 @@ If a programmer is tempted to “just for now” do any of the following, that c
 
 ---
 
-*End of proposed contract. Designer positions are draft pending Garand sign-off. Lead-engineer seams above are **decisions**. Next step: M0 against the foundation command queue, and a frozen golden 100×100 map blob from the pipeline.*
+*End of proposed contract. Designer positions are draft pending Garand sign-off. Lead-engineer seams and map-pipeline field contract above are **decisions** (golden *regions* pending Garand). Next step: M0 against the foundation command queue, Lead Engineer blob schema approval, and `golden-ci-columbia-gorge-100` under `tests/golden/`.*
