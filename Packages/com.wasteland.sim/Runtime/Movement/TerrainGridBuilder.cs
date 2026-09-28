@@ -13,7 +13,7 @@ namespace Wasteland.Sim.Movement
         private readonly ushort[] _slope;
         private readonly byte[] _cover;
 
-        public TerrainGridBuilder(int width, int height, int cellSizeCm = MovementConfig.DefaultCellSizeCm, int originXCm = 0, int originYCm = 0)
+        public TerrainGridBuilder(int width, int height, int cellSizeCm)
         {
             if (width < 1 || height < 1)
             {
@@ -28,8 +28,8 @@ namespace Wasteland.Sim.Movement
             _width = width;
             _height = height;
             _cellSizeCm = cellSizeCm;
-            _originXCm = originXCm;
-            _originYCm = originYCm;
+            _originXCm = 0;
+            _originYCm = 0;
             _slope = new ushort[width * height];
             _cover = new byte[width * height];
         }
@@ -86,7 +86,7 @@ namespace Wasteland.Sim.Movement
         public byte[] ToBlob()
         {
             TerrainGrid grid = new TerrainGrid(_width, _height, _cellSizeCm, _originXCm, _originYCm, _slope, _cover);
-            return TerrainGridBlob.Write(grid);
+            return Wrmb.WriteTerrain(grid);
         }
     }
 }

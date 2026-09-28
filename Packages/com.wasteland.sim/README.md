@@ -11,4 +11,4 @@ There is no `UnityEngine` using-directive anywhere in this package. Keep it that
 
 Sim state is integer centimeters and parts-per-thousand. `Fixed64` is internal math only. Move commands target squads.
 
-Pathfinding lives in `Runtime/Movement/`: versioned road-graph and terrain-grid blobs, designer movement tables (integer JSON), and `MovementService` (road A*, grid A*, combined, per-tick request budget). See `docs/movement.md`.
+Pathfinding lives in `Runtime/Movement/`: WRMB map/AI + terrain blobs, designer movement tables (integer JSON), and `MovementService` (road A*, grid A*, combined, per-tick request budget). See `docs/movement.md` and `docs/formats/wrmb-v0.md`.

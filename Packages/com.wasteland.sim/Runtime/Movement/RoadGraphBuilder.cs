@@ -103,7 +103,7 @@ namespace Wasteland.Sim.Movement
                 edgeFlags[i] = e.Flags;
             }
 
-            RoadGraphBlob.BuildAdjacency(
+            RoadGraph.BuildAdjacency(
                 nodeId.Length,
                 edgeFrom,
                 edgeTo,
@@ -131,7 +131,7 @@ namespace Wasteland.Sim.Movement
                 _originXCm,
                 _originYCm);
 
-            return RoadGraphBlob.Write(graph);
+            return Wrmb.WriteRoadGraph(graph);
         }
 
         private readonly struct NodeRec

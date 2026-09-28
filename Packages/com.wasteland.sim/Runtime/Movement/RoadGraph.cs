@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace Wasteland.Sim.Movement
@@ -180,6 +181,99 @@ namespace Wasteland.Sim.Movement
             }
 
             return index;
+        }
+
+        internal static void BuildAdjacency(
+            int nodeCount,
+            int[] edgeFrom,
+            int[] edgeTo,
+            int[] edgeId,
+            int[] nodeId,
+            out int[] adjOffset,
+            out int[] adjNeighbor,
+            out int[] adjEdge)
+        {
+            int edgeCount = edgeFrom.Length;
+            int[] degree = new int[nodeCount];
+            for (int i = 0; i < edgeCount; i++)
+            {
+                degree[edgeFrom[i]]++;
+                degree[edgeTo[i]]++;
+            }
+
+            adjOffset = new int[nodeCount + 1];
+            int total = 0;
+            for (int i = 0; i < nodeCount; i++)
+            {
+                adjOffset[i] = total;
+                total += degree[i];
+            }
+
+            adjOffset[nodeCount] = total;
+            int[] neighbor = new int[total];
+            int[] edgeIndex = new int[total];
+            int[] cursor = new int[nodeCount];
+            Array.Copy(adjOffset, cursor, nodeCount);
+
+            for (int i = 0; i < edgeCount; i++)
+            {
+                int a = edgeFrom[i];
+                int b = edgeTo[i];
+                int pa = cursor[a]++;
+                neighbor[pa] = b;
+                edgeIndex[pa] = i;
+                int pb = cursor[b]++;
+                neighbor[pb] = a;
+                edgeIndex[pb] = i;
+            }
+
+            List<int> order = new List<int>();
+            for (int n = 0; n < nodeCount; n++)
+            {
+                int start = adjOffset[n];
+                int end = adjOffset[n + 1];
+                int count = end - start;
+                if (count <= 1)
+                {
+                    continue;
+                }
+
+                order.Clear();
+                for (int k = 0; k < count; k++)
+                {
+                    order.Add(start + k);
+                }
+
+                order.Sort(delegate (int ia, int ib)
+                {
+                    int na = neighbor[ia];
+                    int nb = neighbor[ib];
+                    int c = nodeId[na].CompareTo(nodeId[nb]);
+                    if (c != 0)
+                    {
+                        return c;
+                    }
+
+                    return edgeId[edgeIndex[ia]].CompareTo(edgeId[edgeIndex[ib]]);
+                });
+
+                int[] nbCopy = new int[count];
+                int[] eCopy = new int[count];
+                for (int k = 0; k < count; k++)
+                {
+                    nbCopy[k] = neighbor[order[k]];
+                    eCopy[k] = edgeIndex[order[k]];
+                }
+
+                for (int k = 0; k < count; k++)
+                {
+                    neighbor[start + k] = nbCopy[k];
+                    edgeIndex[start + k] = eCopy[k];
+                }
+            }
+
+            adjNeighbor = neighbor;
+            adjEdge = edgeIndex;
         }
     }
 }

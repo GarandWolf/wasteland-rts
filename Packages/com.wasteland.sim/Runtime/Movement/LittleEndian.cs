@@ -67,6 +67,79 @@ namespace Wasteland.Sim.Movement
             U32((uint)value);
         }
 
+        public void U64(ulong value)
+        {
+            U32((uint)value);
+            U32((uint)(value >> 32));
+        }
+
+        public void Bytes(byte[] data)
+        {
+            if (data == null)
+            {
+                throw new ArgumentNullException(nameof(data));
+            }
+
+            Ensure(data.Length);
+            Array.Copy(data, 0, _buffer, _length, data.Length);
+            _length += data.Length;
+        }
+
+        public void Zeroes(int count)
+        {
+            if (count < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(count));
+            }
+
+            Ensure(count);
+            _length += count;
+        }
+
+        public void PadTo(int align)
+        {
+            if (align <= 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(align));
+            }
+
+            int rem = _length % align;
+            if (rem == 0)
+            {
+                return;
+            }
+
+            Zeroes(align - rem);
+        }
+
+        public void PatchU32(int offset, uint value)
+        {
+            if (offset < 0 || offset + 4 > _length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(offset));
+            }
+
+            _buffer[offset] = (byte)value;
+            _buffer[offset + 1] = (byte)(value >> 8);
+            _buffer[offset + 2] = (byte)(value >> 16);
+            _buffer[offset + 3] = (byte)(value >> 24);
+        }
+
+        public void PatchBytes(int offset, byte[] data)
+        {
+            if (data == null)
+            {
+                throw new ArgumentNullException(nameof(data));
+            }
+
+            if (offset < 0 || offset + data.Length > _length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(offset));
+            }
+
+            Array.Copy(data, 0, _buffer, offset, data.Length);
+        }
+
         public byte[] ToArray()
         {
             byte[] result = new byte[_length];
@@ -178,6 +251,62 @@ namespace Wasteland.Sim.Movement
         public int I32()
         {
             return (int)U32();
+        }
+
+        public ulong U64()
+        {
+            uint lo = U32();
+            uint hi = U32();
+            return lo | ((ulong)hi << 32);
+        }
+
+        public sbyte I8()
+        {
+            return (sbyte)U8();
+        }
+
+        public short I16()
+        {
+            return (short)U16();
+        }
+
+        public byte[] Bytes(int count)
+        {
+            if (count < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(count));
+            }
+
+            if (Remaining < count)
+            {
+                throw new InvalidDataException("Blob truncated.");
+            }
+
+            byte[] result = new byte[count];
+            Array.Copy(_data, _offset, result, 0, count);
+            _offset += count;
+            return result;
+        }
+
+        public string Ascii4()
+        {
+            byte[] bytes = Bytes(4);
+            return Encoding.ASCII.GetString(bytes);
+        }
+
+        public void Skip(int count)
+        {
+            if (count < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(count));
+            }
+
+            if (Remaining < count)
+            {
+                throw new InvalidDataException("Blob truncated.");
+            }
+
+            _offset += count;
         }
 
         public void Seek(int offset)

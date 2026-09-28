@@ -26,7 +26,7 @@ Open this folder in the Unity Hub with 6000.3.24f1. First open downloads package
 
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — 20 Hz lockstep, delayed commands, cm state, squads, PCG32/xxHash64, DOTS mapping
 - [`docs/movement.md`](docs/movement.md) — sim-owned pathfinding
-- [`docs/formats/`](docs/formats/) — road-graph and terrain-grid blob schemas
+- [`docs/formats/`](docs/formats/) — WRMB map container (roads + terrain)
 - [`Packages/com.wasteland.sim/`](Packages/com.wasteland.sim/) — simulation core
 - [`Assets/_Project/`](Assets/_Project/) — presentation, art/shader prototypes, throwaway Prototypes assembly
 - [`src/Wasteland.Sim.Tests/`](src/Wasteland.Sim.Tests/) — xUnit

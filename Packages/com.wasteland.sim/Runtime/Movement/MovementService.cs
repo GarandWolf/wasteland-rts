@@ -171,7 +171,7 @@ namespace Wasteland.Sim.Movement
         }
 
         public static MovementService Create(
-            byte[] roadBlob,
+            byte[] mapBlob,
             byte[] terrainBlob,
             MovementTables tables,
             MovementServiceConfig config)
@@ -182,8 +182,8 @@ namespace Wasteland.Sim.Movement
             }
 
             Stopwatch loadClock = Stopwatch.StartNew();
-            RoadGraph graph = RoadGraphBlob.Read(roadBlob);
-            TerrainGrid terrain = TerrainGridBlob.Read(terrainBlob);
+            RoadGraph graph = Wrmb.ReadRoadGraph(mapBlob);
+            TerrainGrid terrain = Wrmb.ReadTerrain(terrainBlob);
             MovementCosts costs = MovementCosts.Build(terrain, graph, tables);
             GridHierarchy[] hierarchies = new GridHierarchy[MovementTables.ClassCount];
             RoadLandmarks[] landmarks = new RoadLandmarks[MovementTables.ClassCount];
@@ -236,9 +236,9 @@ namespace Wasteland.Sim.Movement
             return new MovementService(graph, terrain, tables, costs, config, hierarchies, landmarks, stats);
         }
 
-        public static MovementService Create(byte[] roadBlob, byte[] terrainBlob, MovementTables tables)
+        public static MovementService Create(byte[] mapBlob, byte[] terrainBlob, MovementTables tables)
         {
-            return Create(roadBlob, terrainBlob, tables, MovementServiceConfig.Default);
+            return Create(mapBlob, terrainBlob, tables, MovementServiceConfig.Default);
         }
 
         public RoadGraph Graph
@@ -393,14 +393,146 @@ namespace Wasteland.Sim.Movement
             return result;
         }
 
-        public long EstimateTravelTicks(PathResult path)
+        public long EstimateTravelTicks(PathResult path, MovementClass clas)
         {
             if (path == null || !path.Reachable)
             {
                 return -1;
             }
 
-            return path.TotalCostTicks;
+            PathWaypoint[] points = path.Waypoints;
+            if (points == null || points.Length == 0)
+            {
+                return -1;
+            }
+
+            int classIndex = (int)clas;
+            int[] cellTicks = _costs.CellTicks[classIndex];
+            int[] roadTicks = _costs.RoadTicks[classIndex];
+            long total = 0;
+            for (int i = 1; i < points.Length; i++)
+            {
+                long step = RecostStep(points[i - 1], points[i], cellTicks, roadTicks);
+                if (step < 0)
+                {
+                    return -1;
+                }
+
+                total += step;
+            }
+
+            return total;
+        }
+
+        private long RecostStep(PathWaypoint from, PathWaypoint to, int[] cellTicks, int[] roadTicks)
+        {
+            if (from.Kind == PathSegmentKind.GridCell && to.Kind == PathSegmentKind.GridCell)
+            {
+                return RecostGridStep(from.Id, to.Id, cellTicks);
+            }
+
+            if (from.Kind == PathSegmentKind.RoadNode && to.Kind == PathSegmentKind.RoadNode)
+            {
+                return RecostRoadStep(from.Id, to.Id, roadTicks);
+            }
+
+            return 0;
+        }
+
+        private long RecostGridStep(int fromCell, int toCell, int[] cellTicks)
+        {
+            int cells = cellTicks.Length;
+            if ((uint)fromCell >= (uint)cells || (uint)toCell >= (uint)cells)
+            {
+                return -1;
+            }
+
+            if (fromCell == toCell)
+            {
+                return 0;
+            }
+
+            int width = _terrain.Width;
+            int ax = fromCell % width;
+            int ay = fromCell / width;
+            int bx = toCell % width;
+            int by = toCell / width;
+            int dx = bx - ax;
+            int dy = by - ay;
+            int adx = dx < 0 ? -dx : dx;
+            int ady = dy < 0 ? -dy : dy;
+            if (adx > 1 || ady > 1)
+            {
+                return -1;
+            }
+
+            int step = cellTicks[toCell];
+            if (step <= 0)
+            {
+                return -1;
+            }
+
+            if (adx == 1 && ady == 1)
+            {
+                int orthoA = ay * width + bx;
+                int orthoB = by * width + ax;
+                if (cellTicks[orthoA] <= 0 || cellTicks[orthoB] <= 0)
+                {
+                    return -1;
+                }
+
+                step = (int)((long)step * MovementConfig.Sqrt2Ppt / SimConfig.PptScale);
+                if (step < 1)
+                {
+                    step = 1;
+                }
+            }
+
+            return step;
+        }
+
+        private long RecostRoadStep(int fromNodeId, int toNodeId, int[] roadTicks)
+        {
+            if (!_graph.TryGetNodeIndex(fromNodeId, out int fromIndex)
+                || !_graph.TryGetNodeIndex(toNodeId, out int toIndex))
+            {
+                return -1;
+            }
+
+            if (fromIndex == toIndex)
+            {
+                return 0;
+            }
+
+            int best = -1;
+            int start = _graph.AdjOffset[fromIndex];
+            int end = _graph.AdjOffset[fromIndex + 1];
+            for (int a = start; a < end; a++)
+            {
+                if (_graph.AdjNeighborIndex[a] != toIndex)
+                {
+                    continue;
+                }
+
+                int edge = _graph.AdjEdgeIndex[a];
+                if (_graph.EdgeCut[edge])
+                {
+                    continue;
+                }
+
+                int ticks = roadTicks[edge];
+                if (ticks <= 0)
+                {
+                    continue;
+                }
+
+                if (best < 0 || ticks < best)
+                {
+                    best = ticks;
+                }
+            }
+
+            return best;
         }
 
         public int Enqueue(PathRequest request)

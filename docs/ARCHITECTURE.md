@@ -117,7 +117,7 @@ Netcode for Entities is not the lockstep path. Lockstep exchanges `SimCommand` b
 
 Sim-owned `Wasteland.Sim.Movement.MovementService`. Integer A* on a versioned road-graph blob, 8-connected grid A* on a versioned terrain blob, and a combined query that takes a road shortcut when that is cheaper. Costs are `int64` ticks; `costWeights` are parts-per-thousand. Both player UI path preview and AI call the same functions. Do **not** put a private float A* inside the AI module.
 
-Blobs: [docs/formats/road-graph-v1.md](formats/road-graph-v1.md), [docs/formats/terrain-grid-v1.md](formats/terrain-grid-v1.md). Algorithms, budget, cache, and the hierarchical gateway rule: [docs/movement.md](movement.md). Per-class cost grids are computed at **match load** from `movement-tables-v1.json`, not at map bake.
+Blobs: [docs/formats/wrmb-v0.md](formats/wrmb-v0.md) (map/AI WRMB + separate terrain WRMB). Algorithms, budget, cache, and the hierarchical gateway rule: [docs/movement.md](movement.md). Per-class cost grids are computed at **match load** from `movement-tables-v1.json`, not at map bake.
 
 Until `SimWorld.Move` is wired to follow a `PathResult`, local motion is still a straight cm line. Local formation following around a squad stays in the sim (integer/fixed internal math, cm state).
 

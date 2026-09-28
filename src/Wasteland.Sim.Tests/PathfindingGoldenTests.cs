@@ -14,7 +14,7 @@ namespace Wasteland.Sim.Tests
 
         public static MovementService HillSwitchback(MovementServiceConfig? config = null)
         {
-            TerrainGridBuilder terrain = new TerrainGridBuilder(11, 11)
+            TerrainGridBuilder terrain = new TerrainGridBuilder(11, 11, MovementConfig.SyntheticFixtureCellSizeCm)
                 .Fill(0, LandCover.Field)
                 .FillRect(4, 0, 6, 10, 400, LandCover.Field);
 
@@ -30,7 +30,7 @@ namespace Wasteland.Sim.Tests
 
         public static MovementService BridgeNetwork()
         {
-            TerrainGridBuilder terrain = new TerrainGridBuilder(4, 4).Fill(0, LandCover.Field);
+            TerrainGridBuilder terrain = new TerrainGridBuilder(4, 4, MovementConfig.SyntheticFixtureCellSizeCm).Fill(0, LandCover.Field);
             RoadGraphBuilder roads = new RoadGraphBuilder()
                 .AddNode(1, 5000, 5000, RoadNodeFlags.BridgeHead)
                 .AddNode(2, 25000, 5000, RoadNodeFlags.BridgeHead)
@@ -46,7 +46,7 @@ namespace Wasteland.Sim.Tests
 
         public static MovementService SlopeStrip(int middleSlope)
         {
-            TerrainGridBuilder terrain = new TerrainGridBuilder(3, 1)
+            TerrainGridBuilder terrain = new TerrainGridBuilder(3, 1, MovementConfig.SyntheticFixtureCellSizeCm)
                 .Fill(0, LandCover.Field)
                 .SetCell(1, 0, middleSlope, LandCover.Field);
             RoadGraphBuilder roads = new RoadGraphBuilder().AddNode(1, 5000, 5000);
@@ -55,14 +55,14 @@ namespace Wasteland.Sim.Tests
 
         public static MovementService OpenTerrain(int width, int height, MovementServiceConfig config)
         {
-            TerrainGridBuilder terrain = new TerrainGridBuilder(width, height).Fill(0, LandCover.Field);
+            TerrainGridBuilder terrain = new TerrainGridBuilder(width, height, MovementConfig.SyntheticFixtureCellSizeCm).Fill(0, LandCover.Field);
             RoadGraphBuilder roads = new RoadGraphBuilder().AddNode(1, 5000, 5000);
             return Load(roads, terrain, config);
         }
 
         public static MovementService WalledTerrain(int width, int height, MovementServiceConfig config)
         {
-            TerrainGridBuilder terrain = new TerrainGridBuilder(width, height).Fill(0, LandCover.Field);
+            TerrainGridBuilder terrain = new TerrainGridBuilder(width, height, MovementConfig.SyntheticFixtureCellSizeCm).Fill(0, LandCover.Field);
             int wallX = width / 2;
             int gapY = (height * 5) / 6;
             for (int y = 0; y < height; y++)
@@ -127,8 +127,13 @@ namespace Wasteland.Sim.Tests
                 Assert.Equal(SyntheticMaps.HillStartY, infantry.Waypoints[i].YCm);
             }
 
-            Assert.True(svc.EstimateTravelTicks(truck) > 0);
-            Assert.True(svc.EstimateTravelTicks(infantry) > 0);
+            Assert.True(svc.EstimateTravelTicks(truck, MovementClass.Wheeled) > 0);
+            Assert.True(svc.EstimateTravelTicks(infantry, MovementClass.Foot) > 0);
+            Assert.Equal(truck.TotalCostTicks, svc.EstimateTravelTicks(truck, MovementClass.Wheeled));
+            Assert.Equal(infantry.TotalCostTicks, svc.EstimateTravelTicks(infantry, MovementClass.Foot));
+            Assert.Equal(-1, svc.EstimateTravelTicks(infantry, MovementClass.Wheeled));
+            Assert.True(svc.EstimateTravelTicks(truck, MovementClass.Foot) > 0);
+            Assert.NotEqual(truck.TotalCostTicks, svc.EstimateTravelTicks(truck, MovementClass.Foot));
             Assert.True(infantry.TotalCostTicks > 0);
         }
 
@@ -142,7 +147,7 @@ namespace Wasteland.Sim.Tests
             PathResult tracked = steep.PathOffRoad(5000, 5000, 25000, 5000, MovementClass.Tracked);
 
             Assert.False(wheeledSteep.Reachable);
-            Assert.Equal(-1, steep.EstimateTravelTicks(wheeledSteep));
+            Assert.Equal(-1, steep.EstimateTravelTicks(wheeledSteep, MovementClass.Wheeled));
             Assert.True(wheeledOk.Reachable);
             Assert.True(tracked.Reachable);
         }

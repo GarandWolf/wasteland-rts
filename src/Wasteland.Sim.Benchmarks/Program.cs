@@ -41,7 +41,7 @@ namespace Wasteland.Sim.Benchmarks
         {
             const int side = 90;
             RoadGraphBuilder roads = new RoadGraphBuilder();
-            int cell = MovementConfig.DefaultCellSizeCm;
+            int cell = MovementConfig.SyntheticFixtureCellSizeCm;
             for (int y = 0; y < side; y++)
             {
                 for (int x = 0; x < side; x++)
@@ -62,7 +62,7 @@ namespace Wasteland.Sim.Benchmarks
                 }
             }
 
-            TerrainGridBuilder terrain = new TerrainGridBuilder(side, side).Fill(0, LandCover.Field);
+            TerrainGridBuilder terrain = new TerrainGridBuilder(side, side, MovementConfig.SyntheticFixtureCellSizeCm).Fill(0, LandCover.Field);
             Console.WriteLine("Building {0}×{0} road graph ({1} nodes)...", side, side * side);
             MovementService svc = MovementService.Create(roads.ToBlob(), terrain.ToBlob(), tables);
             PrintLoad(svc.LoadStats);
@@ -118,7 +118,7 @@ namespace Wasteland.Sim.Benchmarks
         private static void BenchmarkGrid(MovementTables tables, int side)
         {
             Console.WriteLine("Building {0}×{0} terrain grid ({1} cells)...", side, side * side);
-            TerrainGridBuilder terrain = new TerrainGridBuilder(side, side).Fill(0, LandCover.Field);
+            TerrainGridBuilder terrain = new TerrainGridBuilder(side, side, MovementConfig.SyntheticFixtureCellSizeCm).Fill(0, LandCover.Field);
             RoadGraphBuilder roads = new RoadGraphBuilder().AddNode(1, 5000, 5000);
             MovementService svc = MovementService.Create(roads.ToBlob(), terrain.ToBlob(), tables);
             PrintLoad(svc.LoadStats);

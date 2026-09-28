@@ -1,38 +1,33 @@
 using System;
 using System.IO;
+using System.Security.Cryptography;
 using Wasteland.Sim.Movement;
 using Xunit;
 
 namespace Wasteland.Sim.Tests
 {
-    public sealed class RoadGraphBlobTests
+    public sealed class WrmbTests
     {
         [Fact]
-        public void OneNode_ExactLittleEndianBytes()
+        public void Header_IsWrmbDraftLayout()
         {
             byte[] blob = new RoadGraphBuilder()
                 .AddNode(1, 0, 0)
                 .ToBlob();
 
-            byte[] expected =
-            {
-                (byte)'W', (byte)'R', (byte)'G', (byte)'1',
-                1, 0,
-                32, 0,
-                1, 0, 0, 0,
-                0, 0, 0, 0,
-                0, 0, 0, 0,
-                0, 0, 0, 0,
-                0, 0, 0, 0,
-                0, 0, 0, 0,
-                1, 0, 0, 0,
-                0, 0, 0, 0,
-                0, 0, 0, 0,
-                0, 0,
-                0, 0
-            };
+            Assert.Equal((byte)'W', blob[0]);
+            Assert.Equal((byte)'R', blob[1]);
+            Assert.Equal((byte)'M', blob[2]);
+            Assert.Equal((byte)'B', blob[3]);
+            Assert.Equal(0, blob[4] | (blob[5] << 8));
+            Assert.Equal(1, blob[6] | (blob[7] << 8));
+            Assert.Equal(64u, ReadU32(blob, 8));
+            Assert.Equal(WrmbFile.FlagDraftLayout, ReadU32(blob, 12));
 
-            Assert.Equal(expected, blob);
+            WrmbFile file = WrmbFile.Parse(blob);
+            Assert.True(file.TryGetSection("RNOD", out WrmbDirEntry rnod));
+            Assert.Equal(Wrmb.RnodElementSize, rnod.ElementSize);
+            Assert.True(file.TryGetSection("ZZZZ", out _) == false);
         }
 
         [Fact]
@@ -46,20 +41,23 @@ namespace Wasteland.Sim.Tests
                 .AddEdge(4, 3, 7, 400, RoadTier.Dirt, RoadSurface.Dirt)
                 .ToBlob();
 
-            RoadGraph graph = RoadGraphBlob.Read(blob);
+            RoadGraph graph = Wrmb.ReadRoadGraph(blob);
             Assert.Equal(2, graph.NodeCount);
             Assert.Equal(3, graph.GetNodeId(0));
             Assert.Equal(7, graph.GetNodeId(1));
             Assert.Equal(4, graph.GetEdgeId(0));
             Assert.Equal(9, graph.GetEdgeId(1));
-            Assert.Equal(10, graph.OriginXCm);
+            Assert.Equal(0, graph.OriginXCm);
             Assert.True((graph.GetNodeFlags(0) & RoadNodeFlags.BridgeHead) != 0);
             Assert.True((graph.GetEdgeFlags(1) & RoadEdgeFlags.BridgeSpan) != 0);
+            Assert.Equal(RoadSurface.BridgeDeck, graph.GetEdgeSurface(1));
+            Assert.Equal(RoadTier.Dirt, graph.GetEdgeTier(0));
+            Assert.Equal(RoadTier.Paved, graph.GetEdgeTier(1));
 
-            byte[] again = RoadGraphBlob.Write(graph);
+            byte[] again = Wrmb.WriteRoadGraph(graph);
             Assert.Equal(blob, again);
 
-            RoadGraph second = RoadGraphBlob.Read(again);
+            RoadGraph second = Wrmb.ReadRoadGraph(again);
             Assert.Equal(graph.NodeCount, second.NodeCount);
             Assert.Equal(graph.GetNodeXCm(1), second.GetNodeXCm(1));
         }
@@ -67,14 +65,19 @@ namespace Wasteland.Sim.Tests
         [Fact]
         public void UnsortedNodes_AreRejected()
         {
-            byte[] blob = new RoadGraphBuilder()
-                .AddNode(1, 0, 0)
-                .AddNode(2, 1, 0)
-                .ToBlob();
+            byte[] rnod = new byte[Wrmb.RnodElementSize * 2];
+            WriteI32(rnod, 0, 2);
+            WriteI32(rnod, Wrmb.RnodElementSize, 1);
+            byte[] blob = WrmbFile.Encode(
+                WrmbFile.FlagDraftLayout,
+                new[]
+                {
+                    new WrmbSectionPayload("META", Wrmb.WriteMeta(RoadMeta(2, 0)), Wrmb.MetaElementSize),
+                    new WrmbSectionPayload("RNOD", rnod, Wrmb.RnodElementSize),
+                    new WrmbSectionPayload("REDG", Array.Empty<byte>(), Wrmb.RedgElementSize)
+                });
 
-            blob[32] = 2;
-            blob[48] = 1;
-            Assert.Throws<System.IO.InvalidDataException>(() => RoadGraphBlob.Read(blob));
+            Assert.Throws<InvalidDataException>(() => Wrmb.ReadRoadGraph(blob));
         }
 
         [Fact]
@@ -82,88 +85,296 @@ namespace Wasteland.Sim.Tests
         {
             byte[] blob = new RoadGraphBuilder().AddNode(1, 0, 0).ToBlob();
             blob[0] = (byte)'X';
-            Assert.Throws<System.IO.InvalidDataException>(() => RoadGraphBlob.Read(blob));
+            Assert.Throws<InvalidDataException>(() => WrmbFile.Parse(blob));
+        }
+
+        [Fact]
+        public void SectionCrcMismatch_IsRejected()
+        {
+            byte[] blob = new RoadGraphBuilder().AddNode(1, 0, 0).ToBlob();
+            WrmbFile file = WrmbFile.Parse(blob);
+            Assert.True(file.TryGetSection("RNOD", out WrmbDirEntry rnod));
+            byte[] tampered = (byte[])blob.Clone();
+            tampered[rnod.Offset] ^= 0xFF;
+            RecomputeContentHash(tampered);
+            Assert.Throws<InvalidDataException>(() => WrmbFile.Parse(tampered));
+        }
+
+        [Fact]
+        public void ElementSizeMismatch_IsRejected()
+        {
+            byte[] rnod = new byte[24];
+            WriteI32(rnod, 0, 1);
+            byte[] blob = WrmbFile.Encode(
+                WrmbFile.FlagDraftLayout,
+                new[]
+                {
+                    new WrmbSectionPayload("META", Wrmb.WriteMeta(RoadMeta(2, 0)), Wrmb.MetaElementSize),
+                    new WrmbSectionPayload("RNOD", rnod, 12),
+                    new WrmbSectionPayload("REDG", Array.Empty<byte>(), Wrmb.RedgElementSize)
+                });
+
+            Assert.Throws<InvalidDataException>(() => Wrmb.ReadRoadGraph(blob));
+        }
+
+        [Fact]
+        public void UnknownSectionTag_IsSkipped()
+        {
+            byte[] extra = new byte[8];
+            byte[] baseBlob = new RoadGraphBuilder().AddNode(1, 0, 0).ToBlob();
+            RoadGraph graph = Wrmb.ReadRoadGraph(baseBlob);
+            byte[] blob = WrmbFile.Encode(
+                WrmbFile.FlagDraftLayout,
+                new[]
+                {
+                    new WrmbSectionPayload("META", Wrmb.WriteMeta(RoadMeta(1, 0)), Wrmb.MetaElementSize),
+                    new WrmbSectionPayload("RNOD", SectionOf(baseBlob, "RNOD"), Wrmb.RnodElementSize),
+                    new WrmbSectionPayload("REDG", SectionOf(baseBlob, "REDG"), Wrmb.RedgElementSize),
+                    new WrmbSectionPayload("ZZZZ", extra, 8)
+                });
+
+            WrmbFile file = WrmbFile.Parse(blob);
+            Assert.True(file.TryGetSection("ZZZZ", out WrmbDirEntry z));
+            Assert.Equal(8, z.ElementSize);
+            RoadGraph loaded = Wrmb.ReadRoadGraph(blob);
+            Assert.Equal(graph.NodeCount, loaded.NodeCount);
+            Assert.Equal(1, loaded.GetNodeId(0));
         }
 
         [Fact]
         public void BridgeSpan_WithoutHeads_IsRejected()
         {
-            Assert.Throws<System.IO.InvalidDataException>(() =>
+            Assert.Throws<InvalidDataException>(() =>
             {
                 byte[] blob = new RoadGraphBuilder()
                     .AddNode(1, 0, 0)
                     .AddNode(2, 10, 0)
                     .AddEdge(1, 1, 2, 10, RoadTier.Paved, RoadSurface.Asphalt, RoadEdgeFlags.BridgeSpan)
                     .ToBlob();
-                RoadGraphBlob.Read(blob);
+                Wrmb.ReadRoadGraph(blob);
             });
         }
-    }
-
-    public sealed class TerrainGridBlobTests
-    {
-        [Fact]
-        public void OneCell_ExactLittleEndianBytes()
-        {
-            byte[] blob = new TerrainGridBuilder(1, 1, 10000)
-                .SetCell(0, 0, 0, LandCover.Field)
-                .ToBlob();
-
-            byte[] expected =
-            {
-                (byte)'W', (byte)'T', (byte)'G', (byte)'1',
-                1, 0,
-                32, 0,
-                1, 0, 0, 0,
-                1, 0, 0, 0,
-                16, 39, 0, 0,
-                0, 0, 0, 0,
-                0, 0, 0, 0,
-                0, 0, 0, 0,
-                0, 0,
-                0,
-                0
-            };
-
-            Assert.Equal(expected, blob);
-            Assert.Equal(10000, expected[16] | (expected[17] << 8) | (expected[18] << 16) | (expected[19] << 24));
-        }
 
         [Fact]
-        public void Roundtrip_PreservesSlopeAndCover()
+        public void Terrain_Roundtrip_PreservesSlopeCoverAndCellSize()
         {
-            byte[] blob = new TerrainGridBuilder(3, 2, 5000, originXCm: -100, originYCm: 50)
+            byte[] blob = new TerrainGridBuilder(3, 2, 8941)
                 .Fill(12, LandCover.Forest)
                 .SetCell(2, 1, 300, LandCover.Marsh)
                 .ToBlob();
 
-            TerrainGrid grid = TerrainGridBlob.Read(blob);
+            WrmbFile file = WrmbFile.Parse(blob);
+            Assert.Equal((byte)'W', blob[0]);
+            Assert.True(file.TryGetSection("MVSL", out WrmbDirEntry sl));
+            Assert.Equal(2, sl.ElementSize);
+            Assert.True(file.TryGetSection("MVLC", out _));
+            Assert.True(file.TryGetSection("MVFD", out _));
+
+            TerrainGrid grid = Wrmb.ReadTerrain(blob);
             Assert.Equal(3, grid.Width);
             Assert.Equal(2, grid.Height);
-            Assert.Equal(5000, grid.CellSizeCm);
-            Assert.Equal(-100, grid.OriginXCm);
+            Assert.Equal(8941, grid.CellSizeCm);
+            Assert.Equal(0, grid.OriginXCm);
             Assert.Equal(LandCover.Forest, grid.CoverAt(0));
             Assert.Equal(300, grid.SlopeAt(grid.Index(2, 1)));
             Assert.Equal(LandCover.Marsh, grid.CoverAt(grid.Index(2, 1)));
-            Assert.Equal(blob, TerrainGridBlob.Write(grid));
+            Assert.Equal(blob, Wrmb.WriteTerrain(grid));
+        }
+
+        [Fact]
+        public void Terrain_FordBit_OverridesLandCover()
+        {
+            byte[] blob = new TerrainGridBuilder(2, 1, 8940)
+                .Fill(0, LandCover.Water)
+                .SetCell(1, 0, 0, LandCover.Ford)
+                .ToBlob();
+
+            TerrainGrid grid = Wrmb.ReadTerrain(blob);
+            Assert.Equal(LandCover.Water, grid.CoverAt(0));
+            Assert.Equal(LandCover.Ford, grid.CoverAt(1));
+
+            WrmbFile file = WrmbFile.Parse(blob);
+            byte[] mvlc = file.SectionBytes(file.RequireSection("MVLC"));
+            byte[] mvfd = file.SectionBytes(file.RequireSection("MVFD"));
+            Assert.Equal(Wrmb.WrmbCoverWater, mvlc[0]);
+            Assert.Equal(Wrmb.WrmbCoverWater, mvlc[1]);
+            Assert.Equal(0, mvfd[0] & 1);
+            Assert.Equal(2, mvfd[0] & 2);
+        }
+
+        [Fact]
+        public void Terrain_WrmbCoverCodes_MapToSimEnums()
+        {
+            Assert.Equal((byte)LandCover.Water, Wrmb.MapLandCover(0));
+            Assert.Equal((byte)LandCover.Field, Wrmb.MapLandCover(1));
+            Assert.Equal((byte)LandCover.Scrub, Wrmb.MapLandCover(2));
+            Assert.Equal((byte)LandCover.Urban, Wrmb.MapLandCover(3));
+            Assert.Equal((byte)LandCover.Forest, Wrmb.MapLandCover(4));
+            Assert.Equal((byte)LandCover.Marsh, Wrmb.MapLandCover(5));
+            Assert.Equal((byte)LandCover.Water, Wrmb.MapLandCover(6));
+            Assert.Equal((byte)LandCover.Scrub, Wrmb.MapLandCover(7));
+        }
+
+        [Fact]
+        public void Terrain_MoveCellsPerCell_DividesMileCellSize()
+        {
+            const int mileCm = 160938;
+            const int per = 18;
+            const int side = 18;
+            int cells = side * side;
+            ushort[] slope = new ushort[cells];
+            byte[] cover = new byte[cells];
+            for (int i = 0; i < cells; i++)
+            {
+                cover[i] = Wrmb.WrmbCoverField;
+            }
+
+            WrmbMetaFields meta = new WrmbMetaFields
+            {
+                MapWidthCm = mileCm,
+                MapHeightCm = mileCm,
+                CellSizeCm = mileCm,
+                GridWidth = 1,
+                GridHeight = 1,
+                MoveWidth = side,
+                MoveHeight = side,
+                MoveCellsPerCell = per
+            };
+
+            byte[] slopeBytes = new byte[cells * 2];
+            byte[] ford = new byte[(cells + 7) / 8];
+            byte[] blob = WrmbFile.Encode(
+                WrmbFile.FlagDraftLayout,
+                new[]
+                {
+                    new WrmbSectionPayload("META", Wrmb.WriteMeta(meta), Wrmb.MetaElementSize),
+                    new WrmbSectionPayload("MVSL", slopeBytes, 2),
+                    new WrmbSectionPayload("MVLC", cover, 1),
+                    new WrmbSectionPayload("MVFD", ford, 1)
+                });
+
+            TerrainGrid grid = Wrmb.ReadTerrain(blob);
+            Assert.Equal(side, grid.Width);
+            Assert.Equal(8941, grid.CellSizeCm);
+            Assert.Equal(mileCm / per, grid.CellSizeCm);
         }
 
         [Fact]
         public void FloorDiv_HandlesNegativeWorldCoords()
         {
-            Assert.Equal(-1, TerrainGrid.FloorDiv(-1, 10000));
-            Assert.Equal(-1, TerrainGrid.FloorDiv(-10000, 10000));
-            Assert.Equal(-2, TerrainGrid.FloorDiv(-10001, 10000));
-            Assert.Equal(0, TerrainGrid.FloorDiv(0, 10000));
-            Assert.Equal(1, TerrainGrid.FloorDiv(10000, 10000));
+            Assert.Equal(-1, TerrainGrid.FloorDiv(-1, 8941));
+            Assert.Equal(-1, TerrainGrid.FloorDiv(-8941, 8941));
+            Assert.Equal(-2, TerrainGrid.FloorDiv(-8942, 8941));
+            Assert.Equal(0, TerrainGrid.FloorDiv(0, 8941));
+            Assert.Equal(1, TerrainGrid.FloorDiv(8941, 8941));
         }
 
         [Fact]
         public void UnknownLandCover_IsRejected()
         {
-            byte[] blob = new TerrainGridBuilder(1, 1).ToBlob();
-            blob[34] = 99;
-            Assert.Throws<System.IO.InvalidDataException>(() => TerrainGridBlob.Read(blob));
+            byte[] blob = new TerrainGridBuilder(1, 1, 8941).ToBlob();
+            WrmbFile file = WrmbFile.Parse(blob);
+            WrmbDirEntry mvlc = file.RequireSection("MVLC");
+            byte[] tampered = (byte[])blob.Clone();
+            tampered[mvlc.Offset] = 99;
+            PatchSectionCrc(tampered, file, "MVLC");
+            RecomputeContentHash(tampered);
+            Assert.Throws<InvalidDataException>(() => Wrmb.ReadTerrain(tampered));
+        }
+
+        [Fact]
+        public void TwoFiles_LoadIndependently()
+        {
+            byte[] map = new RoadGraphBuilder()
+                .AddNode(1, 0, 0)
+                .AddNode(2, 100, 0)
+                .AddEdge(1, 1, 2, 100, RoadTier.Highway, RoadSurface.Asphalt)
+                .ToBlob();
+            byte[] terrain = new TerrainGridBuilder(2, 1, 8941).Fill(0, LandCover.Field).ToBlob();
+            MovementService svc = MovementService.Create(map, terrain, MovementTables.Default());
+            Assert.Equal(2, svc.Graph.NodeCount);
+            Assert.Equal(8941, svc.Terrain.CellSizeCm);
+            Assert.Equal(RoadTier.Highway, svc.Graph.GetEdgeTier(0));
+        }
+
+        private static WrmbMetaFields RoadMeta(int nodes, int edges)
+        {
+            return new WrmbMetaFields
+            {
+                MapWidthCm = 1,
+                MapHeightCm = 1,
+                CellSizeCm = 1,
+                GridWidth = 1,
+                GridHeight = 1,
+                RoadNodeCount = nodes,
+                RoadEdgeCount = edges,
+                MoveWidth = 1,
+                MoveHeight = 1,
+                MoveCellsPerCell = 1
+            };
+        }
+
+        private static byte[] SectionOf(byte[] blob, string tag)
+        {
+            WrmbFile file = WrmbFile.Parse(blob);
+            return file.SectionBytes(file.RequireSection(tag));
+        }
+
+        private static void PatchSectionCrc(byte[] blob, WrmbFile original, string tag)
+        {
+            int index = -1;
+            WrmbDirEntry entry = default;
+            for (int i = 0; i < original.Directory.Length; i++)
+            {
+                if (original.Directory[i].Tag == tag)
+                {
+                    index = i;
+                    entry = original.Directory[i];
+                    break;
+                }
+            }
+
+            Assert.True(index >= 0);
+            uint crc = WrmbCrc32.Compute(blob, entry.Offset, entry.ByteLength);
+            int crcOff = original.DirectoryOffset + index * WrmbFile.DirectoryEntrySize + 32;
+            blob[crcOff] = (byte)crc;
+            blob[crcOff + 1] = (byte)(crc >> 8);
+            blob[crcOff + 2] = (byte)(crc >> 16);
+            blob[crcOff + 3] = (byte)(crc >> 24);
+        }
+
+        private static void RecomputeContentHash(byte[] blob)
+        {
+            byte[] input = (byte[])blob.Clone();
+            for (int i = 0; i < 32; i++)
+            {
+                input[WrmbFile.HeaderSize - 32 + i] = 0;
+            }
+
+            byte[] hash;
+            using (SHA256 sha = SHA256.Create())
+            {
+                hash = sha.ComputeHash(input);
+            }
+
+            Array.Copy(hash, 0, blob, WrmbFile.HeaderSize - 32, 32);
+        }
+
+        private static uint ReadU32(byte[] data, int offset)
+        {
+            return data[offset]
+                | ((uint)data[offset + 1] << 8)
+                | ((uint)data[offset + 2] << 16)
+                | ((uint)data[offset + 3] << 24);
+        }
+
+        private static void WriteI32(byte[] data, int offset, int value)
+        {
+            uint u = (uint)value;
+            data[offset] = (byte)u;
+            data[offset + 1] = (byte)(u >> 8);
+            data[offset + 2] = (byte)(u >> 16);
+            data[offset + 3] = (byte)(u >> 24);
         }
     }
 

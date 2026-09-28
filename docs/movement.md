@@ -9,6 +9,16 @@ Headless, integer-only, deterministic. Player UI preview and AI call the same fu
 - Ratios: parts-per-thousand (`SimConfig.PptScale` = 1000).
 - No `float` / `double` in sim state, hashes, or path decisions. `Fixed64` is not used here; remaining square roots are integer (`Int128Math.IntegerSqrt`).
 
+## Map blobs (WRMB)
+
+Roads and terrain arrive as **two** WRMB files (same container; sections located by tag). See [formats/wrmb-v0.md](formats/wrmb-v0.md).
+
+- Map/AI file: `RNOD` / `REDG`. Bridges are two `BridgeHead` nodes plus a `bridgeSpan` edge.
+- Terrain file: `MVSL` (uint16 per-mille slope), `MVLC` (land cover), `MVFD` (ford bits). Row 0 is south. Sim x = east, y = north, origin SW.
+- Cell size is `META.cellSizeCm`, divided by `moveCellsPerCell` when the movement grid is a subdivision of the mile grid (production maps: 18 cells/mile ≈ 89.4 m). The sim does not assume 100 m.
+
+`MovementService.Create(mapBlob, terrainBlob, tables)` loads both. Synthetic tests emit WRMB fixtures so goldens stay in CI.
+
 ## Speed
 
 Loaded from `movement-tables-v1.json` (strict integer JSON — no fractions, no exponents) at match load:
@@ -36,7 +46,7 @@ Roads **ignore slope** (`slopePpt` = 1000). Air **ignores terrain** (cover, slop
 
 ## Queries
 
-`MovementService` exposes three searches, plus `EstimateTravelTicks` (the path’s `TotalCostTicks`, or `-1` if unreachable):
+`MovementService` exposes three searches, plus `EstimateTravelTicks(path, class)` (recosts the waypoints for that movement class with uniform road weights, or `-1` if unreachable / a step is impassable for the class):
 
 1. **`PathOnRoads(fromNode, toNode, class, costWeights)`** — integer A* on the undirected road graph. `costWeights` are ppt multipliers per road tier, with a separate bridge-span ppt. Weighted step `max(1, ticks * weightPpt / 1000)` (weight 0 skips the edge).
 2. **`PathOffRoad(fromCm, toCm, class)`** — 8-connected grid A* on the per-class cost grid. Diagonal cost is `orthoTicks * 1414 / 1000` (ppt √2). No corner-cutting: both adjacent orthogonal cells must be passable.
