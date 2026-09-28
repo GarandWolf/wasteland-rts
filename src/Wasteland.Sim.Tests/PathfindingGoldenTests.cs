@@ -53,6 +53,32 @@ namespace Wasteland.Sim.Tests
             return Load(roads, terrain, null);
         }
 
+        public static MovementService OpenTerrain(int width, int height, MovementServiceConfig config)
+        {
+            TerrainGridBuilder terrain = new TerrainGridBuilder(width, height).Fill(0, LandCover.Field);
+            RoadGraphBuilder roads = new RoadGraphBuilder().AddNode(1, 5000, 5000);
+            return Load(roads, terrain, config);
+        }
+
+        public static MovementService WalledTerrain(int width, int height, MovementServiceConfig config)
+        {
+            TerrainGridBuilder terrain = new TerrainGridBuilder(width, height).Fill(0, LandCover.Field);
+            int wallX = width / 2;
+            int gapY = (height * 5) / 6;
+            for (int y = 0; y < height; y++)
+            {
+                if (y >= gapY)
+                {
+                    continue;
+                }
+
+                terrain.SetCell(wallX, y, 0, LandCover.Water);
+            }
+
+            RoadGraphBuilder roads = new RoadGraphBuilder().AddNode(1, 5000, 5000);
+            return Load(roads, terrain, config);
+        }
+
         private static MovementService Load(RoadGraphBuilder roads, TerrainGridBuilder terrain, MovementServiceConfig? config)
         {
             MovementServiceConfig cfg = config ?? MovementServiceConfig.Default;
@@ -276,6 +302,97 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(0, svc.PendingCount);
             Assert.True(svc.TryGetResult(ids[9], out PathResult last));
             Assert.NotNull(last);
+        }
+
+        [Fact]
+        public void TimeSlice_ResumesAndCommitsOnDeterministicTick()
+        {
+            MovementService svc = SyntheticMaps.WalledTerrain(
+                64,
+                64,
+                new MovementServiceConfig(
+                    pathRequestsPerTick: 8,
+                    maxGateways: 8,
+                    expansionsPerTick: 48,
+                    clusterSize: 32,
+                    landmarkCount: 0));
+
+            int cell = svc.Terrain.CellSizeCm;
+            int fromX = cell / 2;
+            int fromY = cell / 2;
+            int toX = svc.Terrain.CellCenterXCm(63);
+            int toY = svc.Terrain.CellCenterYCm(63);
+            int id = svc.Enqueue(PathRequest.OffRoad(fromX, fromY, toX, toY, MovementClass.Foot));
+            Assert.False(svc.TryGetResult(id, out _));
+
+            int ticks = 0;
+            PathResult? path = null;
+            while (!svc.TryGetResult(id, out path) && ticks < 20000)
+            {
+                int ran = svc.ProcessQueue();
+                Assert.True(svc.ExpansionsThisTick <= 48);
+                Assert.True(svc.LastExpansions <= 48);
+                if (ran == 0)
+                {
+                    Assert.True(svc.HasInFlightSearch);
+                }
+
+                ticks++;
+            }
+
+            Assert.NotNull(path);
+            Assert.True(path.Reachable);
+            Assert.True(ticks > 1);
+            Assert.Equal(svc.Tick, path.CommitTick);
+            Assert.True(path.CommitTick >= 2);
+            Assert.False(svc.HasInFlightSearch);
+        }
+
+        [Fact]
+        public void Hpa_CostStaysWithinBoundOfExactAStar()
+        {
+            MovementServiceConfig exactCfg = new MovementServiceConfig(8, 8, 4096, 96, 0);
+            MovementServiceConfig hpaCfg = new MovementServiceConfig(8, 8, 4096, 32, 0);
+            MovementService exact = SyntheticMaps.WalledTerrain(96, 96, exactCfg);
+            MovementService hpa = SyntheticMaps.WalledTerrain(96, 96, hpaCfg);
+
+            long worstNum = 0;
+            long worstDen = 1;
+            int[][] queries =
+            {
+                new[] { 0, 0, 95, 95 },
+                new[] { 0, 48, 95, 48 },
+                new[] { 10, 10, 10, 90 },
+                new[] { 2, 2, 90, 40 }
+            };
+
+            for (int q = 0; q < queries.Length; q++)
+            {
+                int[] g = queries[q];
+                PathResult e = exact.PathOffRoad(
+                    exact.Terrain.CellCenterXCm(g[0]),
+                    exact.Terrain.CellCenterYCm(g[1]),
+                    exact.Terrain.CellCenterXCm(g[2]),
+                    exact.Terrain.CellCenterYCm(g[3]),
+                    MovementClass.Foot);
+                PathResult h = hpa.PathOffRoad(
+                    hpa.Terrain.CellCenterXCm(g[0]),
+                    hpa.Terrain.CellCenterYCm(g[1]),
+                    hpa.Terrain.CellCenterXCm(g[2]),
+                    hpa.Terrain.CellCenterYCm(g[3]),
+                    MovementClass.Foot);
+                Assert.True(e.Reachable);
+                Assert.True(h.Reachable);
+                Assert.True(h.TotalCostTicks >= e.TotalCostTicks);
+                if (e.TotalCostTicks > 0 && h.TotalCostTicks * worstDen > worstNum * e.TotalCostTicks)
+                {
+                    worstNum = h.TotalCostTicks;
+                    worstDen = e.TotalCostTicks;
+                }
+            }
+
+            // Observed bound vs exact A*: HPA* cost / exact cost <= 1.15 on these goldens.
+            Assert.True(worstNum * 100 <= worstDen * 115, $"HPA/exact={worstNum}/{worstDen}");
         }
 
         [Fact]

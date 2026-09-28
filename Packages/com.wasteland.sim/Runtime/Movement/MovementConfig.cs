@@ -18,8 +18,30 @@ namespace Wasteland.Sim.Movement
         /// <summary>Default terrain cell size (100 m).</summary>
         public const int DefaultCellSizeCm = 10000;
 
-        /// <summary>Match-wide A* budget. Cache hits do not consume it.</summary>
+        /// <summary>Match-wide A* completions per tick. Cache hits do not consume it.</summary>
         public const int DefaultPathRequestsPerTick = 8;
+
+        /// <summary>
+        /// Node expansions (closed vertices) allowed per <c>ProcessQueue</c> call.
+        /// Wall clock is never the cap; this integer is sim state.
+        /// </summary>
+        public const int DefaultExpansionsPerTick = 4096;
+
+        /// <summary>
+        /// HPA* cluster side in cells. Maps that fit in one cluster use exact grid A*
+        /// (golden tests stay optimal).
+        /// </summary>
+        public const int DefaultClusterSize = 32;
+
+        /// <summary>
+        /// Extra HPA* border entrances along each contiguous passable run (plus the
+        /// run's first, last, and midpoint cells). Corners stay in the abstract graph
+        /// so 8-connected cluster hops stay cheap.
+        /// </summary>
+        public const int DefaultEntranceInterval = 8;
+
+        /// <summary>ALT landmarks per movement class for road A*.</summary>
+        public const int DefaultLandmarkCount = 16;
 
         /// <summary>
         /// Max road-node gateways sampled at each end of a combined query

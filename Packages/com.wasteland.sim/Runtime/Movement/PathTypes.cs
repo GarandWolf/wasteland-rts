@@ -35,6 +35,7 @@ namespace Wasteland.Sim.Movement
         public readonly int GraphVersion;
         public readonly PathWaypoint[] Waypoints;
         public readonly ulong Hash;
+        public readonly int CommitTick;
 
         private PathResult(
             bool reachable,
@@ -42,7 +43,8 @@ namespace Wasteland.Sim.Movement
             PathKind kind,
             int graphVersion,
             PathWaypoint[] waypoints,
-            ulong hash)
+            ulong hash,
+            int commitTick)
         {
             Reachable = reachable;
             TotalCostTicks = totalCostTicks;
@@ -50,6 +52,7 @@ namespace Wasteland.Sim.Movement
             GraphVersion = graphVersion;
             Waypoints = waypoints;
             Hash = hash;
+            CommitTick = commitTick;
         }
 
         public static PathResult Create(
@@ -57,7 +60,8 @@ namespace Wasteland.Sim.Movement
             long totalCostTicks,
             PathKind kind,
             int graphVersion,
-            PathWaypoint[] waypoints)
+            PathWaypoint[] waypoints,
+            int commitTick = 0)
         {
             if (waypoints == null)
             {
@@ -79,7 +83,12 @@ namespace Wasteland.Sim.Movement
                 hash.AddInt(p.YCm);
             }
 
-            return new PathResult(reachable, totalCostTicks, kind, graphVersion, waypoints, hash.Digest());
+            return new PathResult(reachable, totalCostTicks, kind, graphVersion, waypoints, hash.Digest(), commitTick);
+        }
+
+        public PathResult WithCommitTick(int commitTick)
+        {
+            return new PathResult(Reachable, TotalCostTicks, Kind, GraphVersion, Waypoints, Hash, commitTick);
         }
     }
 
@@ -137,8 +146,26 @@ namespace Wasteland.Sim.Movement
     {
         public readonly int PathRequestsPerTick;
         public readonly int MaxGateways;
+        public readonly int ExpansionsPerTick;
+        public readonly int ClusterSize;
+        public readonly int LandmarkCount;
 
         public MovementServiceConfig(int pathRequestsPerTick, int maxGateways)
+            : this(
+                pathRequestsPerTick,
+                maxGateways,
+                MovementConfig.DefaultExpansionsPerTick,
+                MovementConfig.DefaultClusterSize,
+                MovementConfig.DefaultLandmarkCount)
+        {
+        }
+
+        public MovementServiceConfig(
+            int pathRequestsPerTick,
+            int maxGateways,
+            int expansionsPerTick,
+            int clusterSize,
+            int landmarkCount)
         {
             if (pathRequestsPerTick < 0)
             {
@@ -150,8 +177,26 @@ namespace Wasteland.Sim.Movement
                 throw new ArgumentOutOfRangeException(nameof(maxGateways));
             }
 
+            if (expansionsPerTick < 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(expansionsPerTick));
+            }
+
+            if (clusterSize < 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(clusterSize));
+            }
+
+            if (landmarkCount < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(landmarkCount));
+            }
+
             PathRequestsPerTick = pathRequestsPerTick;
             MaxGateways = maxGateways;
+            ExpansionsPerTick = expansionsPerTick;
+            ClusterSize = clusterSize;
+            LandmarkCount = landmarkCount;
         }
 
         public static MovementServiceConfig Default
@@ -160,8 +205,27 @@ namespace Wasteland.Sim.Movement
             {
                 return new MovementServiceConfig(
                     MovementConfig.DefaultPathRequestsPerTick,
-                    MovementConfig.DefaultMaxGateways);
+                    MovementConfig.DefaultMaxGateways,
+                    MovementConfig.DefaultExpansionsPerTick,
+                    MovementConfig.DefaultClusterSize,
+                    MovementConfig.DefaultLandmarkCount);
             }
         }
+    }
+
+    /// <summary>Match-load hierarchy / landmark footprint for diagnostics and the benchmark.</summary>
+    public sealed class MovementLoadStats
+    {
+        public int ClusterSize;
+        public int ClusterCount;
+        public int AbstractNodesPerClass;
+        public int AbstractDirectedEdgesPerClass;
+        public int LandmarkCount;
+        public int RoadNodes;
+        public long CostGridBytesPerClass;
+        public long HierarchyBytesPerClass;
+        public long LandmarkBytesPerClass;
+        public long ScratchBytes;
+        public long LoadMilliseconds;
     }
 }

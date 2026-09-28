@@ -5,6 +5,7 @@ namespace Wasteland.Sim.Movement
     {
         public readonly int[][] CellTicks;
         public readonly int[][] RoadSpeedCmPerTick;
+        public readonly int[][] RoadTicks;
         public readonly int[] MaxGridSpeed;
         public readonly int[] MaxRoadSpeed;
         public readonly int[] NodeCellIndex;
@@ -12,12 +13,14 @@ namespace Wasteland.Sim.Movement
         private MovementCosts(
             int[][] cellTicks,
             int[][] roadSpeedCmPerTick,
+            int[][] roadTicks,
             int[] maxGridSpeed,
             int[] maxRoadSpeed,
             int[] nodeCellIndex)
         {
             CellTicks = cellTicks;
             RoadSpeedCmPerTick = roadSpeedCmPerTick;
+            RoadTicks = roadTicks;
             MaxGridSpeed = maxGridSpeed;
             MaxRoadSpeed = maxRoadSpeed;
             NodeCellIndex = nodeCellIndex;
@@ -51,16 +54,19 @@ namespace Wasteland.Sim.Movement
 
             int edges = graph.EdgeCount;
             int[][] roadSpeed = new int[classCount][];
+            int[][] roadTicks = new int[classCount][];
             int[] maxRoad = new int[classCount];
             for (int c = 0; c < classCount; c++)
             {
                 MovementClass clas = (MovementClass)c;
                 int[] row = new int[edges];
+                int[] tickRow = new int[edges];
                 int maxSpeed = 0;
                 for (int e = 0; e < edges; e++)
                 {
                     int speed = tables.RoadSpeedCmPerTick(clas, graph.GetEdgeSurface(e));
                     row[e] = speed;
+                    tickRow[e] = speed <= 0 ? 0 : MovementTables.TicksToTraverse(graph.EdgeLengthCm[e], speed);
                     if (speed > maxSpeed)
                     {
                         maxSpeed = speed;
@@ -68,6 +74,7 @@ namespace Wasteland.Sim.Movement
                 }
 
                 roadSpeed[c] = row;
+                roadTicks[c] = tickRow;
                 maxRoad[c] = maxSpeed;
             }
 
@@ -84,7 +91,7 @@ namespace Wasteland.Sim.Movement
                 }
             }
 
-            return new MovementCosts(cellTicks, roadSpeed, maxGrid, maxRoad, nodeCell);
+            return new MovementCosts(cellTicks, roadSpeed, roadTicks, maxGrid, maxRoad, nodeCell);
         }
 
         public bool IsPassable(MovementClass clas, int cellIndex)
