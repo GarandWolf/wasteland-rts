@@ -85,7 +85,7 @@ Accepted field-level contract for §3. The CI golden map is **approved (Sep 28, 
 | Topic | Decision |
 | --- | --- |
 | When derived | Chokepoints, territories, `strategicValue`, and neighbour lists are computed **after** the post-apocalyptic transform. Destroyed bridges are already gone from the passable graph. |
-| Chokepoints | Record in §3.1. AI scores with **`defensibility` and `detourRatioPpt`**. Each record stores **`bypassMaxGradePpt`** (uint16): gentlest worst-case off-road bypass grade, or **65535** if none. **Do not bake `wheeledOnly`.** At match load the AI derives `wheeledOnly = bypassMaxGradePpt > wheeledMaxGradePpt` (designer table, currently 299‰); same for tracked (599‰) and foot (999‰). Prioritize class-forced-to-road chokes for defense and raids. |
+| Chokepoints | Record in §3.1. Each stores **`bypassMaxGradePpt`** (uint16; **65535** = no bypass). At match load the AI computes per-class **`bypassPenaltyPpt`** (integer ppt) from `detourRatioPpt` plus the designer speed formula at that grade (v0 **field** surface). Rank fortify/raid/assault by that penalty, mixed by force count. **`wheeledOnly`** is an optional debug/overlay flag (wheeled penalty maxed), not a scoring input. |
 | `strategicValue` | 0–1000 from per-map percentile ranks: population 40%, road connectivity 25%, chokepoint proximity 15%, high ground 10%, resources 10%, plus a `populationClass` absolute anchor. **Designer owns the weights.** Per-town components go in optional `TDBG` for the overlay. |
 | Road budget | ~**8k nodes / 12k edges** on 200×200; ~**2k / 3k** on 100×100. Towns collapse to a gate plus **exit edges**. Edge geometry is a polyline. **Over-budget bake fails** (never truncates). |
 | AI grid | Coarse **AI cells** from META `cellSizeCm` — **never assume a round mile**. **18** terrain cells (89 m slope‰ + land-cover + elevation in **whole decimetres**) make one 1-mile AI cell. Gorge terrain WRMB is **1,800×1,800**. `ElevationCell` plus `CellExt` on the AI grid. |
@@ -235,7 +235,7 @@ Hysteresis: a new posture must beat the current score by `PostureSwitchMarginPpt
 | `HoldCaptureZone` | town we are capturing, or an owned zone under threat | After the zone is cleared, until the timer completes; or garrison an owned anchor. |
 | `Raid` / `CutSupply` | enemy road node, junction, or bridge | Attack/BuildUp; holding the node or destroying the bridge cuts a path from their depot to a town or field force. |
 | `GuardSupply` | own depot-path node or bridge | Degree ≥ 2 junction, bridge, or the last path to an exposed squad / anchor. |
-| `HoldChokepoint` | chokepoint id | Controls access to a valued town we own or want, or sits on a supply path. |
+| `HoldChokepoint` | chokepoint id | Controls access to a valued town we own or want, or sits on a supply path. Score scales with mix-weighted `bypassPenaltyPpt`. |
 | `ScoutRegion` | coarse-grid region or ridge cell | Confidence stale; fog-honest; prefer high ground that LoS-covers a road or capture zone. |
 | `ExpandEconomy` | build slot / town | BuildUp or Turtle with spare income. |
 | `CounterattackForce` | lost or threatened anchor | Posture Counterattack, or incoming capture of an owned zone. |
@@ -267,7 +267,7 @@ All terms are `int32` millipoints. Features are already in parts-per-thousand (p
 | `defenderSupplyPpt` | Low if we have cut their road to the town — assault sooner. High if they are supplied — isolate first. |
 | `ownSupplySafetyPpt` | Penalty if the assigned force would go OOS on the approach or during the hold timer. |
 | `roadAccessPpt` | 1000 if a friendly-controlled, supplied road reaches it; less if off-graph. |
-| `chokepointBonus` | `defensibility * detourRatioPpt / 1000` (both 0–1000 / 1000–10000). Prefer cuts that disconnect (`detourRatioPpt` near 10000). Extra weight if derived `wheeledOnly` (or the assigned class cannot bypass): `bypassMaxGradePpt > classMaxGradePpt` (defense and raids). |
+| `chokepointBonus` | `defensibility * mixBypassPenaltyPpt / 1000`. `mixBypassPenaltyPpt` is the count-weighted mean of per-class `bypassPenaltyPpt` over the relevant force mix (see §3.1). Not a `wheeledOnly` boolean. |
 | `bridgeJunctionValue` | Extra for bridge **edges** and high-flag junctions (cut or guard). |
 | `visionGroundBonus` | High-ground / ridge cells (`elevationCm`, `CellExt.coverPpt`) that would reveal a road or zone. |
 | `economyNeedPpt` | High when income < upkeep + planned spend. |
@@ -539,7 +539,49 @@ A node is **held** (supply cut) at runtime when an enemy combat unit occupies it
 
 #### Chokepoints
 
-Computed on the **post-transform** passable graph. AI scoring uses `defensibility` and `detourRatioPpt`. **`bypassMaxGradePpt`** (`uint16`) is the gentlest worst-case grade of any off-road route around the chokepoint, or **65535** if there is no bypass. **Do not store `wheeledOnly` in the map file.** At match load the AI derives `wheeledOnly = bypassMaxGradePpt > wheeledMaxGradePpt` (designer movement table, currently **299‰**). The same test applies to tracked (**599‰**) and foot (**999‰**). A balance change to those limits never forces a map rebuild. The AI **prioritizes** class-forced-to-road chokes for `HoldChokepoint` and `Raid` / `CutSupply`.
+Computed on the **post-transform** passable graph. The map stores **`bypassMaxGradePpt`** (`uint16`): the gentlest worst-case grade of any off-road route around the chokepoint, or **65535** if there is no bypass. **Do not store `wheeledOnly` in the map file.** Rank chokepoints by **bypass cost**, not a boolean.
+
+**Match-load penalty (per movement class, integer, deterministic, floor rounding).** v0 assumes the designer table’s **field** surface for that class. `base`, `fieldSurfacePpt`, `roadSurfacePpt`, `roadSlopePpt`, and `classMaxGradePpt` come from movement table v0.1 (`wheeledMaxGradePpt` currently **299‰**, tracked **599‰**, foot **999‰**).
+
+```
+if bypassMaxGradePpt == 65535 or bypassMaxGradePpt > classMaxGradePpt:
+    bypassSpeed = 0
+else:
+    bypassSpeed = floor(base * fieldSurfacePpt * bypassMaxGradePpt / 1000000)
+
+if bypassSpeed == 0:
+    bypassPenaltyPpt[class] = 1000          // no bypass: max
+else:
+    roadSpeed = floor(base * roadSurfacePpt * roadSlopePpt / 1000000)
+    if roadSpeed == 0:
+        bypassPenaltyPpt[class] = 1000
+    else:
+        relBypassPpt = bypassSpeed * 1000 / roadSpeed          // ppt of road speed
+        bypassPenaltyPpt[class] = 1000 - relBypassPpt * 1000 / detourRatioPpt
+        bypassPenaltyPpt[class] = clamp(bypassPenaltyPpt[class], 0, 1000)
+```
+
+`wheeledOnly = (bypassPenaltyPpt[wheeled] == 1000)` is an **optional debug/overlay** flag only. It is **not** a scoring input.
+
+**Strategic mix.** Fortify / `HoldChokepoint` / `Raid` / `CutSupply` / `AssaultTown` scores that involve a chokepoint scale with
+
+```
+mixBypassPenaltyPpt = (Σ_c n_c * bypassPenaltyPpt[c]) / (Σ_c n_c)   // floor; 0 if n=0
+```
+
+`n_c` is the unit count of movement class `c` in the **relevant** mix: enemy mix when we fortify, hold, or raid/cut; friendly assigned mix when we assault through or around the choke. Weight by count, not by squad.
+
+A designer change to `wheeledMaxGradePpt` (including lowering it to **199‰** after playtests) must take effect from the table at match load with **no code or map rebuild**.
+
+**Gorge examples** (`golden-ci-columbia-gorge-100`):
+
+| Site | `bypassMaxGradePpt` | Wheeled (limit 299‰) | Foot (limit 999‰) |
+| --- | --- | --- | --- |
+| Satus bypass | 227 | Under the limit; trucks bypass at roughly **140‰** of road speed. Strong choke vs wheeled. | Weak. |
+| Bennett bypass | 263 | Same pattern (~140‰ of road speed). Strong vs wheeled. | Weak. |
+| Four main Columbia bridges | 65535 | No bypass. Max penalty. | Max penalty (every class). |
+
+If the wheeled limit drops to 199‰, Satus (227) and Bennett (263) become impassable for wheeled (`bypassSpeed = 0`, penalty 1000) with no bake change.
 
 ```
 ChokepointRecord                           // fixed size; arrays via (offset,count) → I32P
@@ -688,7 +730,7 @@ Enemy units the faction cannot see do not write into Threat as truth; they write
 - Owned or snapshotted town: add `town.strategicValue` into Value, plus `anchorBonus`, plus `fortificationLevel * FortValueMul` (from snapshot if fogged).
 - Capture zone currently ticking (visible): add `captureProgressPpt` into Value for both the attacker’s finish-hold and the defender’s contest.
 - Bridges and high-degree junctions: add `bridgeJunctionValue` into Value if they sit on a known supply path (own: guard; enemy: cut).
-- Pipeline chokepoint: add `defensibility * detourRatioPpt / 1000` if we own or contest a gated territory (`gatesTerritoryIds` / `sideA/BTerritoryId`) or supply path. Extra stamp if derived `wheeledOnly` / class-forced-to-road (`bypassMaxGradePpt > classMaxGradePpt`).
+- Pipeline chokepoint: add `defensibility * mixBypassPenaltyPpt / 1000` if we own or contest a gated territory (`gatesTerritoryIds` / `sideA/BTerritoryId`) or supply path. Until a mix is known, use the mean of per-class `bypassPenaltyPpt`. Do not stamp from `wheeledOnly`.
 - Ridge / high-elevation cells (`ridgeHint`, `CellExt.coverPpt`) that LoS-hint a fogged road: scout value, not threat.
 
 **Incremental update.** Full-grid rebuilds are forbidden on 200×200 (40,000 cells × 4 layers × N factions).
@@ -936,7 +978,7 @@ Shared fields (all ppt unless noted):
 | `weightThreat` | Reacting to threat map |
 | `weightForceRatio` | Patience before entering a capture zone |
 | `weightEconomy` | ExpandEconomy vs army |
-| `weightChokepoint` | Hold/take gates; extra on derived `wheeledOnly` / class-forced-to-road passes |
+| `weightChokepoint` | Hold/take gates; scales with mix-weighted `bypassPenaltyPpt` |
 | `weightSupplyCut` | Raiding nodes/bridges vs frontal assault |
 | `weightSupplyGuard` | Protecting own depot paths |
 | `weightDistance` | Preference for nearby goals (higher = more local) |
@@ -1103,6 +1145,7 @@ Editor / development build only. Overlay is presentation; it reads a **copy** of
 | Routes | Road-graph polylines for active squads |
 | Dirty AABBs | This-tick influence dirty rects |
 | Work | Work units spent vs cap, per phase |
+| Chokepoints | Per-class `bypassPenaltyPpt`; optional `wheeledOnly` (wheeled penalty maxed). Overlay only; not a scoring input. |
 
 Toggle per faction. Clicking a town shows the last candidate scores that involved it (ring buffer of the last plan tick). This is the primary tuning tool; do not wait for a full designer debugger.
 
@@ -1133,7 +1176,7 @@ All previous items are **decided**, including WRMB as the single map format (`bl
 
 ### 9.3 Map pipeline engineer
 
-Answered items (chokepoints including `bypassMaxGradePpt` with `wheeledOnly` derived at load, `strategicValue` formula, road LOD budget, AI cells + `cellSizeCm` from META, terrain WRMB split with elevation in dm, rivers/lakes, territories, neighbour lists, `areaCells`, bridges-as-edges, surface/condition split, golden maps under `data/golden/`, **WRMB section layout**) are recorded as [Map pipeline decisions](#map-pipeline-decisions). Layout spec: **`blob-layout-v0.md`**.
+Answered items (chokepoints including `bypassMaxGradePpt` and match-load `bypassPenaltyPpt`; `wheeledOnly` overlay-only, `strategicValue` formula, road LOD budget, AI cells + `cellSizeCm` from META, terrain WRMB split with elevation in dm, rivers/lakes, territories, neighbour lists, `areaCells`, bridges-as-edges, surface/condition split, golden maps under `data/golden/`, **WRMB section layout**) are recorded as [Map pipeline decisions](#map-pipeline-decisions). Layout spec: **`blob-layout-v0.md`**.
 
 Nothing remaining in this section. Soak golden regions stay under §9.1 (Garand).
 
@@ -1170,7 +1213,7 @@ Locked values from lead-engineer decisions are marked **locked**. The rest are p
 | `TickDurationMs` | 50 | ms (**locked**) |
 | `commandDelayTicks` | 2 in SP; higher in MP | ticks (**locked as match-setup**; never hardcoded) |
 | `CellSizeCm` | from META | cm (never assume a round mile; 18 terrain cells = 1 AI cell) |
-| `wheeledMaxGradePpt` | 299 | ppt (designer movement table v0.1; off-road) |
+| `wheeledMaxGradePpt` | 299 | ppt (designer movement table v0.1; off-road. Playtests may set 199; no code/map change) |
 | `trackedMaxGradePpt` | 599 | ppt |
 | `footMaxGradePpt` | 999 | ppt |
 | `StrategicCadenceTicks` | 40 | ticks |
