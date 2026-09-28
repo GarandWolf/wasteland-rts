@@ -3,6 +3,8 @@
 
 // Packed _AnimIndex (team-color-spec-v2 §2.4.1):
 // bits 0-5 clip, 6 hold, 7 valid, 8-15 speed*64, 16-31 reserved.
+// C# stores the packed uint as float bits (math.asfloat); this shader reads asuint.
+// globalTime is wrapped interpolated presentation/sim time (_VATTime), not Time.deltaTime.
 
 static const uint WASTELAND_VAT_CLIP_MASK = 63u;
 static const uint WASTELAND_VAT_HOLD_BIT = 6u;

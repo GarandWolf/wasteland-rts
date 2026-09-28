@@ -19,7 +19,7 @@ Rules:
 - The only way to mutate sim state is to enqueue a `SimCommand`. Player and AI use the **same** command types.
 - Presentation is allowed to be lossy, threaded, and floating-point. If the renderer hiccups, the sim does not.
 
-`SimFixedUpdateDriver` is the first example of the presentation clock: it accumulates render time and calls `SimWorld.Step()` at a fixed rate.
+SimFixedUpdateDriver is the first example of the presentation clock: it accumulates render time (from `GameClock` when present, otherwise unscaled) and calls `SimWorld.Step()` at a fixed rate. Presentation systems read `(tick + alpha) * tickDuration`; the sim never reads a render clock.
 
 ## Tick rate
 

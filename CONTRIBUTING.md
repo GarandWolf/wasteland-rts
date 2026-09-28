@@ -5,7 +5,7 @@
 ```
 Assets/_Project/          Unity presentation, scenes, authoring
   Art/                    Shipping art (materials, meshes, textures)
-  Art/Shaders/            Shader Graph / HLSL prototypes
+  Art/Shaders/            URP ShaderLab + HLSL (production unit shaders)
   Prototypes/             Throwaway scenes (5k-unit test, scratch)
   Settings/               URP pipeline + renderer assets (created on first open)
   Presentation/           View / interpolation / UI
@@ -13,6 +13,7 @@ Assets/_Project/          Unity presentation, scenes, authoring
 Packages/com.wasteland.sim/   Deterministic sim (UPM embedded package, no UnityEngine)
 src/Wasteland.Sim/        dotnet wrapper csproj that compiles the package sources
 src/Wasteland.Sim.Tests/  xUnit, runs on CI without the Unity editor
+src/Wasteland.Presentation.Tests/  headless packing / palette tests (no UnityEngine)
 docs/                     Architecture and process
 ProjectSettings/          Hand-authored Unity 6.3 LTS skeleton
 ```
@@ -38,9 +39,9 @@ Root namespace for Unity-generated scripts is `Wasteland` (see Editor Settings).
 - Runtime scripts sit next to their asmdef.
 - Do not dump loose scripts under `Assets/`.
 - Shipping art goes under `Assets/_Project/Art/{Type}/...`; binary formats are Git LFS (see `.gitattributes`).
-- Shader Graph and handwritten HLSL **prototypes** live in `Assets/_Project/Art/Shaders/`. Production shaders move to a named folder under `Art/` once they leave scratch.
+- ShaderLab (`Wasteland/ToonStatic`, `Wasteland/ToonVAT`) and shared HLSL live in `Assets/_Project/Art/Shaders/`. Shader Graph wrappers around those includes are optional later; they are not the runtime path.
 - Throwaway scenes (the 5k-unit Entities Graphics stress test, spawners) live in `Assets/_Project/Prototypes/`. That folder has its own asmdef; do not mix it with shipping presentation or sim.
-- Tests that need the editor (EditMode/PlayMode) will live under `Assets/_Project/Tests/` later. Logic tests belong in `src/Wasteland.Sim.Tests` so CI can run them without a Unity license.
+- Tests that need the editor (EditMode/PlayMode) will live under `Assets/_Project/Tests/` later. Sim logic tests belong in `src/Wasteland.Sim.Tests`. Presentation packing/palette tests belong in `src/Wasteland.Presentation.Tests`. Both run under `dotnet test Wasteland.Sim.sln` without a Unity license.
 
 ## Simulation rules (non-negotiable)
 
@@ -69,7 +70,7 @@ Open the **repository root** in Unity Hub with **6000.3.24f1**. This skeleton wa
    3. Project Settings > Graphics: assign `WastelandURP` as the default render pipeline.
    4. Project Settings > Quality: assign `WastelandURP` on every quality level.
 7. Enter Play Mode once on Bootstrap so Entities/Burst can JIT. There is no gameplay yet; `SimFixedUpdateDriver` is the presentation-clock example. Shader prototypes go in `Assets/_Project/Art/Shaders/`; the 5k-unit throwaway scene goes in `Assets/_Project/Prototypes/`.
-8. **Toon / VAT prototype (after packages import):** `Wasteland/Prototypes/Setup Toon Prototype (First Open)`. Then confirm `WastelandURP_Renderer` is **Forward+**, Project Settings > Graphics > Shader Stripping > **BatchRendererGroup Variants = Keep All**, shadow distance ~150 m, TAA and motion blur off. Open `Assets/_Project/Prototypes/FiveKToonTest.unity` and Play. VAT baker: `Wasteland/VAT/Baker` (or Generate Placeholder Sample).
+8. **Toon / VAT prototype (after packages import):** `Wasteland/Prototypes/Setup Toon Prototype (First Open)`. Confirm `WastelandURP_Renderer` is **Forward+** (the menu now sets `RenderingMode.ForwardPlus`, not a magic int). Project Settings > Graphics > Shader Stripping > **BatchRendererGroup Variants = Keep All**, **Always Included Shaders** lists `Wasteland/ToonStatic`, `Wasteland/ToonVAT`, `Wasteland/ToonOutline`, shadow distance ~150 m, TAA and motion blur off (no MotionVectors pass yet). Open `Assets/_Project/Prototypes/FiveKToonTest.unity` and Play. VAT baker: `Wasteland/VAT/Baker` (or Generate Placeholder Sample). HUD: `O` outline blit, `P` DepthNormals prepass (the 5k cost), `1/2/3/0` GameClock speed (not `Time.timeScale`).
 
 Do not treat `ProjectSettings/ProjectSettings.asset` as sacred after first open — Unity will fill in missing serialized fields. Keep `m_SerializationMode: 2` (Force Text) and Visible Meta Files.
 

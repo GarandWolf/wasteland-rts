@@ -7,6 +7,7 @@ namespace Wasteland.Prototypes
 {
     /// <summary>
     /// On-screen counters for spec v2 §6 (frame time, counts, churn, VAT clock).
+    /// Pause/speed drive <see cref="GameClock"/>, not <c>Time.timeScale</c>.
     /// </summary>
     public sealed class FiveKTestHud : MonoBehaviour
     {
@@ -29,35 +30,50 @@ namespace Wasteland.Prototypes
         {
             _delta = Time.unscaledDeltaTime;
             FrameTimingManager.CaptureFrameTimings();
+            GameClock clock = GameClock.Instance;
 
             if (Input.GetKeyDown(KeyCode.H))
             {
                 _visible = !_visible;
             }
 
-            if (Input.GetKeyDown(KeyCode.Alpha1))
+            if (clock != null)
             {
-                Time.timeScale = 1f;
-            }
+                if (Input.GetKeyDown(KeyCode.Alpha1))
+                {
+                    clock.TimeScale = GameClock.Speed1x;
+                }
 
-            if (Input.GetKeyDown(KeyCode.Alpha2))
-            {
-                Time.timeScale = 0.5f;
-            }
+                if (Input.GetKeyDown(KeyCode.Alpha2))
+                {
+                    clock.TimeScale = GameClock.SpeedHalf;
+                }
 
-            if (Input.GetKeyDown(KeyCode.Alpha3))
-            {
-                Time.timeScale = 0.25f;
-            }
+                if (Input.GetKeyDown(KeyCode.Alpha3))
+                {
+                    clock.TimeScale = GameClock.SpeedQuarter;
+                }
 
-            if (Input.GetKeyDown(KeyCode.Alpha0) || Input.GetKeyDown(KeyCode.Space))
-            {
-                Time.timeScale = Time.timeScale > 0f ? 0f : 1f;
+                if (Input.GetKeyDown(KeyCode.Alpha0) || Input.GetKeyDown(KeyCode.Space))
+                {
+                    clock.TogglePause();
+                }
             }
 
             if (Input.GetKeyDown(KeyCode.C) && _cameraRig != null)
             {
                 _cameraRig.ToggleHeight();
+            }
+
+            if (Input.GetKeyDown(KeyCode.O))
+            {
+                ToonOutlineRendererFeature.BlitEnabled = !ToonOutlineRendererFeature.BlitEnabled;
+            }
+
+            if (Input.GetKeyDown(KeyCode.P))
+            {
+                ToonOutlineRendererFeature.DepthNormalsPrepassEnabled =
+                    !ToonOutlineRendererFeature.DepthNormalsPrepassEnabled;
             }
 
             World world = World.DefaultGameObjectInjectionWorld;
@@ -102,9 +118,10 @@ namespace Wasteland.Prototypes
             GUI.skin.label.fontSize = 14;
             GUI.color = Color.white;
             const float pad = 10f;
-            GUILayout.BeginArea(new Rect(pad, pad, 520f, 340f), GUI.skin.box);
+            GUILayout.BeginArea(new Rect(pad, pad, 560f, 420f), GUI.skin.box);
             GUILayout.Label("Wasteland 5k toon / VAT prototype  (§6)");
-            GUILayout.Label(string.Format("frame {0:0.00} ms   fps {1:0.0}   scale x{2:0.00}", _delta * 1000f, _delta > 0f ? 1f / _delta : 0f, Time.timeScale));
+            float scale = GameClock.Instance != null ? GameClock.Instance.TimeScale : 1f;
+            GUILayout.Label(string.Format("frame {0:0.00} ms   fps {1:0.0}   clock x{2:0.00}", _delta * 1000f, _delta > 0f ? 1f / _delta : 0f, scale));
 
             uint n = FrameTimingManager.GetLatestTimings(1, _timings);
             if (n > 0)
@@ -114,7 +131,7 @@ namespace Wasteland.Prototypes
             }
 
             float vatTime = Shader.GetGlobalFloat(PresentationRenderGlobalsSystem.VatTimeProperty);
-            GUILayout.Label(string.Format("VATTime {0:0.00} s (wrap 3600)", vatTime));
+            GUILayout.Label(string.Format("VATTime {0:0.00} s (wrap 3600, interpolated clock)", vatTime));
 
             if (_bootstrap != null)
             {
@@ -131,8 +148,14 @@ namespace Wasteland.Prototypes
                 GUILayout.Label(string.Format("camera {0:0} m  pitch 70  fov 35", _cameraRig.Height));
             }
 
+            GUILayout.Label(string.Format(
+                "outline blit {0}   DepthNormals prepass {1}",
+                ToonOutlineRendererFeature.BlitEnabled ? "ON" : "OFF",
+                ToonOutlineRendererFeature.DepthNormalsPrepassEnabled ? "ON" : "OFF"));
+            GUILayout.Label("5k outline cost is the DepthNormals prepass (VAT sampled again), not the blit.");
+
             GUILayout.Label("1/2/3 speed   0/Space pause   C 65/110m   F freeze anim   R run");
-            GUILayout.Label("V bind pose   B restore VAT   G churn   H hud");
+            GUILayout.Label("V bind pose   B restore VAT   G churn   O outline   P prepass   H hud");
             GUILayout.EndArea();
         }
     }

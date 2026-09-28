@@ -18,8 +18,5 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Wasteland.Sim\Wasteland.Sim.csproj" />
-    <Compile Include="..\..\Assets\_Project\Presentation\Rendering\TeamIndexPacking.cs" Link="Presentation\TeamIndexPacking.cs" />
-    <Compile Include="..\..\Assets\_Project\Presentation\Rendering\VatClipPacking.cs" Link="Presentation\VatClipPacking.cs" />
-    <Compile Include="..\..\Assets\_Project\Presentation\Rendering\FactionPalette.cs" Link="Presentation\FactionPalette.cs" />
   </ItemGroup>
 </Project>

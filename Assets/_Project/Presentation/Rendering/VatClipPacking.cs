@@ -1,8 +1,13 @@
+using System;
+
 namespace Wasteland.Presentation
 {
     /// <summary>
     /// Packed <c>_AnimIndex</c> layout from team-color-spec-v2 §2.4.1.
     /// Pure integer math; safe to share with headless tests.
+    /// GPU MaterialProperty slots are float: store <see cref="AsFloat"/> /
+    /// <c>math.asfloat(packed)</c>. <c>_VATTime</c> is interpolated presentation
+    /// time, not <c>Time.deltaTime</c>.
     /// </summary>
     public static class VatClipPacking
     {
@@ -46,6 +51,32 @@ namespace Wasteland.Presentation
 
             value |= (uint)quantized << SpeedShift;
             return value;
+        }
+
+        /// <summary>
+        /// IEEE bit copy matching <c>Unity.Mathematics.math.asfloat</c>.
+        /// Numeric convert (<c>(float)packed</c>) would break shader <c>asuint</c>.
+        /// </summary>
+        public static float AsFloat(uint packed)
+        {
+            return BitConverter.Int32BitsToSingle(unchecked((int)packed));
+        }
+
+        /// <summary>Inverse of <see cref="AsFloat"/>; matches <c>math.asuint</c>.</summary>
+        public static uint AsUInt(float bits)
+        {
+            return unchecked((uint)BitConverter.SingleToInt32Bits(bits));
+        }
+
+        public static float WrapGlobal(float seconds)
+        {
+            float wrapped = seconds % WrapSeconds;
+            if (wrapped < 0f)
+            {
+                wrapped += WrapSeconds;
+            }
+
+            return wrapped;
         }
 
         public static int GetClip(uint packed)

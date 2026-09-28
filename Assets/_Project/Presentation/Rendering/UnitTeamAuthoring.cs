@@ -1,4 +1,5 @@
 using Unity.Entities;
+using Unity.Mathematics;
 using UnityEngine;
 
 namespace Wasteland.Presentation
@@ -29,7 +30,7 @@ namespace Wasteland.Presentation
             public override void Bake(UnitTeamAuthoring authoring)
             {
                 Entity entity = GetEntity(TransformUsageFlags.Renderable);
-                AddComponent(entity, new TeamColorIndex { Value = authoring.PackedValue });
+                AddComponent(entity, new TeamColorIndex { Value = math.asfloat(authoring.PackedValue) });
             }
         }
     }

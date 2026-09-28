@@ -1,4 +1,5 @@
 using Unity.Entities;
+using Unity.Mathematics;
 using UnityEngine;
 
 namespace Wasteland.Presentation
@@ -28,7 +29,7 @@ namespace Wasteland.Presentation
             public override void Bake(VatUnitAuthoring authoring)
             {
                 Entity entity = GetEntity(TransformUsageFlags.Renderable);
-                AddComponent(entity, new VatClipState { Value = authoring.PackedClip });
+                AddComponent(entity, new VatClipState { Value = math.asfloat(authoring.PackedClip) });
                 AddComponent(entity, new VatStartTime { Value = authoring.StartTime });
             }
         }

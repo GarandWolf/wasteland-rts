@@ -9,6 +9,8 @@ namespace Wasteland.Presentation
     /// <see cref="SimWorld"/> at <see cref="SimConfig.TickRateHz"/>.
     /// Interpolation between the previous and current sim snapshots belongs
     /// here; the simulation never reads <see cref="Time"/>.
+    /// VAT and other presentation systems read
+    /// <see cref="InterpolatedSimSeconds"/>; nothing flows back into sim.
     /// </summary>
     public sealed class SimFixedUpdateDriver : MonoBehaviour
     {
@@ -29,6 +31,24 @@ namespace Wasteland.Presentation
             get { return _accumulator * SimConfig.TickRateHz; }
         }
 
+        /// <summary>
+        /// Display time in seconds: <c>(tick + alpha) * tickDuration</c>.
+        /// Pause and speed come from <see cref="GameClock"/> when present.
+        /// </summary>
+        public float InterpolatedSimSeconds
+        {
+            get
+            {
+                if (_world == null)
+                {
+                    return 0f;
+                }
+
+                float tickDuration = 1f / SimConfig.TickRateHz;
+                return (_world.Tick + TickInterpolation) * tickDuration;
+            }
+        }
+
         private void Awake()
         {
             _world = new SimWorld(_seed);
@@ -42,7 +62,7 @@ namespace Wasteland.Presentation
             }
 
             float tickDt = 1f / SimConfig.TickRateHz;
-            _accumulator += Time.unscaledDeltaTime;
+            _accumulator += PresentationDeltaTime();
             int steps = 0;
             while (_accumulator >= tickDt && steps < _maxCatchUpSteps)
             {
@@ -50,6 +70,17 @@ namespace Wasteland.Presentation
                 _accumulator -= tickDt;
                 steps++;
             }
+        }
+
+        private static float PresentationDeltaTime()
+        {
+            GameClock clock = GameClock.Instance;
+            if (clock != null)
+            {
+                return clock.DeltaTime;
+            }
+
+            return Time.unscaledDeltaTime;
         }
     }
 }

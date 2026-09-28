@@ -1,5 +1,6 @@
 using Unity.Entities;
 using UnityEngine;
+using Wasteland.Presentation;
 
 namespace Wasteland.Prototypes
 {
@@ -8,10 +9,13 @@ namespace Wasteland.Prototypes
     /// </summary>
     [RequireComponent(typeof(VatClipChurnDriver))]
     [RequireComponent(typeof(FiveKTestHud))]
+    [RequireComponent(typeof(GameClock))]
     public sealed class FiveKToonTestBootstrap : MonoBehaviour
     {
         [SerializeField] private bool _spawnOnStart = true;
         [SerializeField] private Light _sun;
+        [SerializeField] private Material _vatMaterial;
+        [SerializeField] private Material _staticMaterial;
 
         public int InfantryCount { get; private set; }
         public int VehicleCount { get; private set; }
@@ -19,6 +23,11 @@ namespace Wasteland.Prototypes
 
         private void Awake()
         {
+            if (GetComponent<GameClock>() == null)
+            {
+                gameObject.AddComponent<GameClock>();
+            }
+
             VatClipChurnDriver churn = GetComponent<VatClipChurnDriver>();
             FiveKTestHud hud = GetComponent<FiveKTestHud>();
             FiveKCameraRig rig = FindFirstObjectByType<FiveKCameraRig>();
@@ -44,7 +53,9 @@ namespace Wasteland.Prototypes
                 return;
             }
 
-            FiveKUnitSpawner.SpawnStats stats = FiveKUnitSpawner.Spawn(world);
+            Material vat = _vatMaterial != null ? _vatMaterial : ToonMaterialAssets.LoadVatTemplate();
+            Material stat = _staticMaterial != null ? _staticMaterial : ToonMaterialAssets.LoadStaticTemplate();
+            FiveKUnitSpawner.SpawnStats stats = FiveKUnitSpawner.Spawn(world, vat, stat);
             InfantryCount = stats.Infantry;
             VehicleCount = stats.Vehicles;
             ProbeCount = stats.ProbeCount;
@@ -57,7 +68,7 @@ namespace Wasteland.Prototypes
 
         private static void TeamPaletteEnsure()
         {
-            Wasteland.Presentation.TeamPaletteRuntime.BindGlobals();
+            TeamPaletteRuntime.BindGlobals();
         }
 
         private void ConfigureSun()

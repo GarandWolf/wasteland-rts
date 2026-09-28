@@ -1,7 +1,7 @@
 using Wasteland.Presentation;
 using Xunit;
 
-namespace Wasteland.Sim.Tests
+namespace Wasteland.Presentation.Tests
 {
     public sealed class VatClipPackingTests
     {
@@ -39,6 +39,22 @@ namespace Wasteland.Sim.Tests
 
             float wrapped = VatClipPacking.WrapLocalTime(0.25f, 3599.5f);
             Assert.Equal(0.75f, wrapped, 3);
+        }
+
+        [Fact]
+        public void WrapGlobal_WrapsAtHour()
+        {
+            Assert.Equal(10f, VatClipPacking.WrapGlobal(10f), 3);
+            Assert.Equal(5f, VatClipPacking.WrapGlobal(3605f), 3);
+        }
+
+        [Fact]
+        public void AsFloat_IsIeeeBitCopyNotNumericConvert()
+        {
+            uint packed = VatClipPacking.Pack(2, hold: true, valid: true, speed: 1f);
+            float bits = VatClipPacking.AsFloat(packed);
+            Assert.Equal(packed, VatClipPacking.AsUInt(bits));
+            Assert.NotEqual((float)packed, bits);
         }
     }
 }

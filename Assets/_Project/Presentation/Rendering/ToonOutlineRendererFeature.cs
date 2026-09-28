@@ -8,18 +8,26 @@ namespace Wasteland.Presentation
     /// <summary>
     /// Full-screen depth/normal edge detection. Add this to
     /// <c>WastelandURP_Renderer</c> after the URP assets exist.
-    /// Implements URP 17 render graph; <see cref="Execute"/> is kept for
-    /// compatibility mode.
+    /// The 5k cost is the DepthNormals prepass (VAT sampled again), not the blit.
     /// </summary>
     public sealed class ToonOutlineRendererFeature : ScriptableRendererFeature
     {
         public const string ShaderName = "Wasteland/ToonOutline";
 
+        /// <summary>Full-screen blit. Independent of the DepthNormals prepass.</summary>
+        public static bool BlitEnabled = true;
+
+        /// <summary>
+        /// Requests URP's DepthNormals prepass via <see cref="ScriptableRenderPass.ConfigureInput"/>.
+        /// That geometry pass is the expensive line at 5k VAT units.
+        /// </summary>
+        public static bool DepthNormalsPrepassEnabled = true;
+
         [SerializeField] private Shader _shader;
         [SerializeField] private RenderPassEvent _injection = RenderPassEvent.BeforeRenderingPostProcessing;
         [SerializeField] [Range(0.1f, 1f)] private float _outlineMultiply = 0.35f;
         [SerializeField] private Color _fallbackColor = new Color(0.12f, 0.11f, 0.10f, 1f);
-        [SerializeField] private float _depthThreshold = 0.003f;
+        [SerializeField] private float _depthThreshold = 0.4f;
         [SerializeField] private float _normalThreshold = 0.35f;
         [SerializeField] private float _outlineWidth = 1.5f;
 
@@ -42,12 +50,16 @@ namespace Wasteland.Presentation
             {
                 renderPassEvent = _injection
             };
-            _pass.ConfigureInput(ScriptableRenderPassInput.Depth | ScriptableRenderPassInput.Normal | ScriptableRenderPassInput.Color);
         }
 
         public override void AddRenderPasses(ScriptableRenderer renderer, ref RenderingData renderingData)
         {
             if (_material == null || renderingData.cameraData.cameraType != CameraType.Game)
+            {
+                return;
+            }
+
+            if (!BlitEnabled && !DepthNormalsPrepassEnabled)
             {
                 return;
             }
@@ -64,7 +76,14 @@ namespace Wasteland.Presentation
                 _material.SetFloat("_CameraHeight", camera.transform.position.y);
             }
 
-            _pass.Setup(_material);
+            ScriptableRenderPassInput inputs = ScriptableRenderPassInput.Color;
+            if (DepthNormalsPrepassEnabled)
+            {
+                inputs |= ScriptableRenderPassInput.Depth | ScriptableRenderPassInput.Normal;
+            }
+
+            _pass.ConfigureInput(inputs);
+            _pass.Setup(_material, BlitEnabled);
             renderer.EnqueuePass(_pass);
         }
 
@@ -86,30 +105,34 @@ namespace Wasteland.Presentation
         private sealed class ToonOutlinePass : ScriptableRenderPass
         {
             private Material _material;
+            private bool _blitEnabled;
 
-            public void Setup(Material material)
+            public void Setup(Material material, bool blitEnabled)
             {
                 _material = material;
+                _blitEnabled = blitEnabled;
             }
 
             public override void RecordRenderGraph(RenderGraph renderGraph, ContextContainer frameData)
             {
-                if (_material == null)
+                if (_material == null || !_blitEnabled)
                 {
                     return;
                 }
 
                 UniversalResourceData resources = frameData.Get<UniversalResourceData>();
-                if (resources.isActiveTargetBackBuffer)
-                {
-                    return;
-                }
+                UniversalCameraData cameraData = frameData.Get<UniversalCameraData>();
 
                 TextureHandle source = resources.activeColorTexture;
-                TextureDesc destDesc = renderGraph.GetTextureDesc(source);
-                destDesc.name = "_WastelandToonOutline";
-                destDesc.clearBuffer = false;
-                TextureHandle destination = renderGraph.CreateTexture(destDesc);
+                RenderTextureDescriptor descriptor = cameraData.cameraTargetDescriptor;
+                descriptor.msaaSamples = 1;
+                descriptor.depthBufferBits = 0;
+                TextureHandle destination = UniversalRenderer.CreateRenderGraphTexture(
+                    renderGraph,
+                    descriptor,
+                    "_WastelandToonOutline",
+                    false,
+                    FilterMode.Bilinear);
 
                 using (var builder = renderGraph.AddRasterRenderPass<PassData>(
                            "Wasteland Toon Outline",
@@ -118,6 +141,19 @@ namespace Wasteland.Presentation
                     passData.Source = source;
                     passData.Material = _material;
                     builder.UseTexture(source, AccessFlags.Read);
+
+                    TextureHandle depth = resources.cameraDepthTexture;
+                    TextureHandle normals = resources.cameraNormalsTexture;
+                    if (depth.IsValid())
+                    {
+                        builder.UseTexture(depth, AccessFlags.Read);
+                    }
+
+                    if (normals.IsValid())
+                    {
+                        builder.UseTexture(normals, AccessFlags.Read);
+                    }
+
                     builder.SetRenderAttachment(destination, 0, AccessFlags.Write);
                     builder.SetRenderFunc(static (PassData data, RasterGraphContext context) =>
                     {
@@ -131,14 +167,14 @@ namespace Wasteland.Presentation
             [System.Obsolete]
             public override void Execute(ScriptableRenderContext context, ref RenderingData renderingData)
             {
-                if (_material == null)
+                if (_material == null || !_blitEnabled)
                 {
                     return;
                 }
 
                 CommandBuffer cmd = CommandBufferPool.Get("Wasteland Toon Outline");
-                RTHandle source = renderingData.cameraData.renderer.cameraColorTargetHandle;
-                Blitter.BlitCameraTexture(cmd, source, source, _material, 0);
+                RTHandle color = renderingData.cameraData.renderer.cameraColorTargetHandle;
+                Blitter.BlitCameraTexture(cmd, color, color, _material, 0);
                 context.ExecuteCommandBuffer(cmd);
                 CommandBufferPool.Release(cmd);
             }

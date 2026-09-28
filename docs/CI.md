@@ -2,7 +2,7 @@
 
 ## What runs now
 
-`.github/workflows/simulation.yml` restores the headless solution and runs `dotnet test Wasteland.Sim.sln` on every push and pull request. No Unity editor, no license.
+`.github/workflows/simulation.yml` restores the headless solution and runs `dotnet test Wasteland.Sim.sln` on every push and pull request. No Unity editor, no license. That includes `Wasteland.Sim.Tests` (lockstep contract) and `Wasteland.Presentation.Tests` (team/VAT packing and the faction LUT — Unity-free presentation logic).
 
 This is the gate for the lockstep contract: `Fixed64` internals, integer-cm state, PCG32 / xxHash64 goldens, delayed command logs, and per-tick hashes.
 

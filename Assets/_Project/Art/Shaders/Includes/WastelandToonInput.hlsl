@@ -8,8 +8,12 @@ CBUFFER_START(UnityPerMaterial)
     float4 _ShadowTint;
     float4 _RimColor;
     float4 _WeatheringColor;
+    float4 _TeamMaskTex_ST;
     float _TeamIndex;
 #ifdef WASTELAND_VAT
+    float4 _VATPos_ST;
+    float4 _VATNrm_ST;
+    float4 _VATClipTex_ST;
     float _AnimIndex;
     float _AnimTime;
     float _VATRowsPerFrame;
@@ -25,7 +29,7 @@ CBUFFER_START(UnityPerMaterial)
     float _Cutoff;
 CBUFFER_END
 
-#if defined(DOTS_INSTANCING_ON)
+#if defined(UNITY_DOTS_INSTANCING_ENABLED)
 UNITY_DOTS_INSTANCING_START(MaterialPropertyMetadata)
     UNITY_DOTS_INSTANCED_PROP(float, _TeamIndex)
 #ifdef WASTELAND_VAT

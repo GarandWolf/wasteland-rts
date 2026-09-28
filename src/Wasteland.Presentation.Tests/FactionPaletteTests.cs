@@ -1,7 +1,7 @@
 using Wasteland.Presentation;
 using Xunit;
 
-namespace Wasteland.Sim.Tests
+namespace Wasteland.Presentation.Tests
 {
     public sealed class FactionPaletteTests
     {

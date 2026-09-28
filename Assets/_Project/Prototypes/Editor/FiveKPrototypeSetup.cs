@@ -1,6 +1,7 @@
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using Wasteland.Presentation;
 using Wasteland.Presentation.Editor;
 
 namespace Wasteland.Prototypes.Editor
@@ -14,12 +15,11 @@ namespace Wasteland.Prototypes.Editor
         {
             WastelandUrpSetup.CreatePipelineAssets();
             TeamPaletteGenerator.GenerateTo(TeamPaletteGenerator.DefaultAssetPath);
-            ToonShaderGraphGenerator.Generate();
             VatBakerWindow.GeneratePlaceholder();
             CreateOrUpdateScene();
             EditorUtility.DisplayDialog(
                 "Wasteland toon prototype",
-                "Generated URP assets, team palette, shader graph stubs, placeholder VAT, and the 5k scene.\n\nStill verify:\n1. WastelandURP_Renderer Rendering Path = Forward+\n2. Graphics > Shader Stripping > BatchRendererGroup Variants = Keep All\n3. Shadow distance ~150 m\n4. TAA / motion blur off\n5. Open FiveKToonTest and Play",
+                "Generated URP Forward+ assets, team palette, placeholder VAT, Always Included Shaders, and the 5k scene.\n\nStill verify:\n1. WastelandURP_Renderer Rendering Path = Forward+\n2. Graphics > Shader Stripping > BatchRendererGroup Variants = Keep All\n3. Always Included Shaders lists Wasteland/Toon*\n4. Shadow distance ~150 m\n5. TAA / motion blur off (no MotionVectors pass yet)\n6. Open FiveKToonTest and Play\n7. O/P keys isolate outline blit vs DepthNormals prepass cost",
                 "OK");
         }
 
@@ -65,14 +65,28 @@ namespace Wasteland.Prototypes.Editor
             FiveKToonTestBootstrap boot = bootstrap.AddComponent<FiveKToonTestBootstrap>();
             bootstrap.AddComponent<VatClipChurnDriver>();
             bootstrap.AddComponent<FiveKTestHud>();
+            bootstrap.AddComponent<GameClock>();
 
             SerializedObject so = new SerializedObject(boot);
             SerializedProperty sun = so.FindProperty("_sun");
             if (sun != null)
             {
                 sun.objectReferenceValue = light;
-                so.ApplyModifiedProperties();
             }
+
+            SerializedProperty vatMat = so.FindProperty("_vatMaterial");
+            if (vatMat != null)
+            {
+                vatMat.objectReferenceValue = AssetDatabase.LoadAssetAtPath<Material>(ToonMaterialAssets.VatPath);
+            }
+
+            SerializedProperty staticMat = so.FindProperty("_staticMaterial");
+            if (staticMat != null)
+            {
+                staticMat.objectReferenceValue = AssetDatabase.LoadAssetAtPath<Material>(ToonMaterialAssets.StaticPath);
+            }
+
+            so.ApplyModifiedProperties();
 
             EditorSceneManager.SaveScene(scene, ScenePath);
             Debug.Log("Saved " + ScenePath);

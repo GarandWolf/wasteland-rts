@@ -147,8 +147,12 @@ Varyings WastelandToonShadowVert(Attributes input)
 
     float3 positionWS = TransformObjectToWorld(positionOS);
     float3 normalWS = TransformObjectToWorldNormal(normalOS);
-    Light mainLight = GetMainLight();
-    output.positionCS = TransformWorldToHClip(ApplyShadowBias(positionWS, normalWS, mainLight.direction));
+#if defined(_CASTING_PUNCTUAL_LIGHT_SHADOW)
+    float3 shadowLightDirectionWS = normalize(_LightPosition.xyz - positionWS);
+#else
+    float3 shadowLightDirectionWS = _LightDirection.xyz;
+#endif
+    output.positionCS = TransformWorldToHClip(ApplyShadowBias(positionWS, normalWS, shadowLightDirectionWS));
 #if UNITY_REVERSED_Z
     output.positionCS.z = min(output.positionCS.z, UNITY_NEAR_CLIP_VALUE);
 #else
@@ -184,7 +188,14 @@ float4 WastelandToonDepthFrag(Varyings input) : SV_Target
 float4 WastelandToonDepthNormalsFrag(Varyings input) : SV_Target
 {
     float3 n = NormalizeNormalPerPixel(input.normalWS);
+#if defined(_GBUFFER_NORMALS_OCT)
+    float2 octNormalWS = PackNormalOctQuadEncode(n);
+    float2 remappedOctNormalWS = saturate(octNormalWS * 0.5 + 0.5);
+    half3 packedNormalWS = PackFloat2To888(remappedOctNormalWS);
+    return half4(packedNormalWS, 0.0);
+#else
     return float4(n, 0.0);
+#endif
 }
 
 #endif

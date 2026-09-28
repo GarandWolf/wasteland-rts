@@ -67,6 +67,7 @@ namespace Wasteland.Presentation.Editor
             GraphicsSettings.defaultRenderPipeline = pipeline;
             QualitySettings.renderPipeline = pipeline;
             TryKeepBatchRendererGroupVariants();
+            TryAlwaysIncludeToonShaders();
             EditorUtility.SetDirty(renderer);
             EditorUtility.SetDirty(pipeline);
             AssetDatabase.SaveAssets();
@@ -75,18 +76,8 @@ namespace Wasteland.Presentation.Editor
 
         public static void SetForwardPlus(UniversalRendererData renderer)
         {
-            SerializedObject so = new SerializedObject(renderer);
-            SerializedProperty mode = so.FindProperty("m_RenderingMode") ?? so.FindProperty("m_RenderingModePath");
-            if (mode != null)
-            {
-                // URP RenderingMode.ForwardPlus is 1 in URP 14–17.
-                mode.intValue = 1;
-                so.ApplyModifiedProperties();
-            }
-            else
-            {
-                Debug.LogWarning("Could not find UniversalRendererData rendering mode property. Set Forward+ manually.");
-            }
+            renderer.renderingMode = RenderingMode.ForwardPlus;
+            EditorUtility.SetDirty(renderer);
         }
 
         public static void AddOutlineFeature(UniversalRendererData renderer)
@@ -110,6 +101,14 @@ namespace Wasteland.Presentation.Editor
 
             ToonOutlineRendererFeature feature = ScriptableObject.CreateInstance<ToonOutlineRendererFeature>();
             feature.name = "Toon Outline";
+            SerializedObject featureSo = new SerializedObject(feature);
+            SerializedProperty shaderProp = featureSo.FindProperty("_shader");
+            if (shaderProp != null)
+            {
+                shaderProp.objectReferenceValue = Shader.Find(ToonOutlineRendererFeature.ShaderName);
+                featureSo.ApplyModifiedPropertiesWithoutUndo();
+            }
+
             AssetDatabase.AddObjectToAsset(feature, renderer);
             features.arraySize++;
             features.GetArrayElementAtIndex(features.arraySize - 1).objectReferenceValue = feature;
@@ -150,6 +149,58 @@ namespace Wasteland.Presentation.Editor
             {
                 Debug.LogWarning("Set Project Settings > Graphics > Shader Stripping > BatchRendererGroup Variants = Keep All (verify the Unity 6.3 name).");
             }
+        }
+
+        public static void TryAlwaysIncludeToonShaders()
+        {
+            Shader[] shaders =
+            {
+                Shader.Find("Wasteland/ToonVAT"),
+                Shader.Find("Wasteland/ToonStatic"),
+                Shader.Find("Wasteland/ToonOutline")
+            };
+
+            Object graphics = AssetDatabase.LoadMainAssetAtPath("ProjectSettings/GraphicsSettings.asset");
+            if (graphics == null)
+            {
+                Debug.LogWarning("Add Wasteland/ToonStatic, Wasteland/ToonVAT, and Wasteland/ToonOutline to Always Included Shaders.");
+                return;
+            }
+
+            SerializedObject so = new SerializedObject(graphics);
+            SerializedProperty list = so.FindProperty("m_AlwaysIncludedShaders");
+            if (list == null || !list.isArray)
+            {
+                Debug.LogWarning("Add Wasteland/ToonStatic, Wasteland/ToonVAT, and Wasteland/ToonOutline to Project Settings > Graphics > Always Included Shaders.");
+                return;
+            }
+
+            foreach (Shader shader in shaders)
+            {
+                if (shader == null)
+                {
+                    continue;
+                }
+
+                bool found = false;
+                for (int i = 0; i < list.arraySize; i++)
+                {
+                    if (list.GetArrayElementAtIndex(i).objectReferenceValue == shader)
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    list.arraySize++;
+                    list.GetArrayElementAtIndex(list.arraySize - 1).objectReferenceValue = shader;
+                }
+            }
+
+            so.ApplyModifiedProperties();
+            Debug.Log("Always Included Shaders now lists Wasteland/ToonStatic, Wasteland/ToonVAT, and Wasteland/ToonOutline.");
         }
     }
 }

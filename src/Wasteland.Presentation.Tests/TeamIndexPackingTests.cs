@@ -1,7 +1,7 @@
 using Wasteland.Presentation;
 using Xunit;
 
-namespace Wasteland.Sim.Tests
+namespace Wasteland.Presentation.Tests
 {
     public sealed class TeamIndexPackingTests
     {
@@ -39,6 +39,15 @@ namespace Wasteland.Sim.Tests
         {
             uint packed = TeamIndexPacking.Pack(1, 2, 3, true, true);
             Assert.Equal(0u, packed >> 8);
+        }
+
+        [Fact]
+        public void AsFloat_IsIeeeBitCopyNotNumericConvert()
+        {
+            uint packed = TeamIndexPacking.Pack(1, 2, 3, true, true);
+            float bits = TeamIndexPacking.AsFloat(packed);
+            Assert.Equal(packed, TeamIndexPacking.AsUInt(bits));
+            Assert.NotEqual((float)packed, bits);
         }
     }
 }

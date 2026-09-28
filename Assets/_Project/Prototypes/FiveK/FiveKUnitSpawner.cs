@@ -28,6 +28,11 @@ namespace Wasteland.Prototypes
 
         public static SpawnStats Spawn(World world)
         {
+            return Spawn(world, ToonMaterialAssets.LoadVatTemplate(), ToonMaterialAssets.LoadStaticTemplate());
+        }
+
+        public static SpawnStats Spawn(World world, Material vatTemplate, Material staticTemplate)
+        {
             EntityManager em = world.EntityManager;
             SpawnStats stats = new SpawnStats { VatReports = new string[ProceduralUnitMeshes.InfantryArchetypeCount] };
 
@@ -39,11 +44,11 @@ namespace Wasteland.Prototypes
             AABB[] infantryBounds = new AABB[vat.Length];
             AABB[] vehicleBounds = new AABB[vehicleMats.Length];
 
-            Shader vatShader = Shader.Find("Wasteland/ToonVAT");
-            Shader staticShader = Shader.Find("Wasteland/ToonStatic");
-            if (vatShader == null || staticShader == null)
+            if (vatTemplate == null || vatTemplate.shader == null ||
+                staticTemplate == null || staticTemplate.shader == null)
             {
-                Debug.LogError("Wasteland toon shaders are missing. Check Assets/_Project/Art/Shaders/.");
+                Debug.LogError(
+                    "Checked-in Wasteland toon materials are missing. Confirm Assets/_Project/Art/Materials/M_Toon_VAT.mat and M_Toon_Static.mat.");
                 return stats;
             }
 
@@ -54,7 +59,7 @@ namespace Wasteland.Prototypes
                 vat[i] = PrototypeVatFactory.BuildInfantry(i);
                 stats.VatReports[i] = PrototypeVatFactory.FormatReport(vat[i]);
                 infantryMeshes[i] = vat[i].BindMesh;
-                infantryMats[i] = CreateVatMaterial(vatShader, vat[i]);
+                infantryMats[i] = CreateVatMaterial(vatTemplate, vat[i]);
                 infantryBounds[i] = ToAabb(vat[i].RenderBounds);
                 Debug.Log("[FiveK] " + stats.VatReports[i]);
             }
@@ -63,7 +68,7 @@ namespace Wasteland.Prototypes
             {
                 ProceduralUnitMeshes.BuiltMesh built = ProceduralUnitMeshes.CreateVehicle(i);
                 vehicleMeshes[i] = built.Mesh;
-                vehicleMats[i] = CreateStaticMaterial(staticShader);
+                vehicleMats[i] = CreateStaticMaterial(staticTemplate);
                 vehicleBounds[i] = ToAabb(built.AnimationBounds);
             }
 
@@ -129,10 +134,11 @@ namespace Wasteland.Prototypes
             for (int i = 0; i < entities.Length; i++)
             {
                 VatClipState s = states[i];
-                int clip = VatClipPacking.GetClip(s.Value);
-                bool hold = VatClipPacking.GetHold(s.Value);
-                bool valid = VatClipPacking.GetValid(s.Value);
-                s.Value = VatClipPacking.Pack(clip, hold, valid, speed);
+                uint bits = math.asuint(s.Value);
+                int clip = VatClipPacking.GetClip(bits);
+                bool hold = VatClipPacking.GetHold(bits);
+                bool valid = VatClipPacking.GetValid(bits);
+                s.Value = math.asfloat(VatClipPacking.Pack(clip, hold, valid, speed));
                 em.SetComponentData(entities[i], s);
             }
         }
@@ -145,10 +151,11 @@ namespace Wasteland.Prototypes
             for (int i = 0; i < entities.Length; i++)
             {
                 VatClipState s = states[i];
-                int clip = VatClipPacking.GetClip(s.Value);
-                bool hold = VatClipPacking.GetHold(s.Value);
-                float speed = VatClipPacking.GetSpeed(s.Value);
-                s.Value = VatClipPacking.Pack(clip, hold, valid: !bindPose, speed);
+                uint bits = math.asuint(s.Value);
+                int clip = VatClipPacking.GetClip(bits);
+                bool hold = VatClipPacking.GetHold(bits);
+                float speed = VatClipPacking.GetSpeed(bits);
+                s.Value = math.asfloat(VatClipPacking.Pack(clip, hold, valid: !bindPose, speed));
                 em.SetComponentData(entities[i], s);
             }
         }
@@ -198,8 +205,9 @@ namespace Wasteland.Prototypes
                 array,
                 MaterialMeshInfo.FromRenderMeshArrayIndices(archetype, archetype));
             em.SetComponentData(entity, new RenderBounds { Value = bounds });
-            em.AddComponentData(entity, new TeamColorIndex { Value = team });
-            em.AddComponentData(entity, new VatClipState { Value = VatClipPacking.Pack(clip, hold: false, valid: true, speed) });
+            em.AddComponentData(entity, new TeamColorIndex { Value = math.asfloat(team) });
+            bool hold = clip == VatClipPacking.ClipFire;
+            em.AddComponentData(entity, new VatClipState { Value = math.asfloat(VatClipPacking.Pack(clip, hold, valid: true, speed)) });
             em.AddComponentData(entity, new VatStartTime { Value = startTime });
             em.AddComponentData(entity, new FiveKInfantryTag());
         }
@@ -222,13 +230,13 @@ namespace Wasteland.Prototypes
                 array,
                 MaterialMeshInfo.FromRenderMeshArrayIndices(archetype, archetype));
             em.SetComponentData(entity, new RenderBounds { Value = bounds });
-            em.AddComponentData(entity, new TeamColorIndex { Value = team });
+            em.AddComponentData(entity, new TeamColorIndex { Value = math.asfloat(team) });
             em.AddComponentData(entity, new FiveKVehicleTag());
         }
 
-        private static Material CreateVatMaterial(Shader shader, PlaceholderVatSet vat)
+        private static Material CreateVatMaterial(Material template, PlaceholderVatSet vat)
         {
-            Material mat = new Material(shader) { name = "M_Toon_Infantry_" + vat.BindMesh.name, enableInstancing = true };
+            Material mat = new Material(template) { name = "M_Toon_Infantry_" + vat.BindMesh.name, enableInstancing = true };
             mat.SetTexture("_VATPos", vat.Positions);
             mat.SetTexture("_VATNrm", vat.Normals);
             mat.SetTexture("_VATClipTex", vat.ClipTable);
@@ -239,9 +247,9 @@ namespace Wasteland.Prototypes
             return mat;
         }
 
-        private static Material CreateStaticMaterial(Shader shader)
+        private static Material CreateStaticMaterial(Material template)
         {
-            Material mat = new Material(shader) { name = "M_Toon_Vehicle", enableInstancing = true };
+            Material mat = new Material(template) { name = "M_Toon_Vehicle", enableInstancing = true };
             mat.SetFloat("_UseVertexColorMask", 1f);
             mat.SetFloat("_EnableRim", 1f);
             ApplyToonDefaults(mat);

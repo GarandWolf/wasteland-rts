@@ -61,7 +61,7 @@ namespace Wasteland.Prototypes
             {
                 new VatClipDesc { Name = "idle", FirstRow = 0, FrameCount = IdleFrames, Fps = BakeFps, Loop = true, LengthSeconds = IdleFrames / BakeFps },
                 new VatClipDesc { Name = "walk", FirstRow = IdleFrames, FrameCount = WalkFrames, Fps = BakeFps, Loop = true, LengthSeconds = WalkFrames / BakeFps },
-                new VatClipDesc { Name = "fire", FirstRow = IdleFrames + WalkFrames, FrameCount = FireFrames, Fps = BakeFps, Loop = true, LengthSeconds = FireFrames / BakeFps }
+                new VatClipDesc { Name = "fire", FirstRow = IdleFrames + WalkFrames, FrameCount = FireFrames, Fps = BakeFps, Loop = false, LengthSeconds = FireFrames / BakeFps }
             };
 
             Vector3[] posed = new Vector3[vertexCount];

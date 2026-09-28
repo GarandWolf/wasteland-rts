@@ -1,5 +1,6 @@
 using Unity.Collections;
 using Unity.Entities;
+using Unity.Mathematics;
 using Unity.Profiling;
 using UnityEngine;
 using Wasteland.Presentation;
@@ -44,7 +45,7 @@ namespace Wasteland.Prototypes
                 return;
             }
 
-            _timer += Time.unscaledDeltaTime;
+            _timer += GameClock.Instance != null ? GameClock.Instance.DeltaTime : Time.unscaledDeltaTime;
             if (_timer < _interval)
             {
                 return;
@@ -75,7 +76,7 @@ namespace Wasteland.Prototypes
                 return;
             }
 
-            int n = mathMin(_churnCount, entities.Length);
+            int n = math.min(_churnCount, entities.Length);
             float vatTime = Shader.GetGlobalFloat(PresentationRenderGlobalsSystem.VatTimeProperty);
             uint seed = (uint)(Time.frameCount * 2654435761u);
             for (int i = 0; i < n; i++)
@@ -84,24 +85,21 @@ namespace Wasteland.Prototypes
                 int index = (int)(seed % (uint)entities.Length);
                 Entity e = entities[index];
                 VatClipState state = em.GetComponentData<VatClipState>(e);
-                int current = VatClipPacking.GetClip(state.Value);
+                uint bits = math.asuint(state.Value);
+                int current = VatClipPacking.GetClip(bits);
                 int next = (current + 1 + (int)(seed & 1u)) % 3;
-                bool valid = VatClipPacking.GetValid(state.Value);
-                float speed = VatClipPacking.GetSpeed(state.Value);
+                bool valid = VatClipPacking.GetValid(bits);
+                float speed = VatClipPacking.GetSpeed(bits);
                 if (speed <= 0f)
                 {
                     speed = 1f;
                 }
 
-                em.SetComponentData(e, new VatClipState { Value = VatClipPacking.Pack(next, hold: false, valid, speed) });
+                bool hold = next == VatClipPacking.ClipFire;
+                em.SetComponentData(e, new VatClipState { Value = math.asfloat(VatClipPacking.Pack(next, hold, valid, speed)) });
                 em.SetComponentData(e, new VatStartTime { Value = vatTime });
                 _switches++;
             }
-        }
-
-        private static int mathMin(int a, int b)
-        {
-            return a < b ? a : b;
         }
     }
 }

@@ -3,6 +3,7 @@
 
 // Packed _TeamIndex layout (team-color-spec-v2 §2.2):
 // bits 0-1 faction, 2-3 shade, 4-5 pips, 6 hatch, 7 valid, 8-31 reserved.
+// C# stores the packed uint as float bits (math.asfloat); this shader reads asuint.
 
 static const uint WASTELAND_TEAM_FACTION_MASK = 3u;
 static const uint WASTELAND_TEAM_SHADE_SHIFT = 2u;

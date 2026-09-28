@@ -4,7 +4,9 @@ using UnityEngine;
 namespace Wasteland.Prototypes
 {
     /// <summary>
-    /// Low-poly placeholder meshes with vertex-color team masks and UV3 vertex indices.
+    /// Low-poly placeholder meshes with vertex-color team masks.
+    /// Vertex indices are written to UV channel 3 (<c>SetUVs(3)</c> → TEXCOORD3), matching the VAT shader.
+    /// (Unity's <c>mesh.uv3</c> property is channel 2.)
     /// Three infantry silhouettes and three vehicle silhouettes for the 5k test.
     /// </summary>
     public static class ProceduralUnitMeshes

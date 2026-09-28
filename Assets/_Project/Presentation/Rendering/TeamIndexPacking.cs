@@ -1,8 +1,12 @@
+using System;
+
 namespace Wasteland.Presentation
 {
     /// <summary>
     /// Packed <c>_TeamIndex</c> layout from team-color-spec-v2 §2.2.
     /// Pure integer math; safe to share with headless tests.
+    /// GPU MaterialProperty slots are float: store <see cref="AsFloat"/> /
+    /// <c>math.asfloat(packed)</c> and decode with shader <c>asuint</c>.
     /// </summary>
     public static class TeamIndexPacking
     {
@@ -42,6 +46,21 @@ namespace Wasteland.Presentation
             }
 
             return value;
+        }
+
+        /// <summary>
+        /// IEEE bit copy matching <c>Unity.Mathematics.math.asfloat</c>.
+        /// Numeric convert (<c>(float)packed</c>) would break shader <c>asuint</c>.
+        /// </summary>
+        public static float AsFloat(uint packed)
+        {
+            return BitConverter.Int32BitsToSingle(unchecked((int)packed));
+        }
+
+        /// <summary>Inverse of <see cref="AsFloat"/>; matches <c>math.asuint</c>.</summary>
+        public static uint AsUInt(float bits)
+        {
+            return unchecked((uint)BitConverter.SingleToInt32Bits(bits));
         }
 
         public static int GetFaction(uint packed)
