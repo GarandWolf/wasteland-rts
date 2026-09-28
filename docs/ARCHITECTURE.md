@@ -61,7 +61,7 @@ AI is another `issuerId`. It must be deterministic (PCG32 streams derived with `
 
 A **battalion** is a first-class sim entity with a stable `Id`. Units **belong** to battalions (`SimUnit.BattalionId`). `Move` targets a battalion, not a unit. This skeleton spawns a one-unit battalion (unit id = battalion id) so the command log stays small; later composition will add more units per battalion without changing the Move target.
 
-A group of battalions managed by the AI is a **task force** (AI-owned; not sim state in this package).
+A group of battalions managed by the AI is a **task force**: AI-owned deterministic state. Other sim systems cannot read it, but it is serialized with saves and folded into the periodic state hash (stored in a fixed order).
 
 Iterate battalions and units in **id order**. Do not rely on dictionary enumeration.
 
