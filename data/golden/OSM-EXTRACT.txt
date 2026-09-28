@@ -1,0 +1,15 @@
+OSM extract used for golden-ci-columbia-gorge-100
+
+Archived clip (NOT in the repo, ODbL source retained for the share-alike / produced-work offer):
+  path   : gorge/archive/osm/gorge-clip.osm.pbf (pipeline box, /workspace/rts-map/gorge/archive/osm/)
+  bytes  : 17153637
+  sha256 : 3eebb2957d33270446cbb2f46ea4a87631086da7c6418f7700693b7dc8b87176
+  equals META.osmClipSha256 in both .wrmb files
+
+Upstream extracts (Geofabrik, replication timestamp 2026-09-27T20:23:36Z, sequence 4924):
+  https://download.geofabrik.de/north-america/us/oregon-260927.osm.pbf  sha256 3733bf8ec038c1dc6f662f61d77e8fc881ff735c359ab5197d84b4f189b91c8b
+  https://download.geofabrik.de/north-america/us/washington-260927.osm.pbf  sha256 bdffaa31bf1b131cb280e6db4e08f054f5f16464c0bb0f4e0629a92c664dbbc1
+
+The clip is produced by pipeline/s1_osm.py (bounding polygon + tag filter) from those pinned extracts; rebuild with
+`make -C pipeline build` from the pinned inputs (raw/inputs.lock.json) reproduces it byte-identically.
+Game id -> OSM id sidecar: blob/<map>.idmap.json (debug; not shipped in the game files).

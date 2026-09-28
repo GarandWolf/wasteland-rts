@@ -1,0 +1,29 @@
+name: Golden map
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    name: WRMB golden (Columbia Gorge)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Pull golden WRMB via Git LFS
+        run: git lfs pull --include="data/golden/*.wrmb" --exclude=""
+
+      - name: Verify SHA-256
+        working-directory: data/golden
+        run: |
+          set -euo pipefail
+          sha256sum -c golden-ci-columbia-gorge-100.v0.wrmb.sha256 --strict
+          sha256sum -c golden-ci-columbia-gorge-100.terrain.v0.wrmb.sha256 --strict
+
+      - name: Validate WRMB pair
+        run: |
+          python3 tools/map/wrmb_reader.py \
+            data/golden/golden-ci-columbia-gorge-100.v0.wrmb \
+            --terrain data/golden/golden-ci-columbia-gorge-100.terrain.v0.wrmb
