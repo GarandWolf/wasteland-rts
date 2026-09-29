@@ -52,6 +52,11 @@ namespace Wasteland.Sim.Tests
 
             Assert.Equal(original.Tick, restored.Tick);
             Assert.Equal(atSave, restored.HashWorld());
+            Assert.Equal(
+                original.Ai.PendingCountOf(AiConstants.DefaultAiFactionA)
+                    + original.Ai.PendingCountOf(AiConstants.DefaultAiFactionB),
+                restored.Ai.PendingCountOf(AiConstants.DefaultAiFactionA)
+                    + restored.Ai.PendingCountOf(AiConstants.DefaultAiFactionB));
 
             int remain = AiConstants.M1DeterminismTicks - AiConstants.SaveLoadMidRunTick;
             original.Run(remain);

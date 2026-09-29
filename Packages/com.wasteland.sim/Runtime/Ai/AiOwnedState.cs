@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Wasteland.Sim.Commands;
 using Wasteland.Sim.Hashing;
 using Wasteland.Sim.Random;
 
@@ -24,6 +25,21 @@ namespace Wasteland.Sim.Ai
         public int NodeId;
         public int XCm;
         public int YCm;
+    }
+
+    /// <summary>
+    /// One command waiting on <see cref="AiFactionState.ReactionExtraTicks"/>.
+    /// <see cref="SimWorld.Submit"/> stamps <c>executeTick</c>; this queue
+    /// must not.
+    /// </summary>
+    public struct AiPendingCommand
+    {
+        public int ReadyTick;
+        public int BattalionId;
+        public CommandKind Kind;
+        public int Arg0;
+        public int Arg1;
+        public int Arg2;
     }
 
     /// <summary>
@@ -62,10 +78,12 @@ namespace Wasteland.Sim.Ai
         public int ManpowerCarry;
         public int DepotCount;
         public int PickedPostCount;
+        public int PendingCount;
         public readonly AiOrder[] Orders;
         public readonly AiDepot[] Depots;
         public readonly int[] PickedPostIds;
         public readonly int[] PickedGroupIds;
+        public readonly AiPendingCommand[] Pending;
         public SimRandom StrategyRng;
         public SimRandom TacticalRng;
         public SimRandom MistakeRng;
@@ -109,6 +127,7 @@ namespace Wasteland.Sim.Ai
             Depots = new AiDepot[16];
             PickedPostIds = new int[64];
             PickedGroupIds = new int[64];
+            Pending = new AiPendingCommand[AiConstants.PendingCommandCapacity];
             StrategyRng = strategyRng;
             TacticalRng = tacticalRng;
             MistakeRng = mistakeRng;
@@ -248,6 +267,7 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.ManpowerCarry);
                 hash.AddInt(faction.DepotCount);
                 hash.AddInt(faction.PickedPostCount);
+                hash.AddInt(faction.PendingCount);
                 hash.AddULong(faction.StrategyRng.State);
                 hash.AddULong(faction.StrategyRng.Stream);
                 hash.AddULong(faction.TacticalRng.State);
@@ -283,6 +303,17 @@ namespace Wasteland.Sim.Ai
                 {
                     hash.AddInt(faction.PickedPostIds[p]);
                     hash.AddInt(faction.PickedGroupIds[p]);
+                }
+
+                for (int q = 0; q < faction.PendingCount; q++)
+                {
+                    AiPendingCommand pending = faction.Pending[q];
+                    hash.AddInt(pending.ReadyTick);
+                    hash.AddInt(pending.BattalionId);
+                    hash.AddByte((byte)pending.Kind);
+                    hash.AddInt(pending.Arg0);
+                    hash.AddInt(pending.Arg1);
+                    hash.AddInt(pending.Arg2);
                 }
             }
 
@@ -333,6 +364,7 @@ namespace Wasteland.Sim.Ai
                 writer.Write(faction.ManpowerCarry);
                 writer.Write(faction.DepotCount);
                 writer.Write(faction.PickedPostCount);
+                writer.Write(faction.PendingCount);
                 WriteRng(writer, faction.StrategyRng);
                 WriteRng(writer, faction.TacticalRng);
                 WriteRng(writer, faction.MistakeRng);
@@ -364,6 +396,17 @@ namespace Wasteland.Sim.Ai
                 {
                     writer.Write(faction.PickedPostIds[p]);
                     writer.Write(faction.PickedGroupIds[p]);
+                }
+
+                for (int q = 0; q < faction.PendingCount; q++)
+                {
+                    AiPendingCommand pending = faction.Pending[q];
+                    writer.Write(pending.ReadyTick);
+                    writer.Write(pending.BattalionId);
+                    writer.Write((byte)pending.Kind);
+                    writer.Write(pending.Arg0);
+                    writer.Write(pending.Arg1);
+                    writer.Write(pending.Arg2);
                 }
             }
 
@@ -440,13 +483,15 @@ namespace Wasteland.Sim.Ai
                 _factions[i].ManpowerCarry = reader.ReadInt32();
                 _factions[i].DepotCount = reader.ReadInt32();
                 _factions[i].PickedPostCount = reader.ReadInt32();
+                _factions[i].PendingCount = reader.ReadInt32();
                 _factions[i].StrategyRng = ReadRng(reader);
                 _factions[i].TacticalRng = ReadRng(reader);
                 _factions[i].MistakeRng = ReadRng(reader);
                 _factions[i].ScoutRng = ReadRng(reader);
                 if (_factions[i].OrderCount > _factions[i].Orders.Length
                     || _factions[i].DepotCount > _factions[i].Depots.Length
-                    || _factions[i].PickedPostCount > _factions[i].PickedPostIds.Length)
+                    || _factions[i].PickedPostCount > _factions[i].PickedPostIds.Length
+                    || _factions[i].PendingCount > _factions[i].Pending.Length)
                 {
                     throw new InvalidDataException("AI collection count exceeds slot capacity.");
                 }
@@ -480,6 +525,18 @@ namespace Wasteland.Sim.Ai
                 {
                     _factions[i].PickedPostIds[p] = reader.ReadInt32();
                     _factions[i].PickedGroupIds[p] = reader.ReadInt32();
+                }
+
+                for (int q = 0; q < _factions[i].PendingCount; q++)
+                {
+                    AiPendingCommand pending = default;
+                    pending.ReadyTick = reader.ReadInt32();
+                    pending.BattalionId = reader.ReadInt32();
+                    pending.Kind = (CommandKind)reader.ReadByte();
+                    pending.Arg0 = reader.ReadInt32();
+                    pending.Arg1 = reader.ReadInt32();
+                    pending.Arg2 = reader.ReadInt32();
+                    _factions[i].Pending[q] = pending;
                 }
             }
 

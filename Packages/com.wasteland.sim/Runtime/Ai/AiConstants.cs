@@ -3,8 +3,9 @@ namespace Wasteland.Sim.Ai
     /// <summary>Enemy AI constants from the design (Appendix A / §4.2 / §7 / §8) plus M1 economy/claim pins.</summary>
     public static class AiConstants
     {
-        public const int SchemaVersion = 2;
+        public const int SchemaVersion = 3;
         public const int BalanceSchemaVersion = 1;
+        public const int PendingCommandCapacity = 128;
         public const int TickRateHz = SimConfig.TickRateHz;
         public const int FactionPlanOffsetTicks = 3;
         public const int AiWorkUnitsPerTick = 50000;

@@ -61,7 +61,120 @@ namespace Wasteland.Sim.Tests
             }
 
             Assert.True(host.CommandLog.Count > 0);
+            for (int i = 0; i < host.CommandLog.Count; i++)
+            {
+                Assert.Equal(0, host.CommandLog[i].ExecuteTick);
+            }
+
             host.Shutdown();
+        }
+
+        [Fact]
+        public void ReactionDelayQueue_SubmitsOnlyAfterExtraTicks()
+        {
+            AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
+            int extra = balance.GetDifficulty(AiConstants.DifficultyNormal).ReactionExtraTicks;
+            Assert.Equal(12, extra);
+
+            AiMatchHost host = StartHost();
+            int pending = 0;
+            while (host.Tick < 200)
+            {
+                pending = TotalPending(host.Ai);
+                if (pending > 0)
+                {
+                    break;
+                }
+
+                host.Step();
+            }
+
+            Assert.True(pending > 0);
+            Assert.Empty(host.CommandLog);
+            int ready = FirstReadyTick(host.Ai);
+            Assert.True(ready > host.Tick);
+            while (host.Tick < ready)
+            {
+                host.Step();
+            }
+
+            host.Step();
+            Assert.True(host.CommandLog.Count > 0);
+            Assert.Equal(ready, host.CommandLog[0].IssuedTick);
+            Assert.Equal(0, host.CommandLog[0].ExecuteTick);
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void ReactionDelayQueue_IsHashedAndRestoredOnSaveLoad()
+        {
+            AiMatchHost host = StartHost();
+            while (host.Tick < 200 && TotalPending(host.Ai) == 0)
+            {
+                host.Step();
+            }
+
+            Assert.True(TotalPending(host.Ai) > 0);
+            Assert.Empty(host.CommandLog);
+            ulong before = host.Ai.HashState();
+            byte[] blob = host.Ai.Save();
+            int pending = TotalPending(host.Ai);
+            int readyTick = host.Ai.Owned.FactionAt(0).PendingCount > 0
+                ? host.Ai.Owned.FactionAt(0).Pending[0].ReadyTick
+                : host.Ai.Owned.FactionAt(1).Pending[0].ReadyTick;
+
+            AiMatchHost restored = StartHost();
+            restored.Ai.Load(blob);
+            Assert.Equal(before, restored.Ai.HashState());
+            Assert.Equal(pending, TotalPending(restored.Ai));
+            Assert.Equal(readyTick, FirstReadyTick(restored.Ai));
+            restored.Shutdown();
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void Brutal_HasNoReactionDelayOnSubmit()
+        {
+            AiMatchHost host = AiMatchHost.Start(
+                MatchConfig.Default(0xA11EEDUL),
+                LoadGorgeBytes(),
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                AiConstants.DifficultyBrutal,
+                AiBalanceTablesTests.LoadBalance());
+            Assert.Equal(0, host.Ai.Difficulty.ReactionExtraTicks);
+            host.Run(80);
+            Assert.True(host.CommandLog.Count > 0);
+            Assert.Equal(0, host.CommandLog[0].ExecuteTick);
+            host.Shutdown();
+        }
+
+        private static int TotalPending(EnemyAi ai)
+        {
+            int total = 0;
+            for (int i = 0; i < ai.Owned.FactionCount; i++)
+            {
+                total += ai.Owned.FactionAt(i).PendingCount;
+            }
+
+            return total;
+        }
+
+        private static int FirstReadyTick(EnemyAi ai)
+        {
+            int best = int.MaxValue;
+            for (int i = 0; i < ai.Owned.FactionCount; i++)
+            {
+                AiFactionState faction = ai.Owned.FactionAt(i);
+                for (int p = 0; p < faction.PendingCount; p++)
+                {
+                    if (faction.Pending[p].ReadyTick < best)
+                    {
+                        best = faction.Pending[p].ReadyTick;
+                    }
+                }
+            }
+
+            return best;
         }
 
         [Fact]

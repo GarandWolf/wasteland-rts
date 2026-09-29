@@ -203,6 +203,7 @@ namespace Wasteland.Sim.Ai
 
             AccrueIncome();
             StepCaptureOccupancy();
+            FlushPendingCommands();
 
             int workUnits = 0;
             int phase = tick % AiConstants.TimeSliceModulus;
@@ -247,6 +248,8 @@ namespace Wasteland.Sim.Ai
                     RunTacticalSlice(faction);
                 }
             }
+
+            FlushPendingCommands();
         }
 
         public void MatchShutdown()
@@ -361,6 +364,11 @@ namespace Wasteland.Sim.Ai
         public int DepotCountOf(int factionId)
         {
             return _owned.GetFaction(factionId).DepotCount;
+        }
+
+        public int PendingCountOf(int factionId)
+        {
+            return _owned.GetFaction(factionId).PendingCount;
         }
 
         public bool OwnsTerritory(int factionId, int territoryId)
@@ -655,7 +663,7 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                _commands.Submit(SimCommand.Move(_world.Tick, faction.FactionId, order.BattalionId, town.XCm, town.YCm));
+                Issue(faction, CommandKind.Move, order.BattalionId, town.XCm, town.YCm, 0);
             }
         }
 
@@ -686,14 +694,71 @@ namespace Wasteland.Sim.Ai
         {
             int id = faction.NextBattalionId;
             faction.NextBattalionId++;
-            _commands.Submit(SimCommand.SpawnBattalion(
-                _world.Tick,
-                faction.FactionId,
+            Issue(
+                faction,
+                CommandKind.SpawnBattalion,
                 id,
                 xCm,
                 yCm,
-                AiConstants.ClaimMarchSpeedCmPerSecond));
+                AiConstants.ClaimMarchSpeedCmPerSecond);
             return id;
+        }
+
+        private void Issue(AiFactionState faction, CommandKind kind, int battalionId, int arg0, int arg1, int arg2)
+        {
+            if (faction.PendingCount >= faction.Pending.Length)
+            {
+                throw new InvalidOperationException("AI reaction-delay queue is full.");
+            }
+
+            int extra = faction.ReactionExtraTicks;
+            if (extra < 0)
+            {
+                extra = 0;
+            }
+
+            AiPendingCommand pending = default;
+            pending.ReadyTick = _world.Tick + extra;
+            pending.BattalionId = battalionId;
+            pending.Kind = kind;
+            pending.Arg0 = arg0;
+            pending.Arg1 = arg1;
+            pending.Arg2 = arg2;
+            faction.Pending[faction.PendingCount] = pending;
+            faction.PendingCount++;
+        }
+
+        private void FlushPendingCommands()
+        {
+            int tick = _world.Tick;
+            for (int f = 0; f < _owned.FactionCount; f++)
+            {
+                AiFactionState faction = _owned.FactionAt(f);
+                int write = 0;
+                for (int i = 0; i < faction.PendingCount; i++)
+                {
+                    AiPendingCommand pending = faction.Pending[i];
+                    if (pending.ReadyTick <= tick)
+                    {
+                        SimCommand command = new SimCommand(
+                            tick,
+                            faction.FactionId,
+                            pending.BattalionId,
+                            pending.Kind,
+                            pending.Arg0,
+                            pending.Arg1,
+                            pending.Arg2);
+                        _commands.Submit(command);
+                    }
+                    else
+                    {
+                        faction.Pending[write] = pending;
+                        write++;
+                    }
+                }
+
+                faction.PendingCount = write;
+            }
         }
 
         private void RebuildFrontlinePosts(AiFactionState faction)
@@ -933,7 +998,7 @@ namespace Wasteland.Sim.Ai
                         continue;
                     }
 
-                    _commands.Submit(SimCommand.Build(_world.Tick, faction.FactionId, site.XCm, site.YCm, AiConstants.BuildingTagDepot));
+                    Issue(faction, CommandKind.Build, 0, site.XCm, site.YCm, AiConstants.BuildingTagDepot);
                     faction.Depots[faction.DepotCount++] = site;
                     AiOrder order = default;
                     order.Id = faction.NextOrderId++;
