@@ -33,6 +33,24 @@ Also in this folder:
 
 Layout: [`docs/map/wrmb-layout-v1.md`](../../docs/map/wrmb-layout-v1.md).
 
+## v1-marsh pair (formatVersion 1, WTRA version 2, pipeline `0.7.0-golden-v1.4-marsh`)
+
+Follow-up to the merged v1 pair. No record layout changes (`formatVersion` stays 1), so these are **new files**; the v0 and merged v1 files are untouched. What changed in the data:
+
+- **Fordable rivers are continuous, watertight MVLC 5 (marsh) lines.** Code 5 goes from 1,416 to 13,257 cells (+11,841, including 692 diagonal-closing cells). Gaps stay open at road bridges (392 cells) and fords (19 cells).
+- **`WTRA` version 2:** new value 4 = wetland (WorldCover marsh cells that are not river, 32 cells). Version 1 still decodes.
+- **Match check** in `tools/map/wrmb_reader.py` (validator, fails CI): every `WTRA` 2 cell is `MVLC` 5 (ford cells 3 are exempt); every `MVLC` 5 cell that is not river or ford is `WTRA` 4.
+- **Per-section xxHash64** (seed 0 over tag, `uint32` count, raw section bytes) in the validator report (`files.*.sectionXxh64`) and the pipeline manifest, for cross-checking `MapKey.For`. This is per section, not the composite `MapKey` (which also mixes `terrainPayloadSha256`).
+- **Wheeled-blocked chokepoints 26 → 29** (adds ids 5, 13, 21). No territory loses wheeled access.
+
+| File | Bytes | SHA-256 |
+|---|---:|---|
+| `golden-ci-columbia-gorge-100.v1-marsh.wrmb` | 607152 | `76a801a37862ca5858f455ba44a73d48434791db07bb8558eb4086c6afd2107f` |
+| `golden-ci-columbia-gorge-100.terrain.v1-marsh.wrmb` | 19872744 | `3fca07cf883bf30189a03e1945a2b4f25431ee98744627e3d4194629259ab5de` |
+| `territory-roads.v1-marsh.json` | 6340 | (differs from v1 only in its `source` file name) |
+
+Layout: [`docs/map/wrmb-layout-v1-marsh.md`](../../docs/map/wrmb-layout-v1-marsh.md). `GoldenMapV1MarshTests` loads this pair (29 `bypassWheeledBlocked`, new path hashes, section hashes cross-checked against Python, ford-truck test on the new ford).
+
 ## What changed in v1
 
 - **Blocking water in the movement data (v1.2).** Blocking rivers are chosen by a measurable rule with no river names.
@@ -53,7 +71,7 @@ Layout: [`docs/map/wrmb-layout-v1.md`](../../docs/map/wrmb-layout-v1.md).
 - **Populations:** towns without a GeoNames/OSM population use the US Census 2020 P.L. 94-171 count (`Town.sourceFlags` bit4).
 - **Design override (NOT sourced data):** Welches population = 250 (`Town.sourceFlags` bit5).
 
-Both `.wrmb` files (v0 and v1) are Git LFS objects (`*.wrmb` in `.gitattributes`). Sidecar `.sha256` files stay as ordinary
+All `.wrmb` files (v0, v1, v1-marsh) are Git LFS objects (`*.wrmb` in `.gitattributes`). Sidecar `.sha256` files stay as ordinary
 text so CI can check the materialized bytes.
 
 Each pair is bound by `META.terrainPayloadSha256` (both files) and the terrain file's `META.pairedContentSha256` (= the
@@ -65,7 +83,7 @@ Unity +Y. Grid index = floor(coordCm × gridWidth / mapWidthCm) (cell sizes are 
 1-mile grid 160934/1 cm, terrain grid 80467/9 cm).
 
 `dotnet test` loads the **v0** pair through `MovementService.Create` (`src/Wasteland.Sim.Tests/GoldenMapTests.cs`) and pins a
-few road/off-road path hashes. Those v0 pins are not changed by v1. `GoldenMapV1Tests` loads the v1 pair separately (Sherar's
+few road/off-road path hashes. Those v0 pins are not changed by v1. `GoldenMapV1Tests` loads the merged v1 pair separately (Sherar's
 Bridge and each Klickitat bridge crossing, plus the 49 chokepoints / 16 defense groups / 26 `bypassWheeledBlocked` inventory).
 The Unity client does not load either pair yet. Synthetic WRMB fixtures remain for the small hill goldens.
 
@@ -86,20 +104,25 @@ Python 3 stdlib only. The reader handles formatVersion 0 and 1. From the reposit
 (cd data/golden && sha256sum -c golden-ci-columbia-gorge-100.v0.wrmb.sha256 --strict \
   && sha256sum -c golden-ci-columbia-gorge-100.terrain.v0.wrmb.sha256 --strict \
   && sha256sum -c golden-ci-columbia-gorge-100.v1.wrmb.sha256 --strict \
-  && sha256sum -c golden-ci-columbia-gorge-100.terrain.v1.wrmb.sha256 --strict)
+  && sha256sum -c golden-ci-columbia-gorge-100.terrain.v1.wrmb.sha256 --strict \
+  && sha256sum -c golden-ci-columbia-gorge-100.v1-marsh.wrmb.sha256 --strict \
+  && sha256sum -c golden-ci-columbia-gorge-100.terrain.v1-marsh.wrmb.sha256 --strict)
 python3 tools/map/wrmb_reader.py \
   data/golden/golden-ci-columbia-gorge-100.v0.wrmb \
   --terrain data/golden/golden-ci-columbia-gorge-100.terrain.v0.wrmb
 python3 tools/map/wrmb_reader.py \
   data/golden/golden-ci-columbia-gorge-100.v1.wrmb \
   --terrain data/golden/golden-ci-columbia-gorge-100.terrain.v1.wrmb
+python3 tools/map/wrmb_reader.py \
+  data/golden/golden-ci-columbia-gorge-100.v1-marsh.wrmb \
+  --terrain data/golden/golden-ci-columbia-gorge-100.terrain.v1-marsh.wrmb
 python3 tools/map/stable_ids.py \
-  --check data/golden/golden-ci-columbia-gorge-100.v1.wrmb \
+  --check data/golden/golden-ci-columbia-gorge-100.v1-marsh.wrmb \
   --against data/golden/golden-ci-columbia-gorge-100.v0.wrmb \
   --manifest data/golden/stable-ids.json
 python3 tools/map/tests/test_reader_final_v1.py \
-  data/golden/golden-ci-columbia-gorge-100.v1.wrmb \
-  data/golden/golden-ci-columbia-gorge-100.terrain.v1.wrmb
+  data/golden/golden-ci-columbia-gorge-100.v1-marsh.wrmb \
+  data/golden/golden-ci-columbia-gorge-100.terrain.v1-marsh.wrmb
 ```
 
 The sidecar `.sha256` files name the blobs without a directory prefix, so `sha256sum -c` has to run with `data/golden/` as the working directory. `git lfs install` (once per machine) is required before the `.wrmb` files materialize; otherwise you are hashing pointer files.
