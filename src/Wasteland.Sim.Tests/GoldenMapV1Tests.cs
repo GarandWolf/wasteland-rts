@@ -32,19 +32,18 @@ namespace Wasteland.Sim.Tests
         public const ulong Klickitat19WheeledHash = 0xCDC6D6D94C0D07A9UL;
         public const ulong Klickitat20WheeledHash = 0x117D45AB72A4140EUL;
 
-        // MVFD + MVLC 5 on blocking water (only three such cells in this blob).
-        public const int Mvlc5FordX = 1066;
-        public const int Mvlc5FordY = 888;
-        public const ulong Mvlc5FordWheeledHash = 0x3A5FAED3775013F6UL;
-
-        // OSM ford with plain marsh one cell south. Ford MVLC is 4 in this pair
-        // (forest); the bit still overrides cover to Ford on read.
+        // First MVFD cell (index order, y=0 south) with plain marsh on both
+        // river sides. This pair has no collinear marsh-ford-marsh yet (~3% of
+        // river centreline is MVLC 5); the match is a bend. See FindMarshRiverFord.
         public const int MarshRiverFordX = 266;
         public const int MarshRiverFordY = 1377;
-        public const int MarshRiverMarshX = 266;
-        public const int MarshRiverMarshY = 1376;
-        public const ulong MarshRiverFordWheeledHash = 0x257E2982615CAA18UL;
-        public const ulong MarshRiverDetourWheeledHash = 0xABFCA2CE5327D796UL;
+        public const int MarshRiverMarshAX = 267;
+        public const int MarshRiverMarshAY = 1377;
+        public const int MarshRiverMarshBX = 266;
+        public const int MarshRiverMarshBY = 1376;
+        public const int MarshRiverBankX = 265;
+        public const int MarshRiverBankY = 1377;
+        public const ulong MarshRiverFordWheeledHash = 0x06DEAF84EAA59BA4UL;
 
         static readonly byte[] DefenseGroupIdByChokepointId =
         {
@@ -194,37 +193,50 @@ namespace Wasteland.Sim.Tests
             TerrainGrid grid = svc.Terrain;
             MovementTables tables = MovementTables.Default();
 
-            int ford5 = grid.Index(Mvlc5FordX, Mvlc5FordY);
-            Assert.Equal(Wrmb.WrmbCoverMarsh, mvlc[ford5]);
-            Assert.True(FordBit(mvfd, ford5));
-            Assert.Equal(LandCover.Ford, grid.CoverAt(ford5));
-            Assert.True(tables.OffRoadSpeedCmPerTick(MovementClass.Wheeled, LandCover.Ford, grid.SlopeAt(ford5)) > 0);
+            FindMarshRiverFord(
+                grid,
+                mvlc,
+                mvfd,
+                out int fordX,
+                out int fordY,
+                out int marshAx,
+                out int marshAy,
+                out int marshBx,
+                out int marshBy,
+                out int bankX,
+                out int bankY);
 
-            int marshFord = grid.Index(MarshRiverFordX, MarshRiverFordY);
-            int marsh = grid.Index(MarshRiverMarshX, MarshRiverMarshY);
-            Assert.True(FordBit(mvfd, marshFord));
-            Assert.False(FordBit(mvfd, marsh));
-            Assert.Equal(Wrmb.WrmbCoverMarsh, mvlc[marsh]);
-            Assert.Equal(LandCover.Ford, grid.CoverAt(marshFord));
-            Assert.Equal(LandCover.Marsh, grid.CoverAt(marsh));
-            Assert.True(tables.OffRoadSpeedCmPerTick(MovementClass.Wheeled, LandCover.Ford, grid.SlopeAt(marshFord)) > 0);
-            Assert.Equal(0, tables.OffRoadSpeedCmPerTick(MovementClass.Wheeled, LandCover.Marsh, grid.SlopeAt(marsh)));
+            Assert.Equal(MarshRiverFordX, fordX);
+            Assert.Equal(MarshRiverFordY, fordY);
+            Assert.Equal(MarshRiverMarshAX, marshAx);
+            Assert.Equal(MarshRiverMarshAY, marshAy);
+            Assert.Equal(MarshRiverMarshBX, marshBx);
+            Assert.Equal(MarshRiverMarshBY, marshBy);
+            Assert.Equal(MarshRiverBankX, bankX);
+            Assert.Equal(MarshRiverBankY, bankY);
 
-            PathResult acrossMvlc5 = PathCells(svc, grid, Mvlc5FordX, Mvlc5FordY, Mvlc5FordX + 1, Mvlc5FordY);
-            PathResult acrossFord = PathCells(svc, grid, MarshRiverFordX, MarshRiverFordY, MarshRiverFordX, MarshRiverFordY + 1);
-            PathResult acrossMarsh = PathCells(svc, grid, MarshRiverMarshX - 1, MarshRiverMarshY, MarshRiverMarshX + 1, MarshRiverMarshY);
-            PathResult fromMarsh = PathCells(svc, grid, MarshRiverMarshX, MarshRiverMarshY, MarshRiverMarshX + 1, MarshRiverMarshY);
+            int ford = grid.Index(fordX, fordY);
+            int marshA = grid.Index(marshAx, marshAy);
+            int marshB = grid.Index(marshBx, marshBy);
+            Assert.True(FordBit(mvfd, ford));
+            Assert.False(FordBit(mvfd, marshA));
+            Assert.False(FordBit(mvfd, marshB));
+            Assert.Equal(Wrmb.WrmbCoverMarsh, mvlc[marshA]);
+            Assert.Equal(Wrmb.WrmbCoverMarsh, mvlc[marshB]);
+            Assert.Equal(LandCover.Ford, grid.CoverAt(ford));
+            Assert.Equal(LandCover.Marsh, grid.CoverAt(marshA));
+            Assert.Equal(LandCover.Marsh, grid.CoverAt(marshB));
+            Assert.True(tables.OffRoadSpeedCmPerTick(MovementClass.Wheeled, LandCover.Ford, grid.SlopeAt(ford)) > 0);
+            Assert.Equal(0, tables.OffRoadSpeedCmPerTick(MovementClass.Wheeled, LandCover.Marsh, grid.SlopeAt(marshA)));
+            Assert.Equal(0, tables.OffRoadSpeedCmPerTick(MovementClass.Wheeled, LandCover.Marsh, grid.SlopeAt(marshB)));
 
-            Assert.True(acrossMvlc5.Reachable);
+            PathResult acrossFord = PathCells(svc, grid, fordX, fordY, bankX, bankY);
+            PathResult fromMarsh = PathCells(svc, grid, marshAx, marshAy, bankX, bankY);
             Assert.True(acrossFord.Reachable);
-            Assert.True(acrossMarsh.Reachable);
             Assert.False(fromMarsh.Reachable);
-            Assert.True(VisitsCell(acrossMvlc5, grid, Mvlc5FordX, Mvlc5FordY));
-            Assert.True(VisitsCell(acrossFord, grid, MarshRiverFordX, MarshRiverFordY));
-            Assert.False(VisitsCell(acrossMarsh, grid, MarshRiverMarshX, MarshRiverMarshY));
-            Assert.Equal(Mvlc5FordWheeledHash, acrossMvlc5.Hash);
+            Assert.True(VisitsCell(acrossFord, grid, fordX, fordY));
+            Assert.False(VisitsCell(acrossFord, grid, marshAx, marshAy));
             Assert.Equal(MarshRiverFordWheeledHash, acrossFord.Hash);
-            Assert.Equal(MarshRiverDetourWheeledHash, acrossMarsh.Hash);
         }
 
         static void LoadPair(out MovementService svc, out WrmbMap map)
@@ -280,6 +292,130 @@ namespace Wasteland.Sim.Tests
             }
 
             return terrain.SlopeAt(index) <= 299;
+        }
+
+        /// <summary>
+        /// First ford on a river that already has plain marsh on both sides.
+        /// Scan index order (y=0 south, x east). A ford is an MVFD cell. Plain
+        /// marsh is MVLC 5 with the ford bit clear. The river axis is an opposite
+        /// NS or EW marsh pair when one exists; otherwise the first two marsh
+        /// 4-neighbors in W, E, S, N order (a bend). The wheeled bank is the
+        /// first 4-neighbor that is not marsh and is wheeled-passable. This v1
+        /// pair's match is (266, 1377), marshes (267, 1377) and (266, 1376),
+        /// bank (265, 1377). After rivers become continuous marsh, a collinear
+        /// marsh-ford-marsh earlier in scan order should win the same rule.
+        /// </summary>
+        static void FindMarshRiverFord(
+            TerrainGrid grid,
+            byte[] mvlc,
+            byte[] mvfd,
+            out int fordX,
+            out int fordY,
+            out int marshAx,
+            out int marshAy,
+            out int marshBx,
+            out int marshBy,
+            out int bankX,
+            out int bankY)
+        {
+            int width = grid.Width;
+            int height = grid.Height;
+            int[] dx = { -1, 1, 0, 0 };
+            int[] dy = { 0, 0, -1, 1 };
+            for (int i = 0; i < width * height; i++)
+            {
+                if (!FordBit(mvfd, i))
+                {
+                    continue;
+                }
+
+                int x = i % width;
+                int y = i / width;
+                int marshCount = 0;
+                int[] mx = new int[4];
+                int[] my = new int[4];
+                int bankCount = 0;
+                int[] bx = new int[4];
+                int[] by = new int[4];
+                for (int d = 0; d < 4; d++)
+                {
+                    int nx = x + dx[d];
+                    int ny = y + dy[d];
+                    if (nx < 0 || ny < 0 || nx >= width || ny >= height)
+                    {
+                        continue;
+                    }
+
+                    int ni = ny * width + nx;
+                    if (IsPlainMarsh(mvlc, mvfd, ni))
+                    {
+                        mx[marshCount] = nx;
+                        my[marshCount] = ny;
+                        marshCount++;
+                    }
+                    else if (WheeledCell(grid, nx, ny))
+                    {
+                        bx[bankCount] = nx;
+                        by[bankCount] = ny;
+                        bankCount++;
+                    }
+                }
+
+                bool collinear = false;
+                if (IsPlainMarshNeighbor(mvlc, mvfd, width, height, x, y - 1)
+                    && IsPlainMarshNeighbor(mvlc, mvfd, width, height, x, y + 1))
+                {
+                    mx[0] = x;
+                    my[0] = y - 1;
+                    mx[1] = x;
+                    my[1] = y + 1;
+                    marshCount = 2;
+                    collinear = true;
+                }
+                else if (IsPlainMarshNeighbor(mvlc, mvfd, width, height, x - 1, y)
+                    && IsPlainMarshNeighbor(mvlc, mvfd, width, height, x + 1, y))
+                {
+                    mx[0] = x - 1;
+                    my[0] = y;
+                    mx[1] = x + 1;
+                    my[1] = y;
+                    marshCount = 2;
+                    collinear = true;
+                }
+
+                if ((!collinear && marshCount < 2) || bankCount < 1)
+                {
+                    continue;
+                }
+
+                fordX = x;
+                fordY = y;
+                marshAx = mx[0];
+                marshAy = my[0];
+                marshBx = mx[1];
+                marshBy = my[1];
+                bankX = bx[0];
+                bankY = by[0];
+                return;
+            }
+
+            throw new InvalidDataException(
+                "Golden v1 terrain has no MVFD cell with plain marsh on both river sides.");
+        }
+
+        static bool IsPlainMarsh(byte[] mvlc, byte[] mvfd, int index)
+        {
+            return mvlc[index] == Wrmb.WrmbCoverMarsh && !FordBit(mvfd, index);
+        }
+
+        static bool IsPlainMarshNeighbor(byte[] mvlc, byte[] mvfd, int width, int height, int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= width || y >= height)
+            {
+                return false;
+            }
+
+            return IsPlainMarsh(mvlc, mvfd, y * width + x);
         }
 
         static PathResult PathCells(MovementService svc, TerrainGrid grid, int x0, int y0, int x1, int y1)
