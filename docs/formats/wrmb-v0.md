@@ -7,9 +7,11 @@ The map pipeline’s container. Sim movement loads **two** WRMB files:
 
 Same container, same directory rules. `MovementService.Create(mapBlob, terrainBlob, tables)` reads roads from the first and terrain from the second. Cross-file extras are ignored.
 
-Single source of truth for the on-disk layout is the pipeline reader (`pipeline/wrmb_reader.py`). This document is the sim contract: what we read, how we map enums, and the integer axis.
+Single source of truth for the on-disk layout is `tools/map/wrmb_reader.py`. This document is the sim contract: what we read, how we map enums, and the integer axis. formatVersion 1 record layouts are in [`../map/wrmb-layout-v1.md`](../map/wrmb-layout-v1.md).
 
-**Status:** `formatVersion` = 0, header flag bit0 `DRAFT_LAYOUT` is set. Section tags and record layouts may still change. Readers **must** find sections through the directory **by tag**, never by fixed offsets. Unknown tags are skipped. A known tag with the wrong `elementSize` is refused, except `META`: synthetic fixtures are 288 B (no `fileKind`) and pipeline maps are 376 B (`fileKind` immediately after `schemaVersion`). Movement accepts both; the fixture writer still emits 288.
+**Status:** the sim loader accepts `formatVersion` ∈ {0, 1}. v0 files keep header flag bit0 `DRAFT_LAYOUT`. Section tags and v0 record layouts may still change. Readers **must** find sections through the directory **by tag**, never by fixed offsets. Unknown tags are skipped. A known tag with the wrong `elementSize` is refused, except v0 `META`: synthetic fixtures are 288 B (no `fileKind`) and pipeline maps are 376 B (`fileKind` immediately after `schemaVersion`). Movement accepts both; the fixture writer still emits 288.
+
+**formatVersion 1:** header flag bit2 `V1_FINAL` is required; a v1 file without it is rejected as a stale pre-final layout. v1 terrain files must carry `WTRA` (art-only water marks). The sim checks `elementSize` and skips the section bytes — `WTRA` is not a movement input and is not part of `terrainPayloadSha256`. `CHOK` is 88 B (`defenseGroupId` at offset 7, 255 = none; `bypassWheeledBlocked` at offset 79). `RNOD.territoryId` is the u16 at offset 18. `TERR.stableKey` is a u64 at offset 40 (never parsed as a double). Map identity helpers: [`map-keys.md`](map-keys.md).
 
 WRG1 / WTG1 are gone. Synthetic tests write WRMB fixtures via `RoadGraphBuilder` / `TerrainGridBuilder`.
 
@@ -26,10 +28,10 @@ WRG1 / WTG1 are gone. Synthetic tests write WRMB fixtures via `RoadGraphBuilder`
 | Offset | Field | Type | Notes |
 |---:|---|---|---|
 | 0 | `magic` | char[4] | `"WRMB"` |
-| 4 | `formatVersion` | u16 | 0 = draft |
+| 4 | `formatVersion` | u16 | 0 = draft; 1 = final v1 (`V1_FINAL` required) |
 | 6 | `schemaVersion` | u16 | 1 |
 | 8 | `headerSize` | u32 | 64 |
-| 12 | `flags` | u32 | bit0 `DRAFT_LAYOUT`, bit1 `HAS_DEBUG_SECTIONS` |
+| 12 | `flags` | u32 | bit0 `DRAFT_LAYOUT`, bit1 `HAS_DEBUG_SECTIONS`, bit2 `V1_FINAL` (required when `formatVersion` = 1) |
 | 16 | `sectionCount` | u32 | |
 | 20 | `directoryOffset` | u32 | 64 |
 | 24 | `fileSize` | u64 | total bytes |
@@ -70,7 +72,7 @@ WRMB node flag `BridgeHead = 2` and edge flag `bridgeSpan = 2` map to the sim’
 | `MVLC` | `uint8` land-cover codes, same size |
 | `MVFD` | Ford bitset, bit `i` = byte `i>>3` bit `i&7` |
 
-WRMB land cover → sim `LandCover`: 0 nodata → Water, 1 field, 2 scrub_rock → Scrub, 3 urban, 4 forest, 5 marsh, 6 water, 7 snow_ice → Scrub. A set ford bit **overrides** the cover to `Ford`. Unknown MVLC codes are refused.
+WRMB land cover → sim `LandCover`: 0 nodata → Water, 1 field, 2 scrub_rock → Scrub, 3 urban, 4 forest, 5 marsh, 6 water, 7 snow_ice → Scrub. In formatVersion 1, 6 is blocking water only (impassable to foot and wheeled); 5 is marsh / fordable water (foot and tracked can cross, wheeled cannot). A set ford bit **overrides** the cover to `Ford`. `Wrmb.WriteTerrain` writes fords as movement value 5 plus the ford bit. Unknown MVLC codes are refused.
 
 Slope is magnitude only. Per-class cost grids are computed at match load from `movement-tables-v1.json`, not baked into the blob.
 
@@ -85,4 +87,4 @@ WRMB origin is the SW corner, so loaded grids have `OriginXCm = OriginYCm = 0`. 
 
 ## Fixture writer
 
-`RoadGraphBuilder.ToBlob()` / `TerrainGridBuilder.ToBlob()` emit WRMB (draft flag, CRC, content hash, 8-alignment, empty pools). They exist so goldens run in CI without the map pipeline. They are not a substitute for `pipeline/wrmb_reader.py` round-trips on real maps.
+`RoadGraphBuilder.ToBlob()` / `TerrainGridBuilder.ToBlob()` emit WRMB (draft flag, CRC, content hash, 8-alignment, empty pools). They exist so goldens run in CI without the map pipeline. They are not a substitute for `tools/map/wrmb_reader.py` round-trips on real maps.

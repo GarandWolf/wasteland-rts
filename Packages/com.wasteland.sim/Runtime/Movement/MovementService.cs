@@ -180,7 +180,8 @@ namespace Wasteland.Sim.Movement
 
             Stopwatch loadClock = Stopwatch.StartNew();
             RoadGraph graph = Wrmb.ReadRoadGraph(mapBlob);
-            TerrainGrid terrain = Wrmb.ReadTerrain(terrainBlob);
+            WrmbFile terrainFile = WrmbFile.Parse(terrainBlob);
+            TerrainGrid terrain = Wrmb.ReadTerrain(terrainFile);
             Stopwatch costClock = Stopwatch.StartNew();
             MovementCosts costs = MovementCosts.Build(terrain, graph, tables);
             costClock.Stop();
@@ -202,12 +203,7 @@ namespace Wasteland.Sim.Movement
             }
 
             bool cacheHit = false;
-            byte[] terrainHash = new byte[32];
-            if (terrainBlob.Length >= 64)
-            {
-                Array.Copy(terrainBlob, 32, terrainHash, 0, 32);
-            }
-
+            byte[] terrainHash = terrainFile.TerrainPayloadSha256();
             ulong tableHash = tables.ContentHash();
             Stopwatch hierClock = Stopwatch.StartNew();
             if (buildHierarchy

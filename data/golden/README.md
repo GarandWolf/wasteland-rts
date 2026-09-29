@@ -1,8 +1,7 @@
 # golden-ci-columbia-gorge-100 — golden map data
 
 Golden CI map for the RTS map-data pipeline: Columbia River Gorge, 100 × 100 miles (16,093,400 cm square). Two format
-versions live side by side. The v0 pair and its sidecar hashes are unchanged. The sim loader still reads v0;
-format 1 is a separate sim PR.
+versions live side by side. The v0 pair and its sidecar hashes are unchanged. The sim loader reads both formatVersion 0 and 1.
 
 ## v0 pair (formatVersion 0, pipeline `0.3.0-golden-v0-draft`)
 
@@ -66,8 +65,9 @@ Unity +Y. Grid index = floor(coordCm × gridWidth / mapWidthCm) (cell sizes are 
 1-mile grid 160934/1 cm, terrain grid 80467/9 cm).
 
 `dotnet test` loads the **v0** pair through `MovementService.Create` (`src/Wasteland.Sim.Tests/GoldenMapTests.cs`) and pins a
-few road/off-road path hashes. Those pins are not changed by this v1 drop. The Unity client does not load either pair yet.
-Synthetic WRMB fixtures remain for the small hill goldens.
+few road/off-road path hashes. Those v0 pins are not changed by v1. `GoldenMapV1Tests` loads the v1 pair separately (Sherar's
+Bridge and each Klickitat bridge crossing, plus the 49 chokepoints / 16 defense groups / 26 `bypassWheeledBlocked` inventory).
+The Unity client does not load either pair yet. Synthetic WRMB fixtures remain for the small hill goldens.
 
 ## Sources (pinned in raw/inputs.lock.json)
 
