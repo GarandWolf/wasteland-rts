@@ -32,6 +32,20 @@ namespace Wasteland.Sim.Tests
         public const ulong Klickitat19WheeledHash = 0xCDC6D6D94C0D07A9UL;
         public const ulong Klickitat20WheeledHash = 0x117D45AB72A4140EUL;
 
+        // MVFD + MVLC 5 on blocking water (only three such cells in this blob).
+        public const int Mvlc5FordX = 1066;
+        public const int Mvlc5FordY = 888;
+        public const ulong Mvlc5FordWheeledHash = 0x3A5FAED3775013F6UL;
+
+        // OSM ford with plain marsh one cell south. Ford MVLC is 4 in this pair
+        // (forest); the bit still overrides cover to Ford on read.
+        public const int MarshRiverFordX = 266;
+        public const int MarshRiverFordY = 1377;
+        public const int MarshRiverMarshX = 266;
+        public const int MarshRiverMarshY = 1376;
+        public const ulong MarshRiverFordWheeledHash = 0x257E2982615CAA18UL;
+        public const ulong MarshRiverDetourWheeledHash = 0xABFCA2CE5327D796UL;
+
         static readonly byte[] DefenseGroupIdByChokepointId =
         {
             0,
@@ -168,6 +182,51 @@ namespace Wasteland.Sim.Tests
             Assert.Equal((ushort)3, map.Roads.GetNodeTerritoryId(n190));
         }
 
+        [Fact]
+        public void ColumbiaGorgeV1_WheeledCrossesMarshOnlyAtFord()
+        {
+            LoadPair(out MovementService svc, out _);
+            string dir = GoldenMapFiles.FindDirectory(TerrainFileName);
+            byte[] terrainBytes = GoldenMapFiles.ReadWrmb(Path.Combine(dir, TerrainFileName), TerrainBytes);
+            WrmbFile terrainFile = WrmbFile.Parse(terrainBytes);
+            byte[] mvlc = terrainFile.SectionBytes(terrainFile.RequireSection("MVLC"));
+            byte[] mvfd = terrainFile.SectionBytes(terrainFile.RequireSection("MVFD"));
+            TerrainGrid grid = svc.Terrain;
+            MovementTables tables = MovementTables.Default();
+
+            int ford5 = grid.Index(Mvlc5FordX, Mvlc5FordY);
+            Assert.Equal(Wrmb.WrmbCoverMarsh, mvlc[ford5]);
+            Assert.True(FordBit(mvfd, ford5));
+            Assert.Equal(LandCover.Ford, grid.CoverAt(ford5));
+            Assert.True(tables.OffRoadSpeedCmPerTick(MovementClass.Wheeled, LandCover.Ford, grid.SlopeAt(ford5)) > 0);
+
+            int marshFord = grid.Index(MarshRiverFordX, MarshRiverFordY);
+            int marsh = grid.Index(MarshRiverMarshX, MarshRiverMarshY);
+            Assert.True(FordBit(mvfd, marshFord));
+            Assert.False(FordBit(mvfd, marsh));
+            Assert.Equal(Wrmb.WrmbCoverMarsh, mvlc[marsh]);
+            Assert.Equal(LandCover.Ford, grid.CoverAt(marshFord));
+            Assert.Equal(LandCover.Marsh, grid.CoverAt(marsh));
+            Assert.True(tables.OffRoadSpeedCmPerTick(MovementClass.Wheeled, LandCover.Ford, grid.SlopeAt(marshFord)) > 0);
+            Assert.Equal(0, tables.OffRoadSpeedCmPerTick(MovementClass.Wheeled, LandCover.Marsh, grid.SlopeAt(marsh)));
+
+            PathResult acrossMvlc5 = PathCells(svc, grid, Mvlc5FordX, Mvlc5FordY, Mvlc5FordX + 1, Mvlc5FordY);
+            PathResult acrossFord = PathCells(svc, grid, MarshRiverFordX, MarshRiverFordY, MarshRiverFordX, MarshRiverFordY + 1);
+            PathResult acrossMarsh = PathCells(svc, grid, MarshRiverMarshX - 1, MarshRiverMarshY, MarshRiverMarshX + 1, MarshRiverMarshY);
+            PathResult fromMarsh = PathCells(svc, grid, MarshRiverMarshX, MarshRiverMarshY, MarshRiverMarshX + 1, MarshRiverMarshY);
+
+            Assert.True(acrossMvlc5.Reachable);
+            Assert.True(acrossFord.Reachable);
+            Assert.True(acrossMarsh.Reachable);
+            Assert.False(fromMarsh.Reachable);
+            Assert.True(VisitsCell(acrossMvlc5, grid, Mvlc5FordX, Mvlc5FordY));
+            Assert.True(VisitsCell(acrossFord, grid, MarshRiverFordX, MarshRiverFordY));
+            Assert.False(VisitsCell(acrossMarsh, grid, MarshRiverMarshX, MarshRiverMarshY));
+            Assert.Equal(Mvlc5FordWheeledHash, acrossMvlc5.Hash);
+            Assert.Equal(MarshRiverFordWheeledHash, acrossFord.Hash);
+            Assert.Equal(MarshRiverDetourWheeledHash, acrossMarsh.Hash);
+        }
+
         static void LoadPair(out MovementService svc, out WrmbMap map)
         {
             string dir = GoldenMapFiles.FindDirectory(MapFileName);
@@ -221,6 +280,36 @@ namespace Wasteland.Sim.Tests
             }
 
             return terrain.SlopeAt(index) <= 299;
+        }
+
+        static PathResult PathCells(MovementService svc, TerrainGrid grid, int x0, int y0, int x1, int y1)
+        {
+            return svc.PathOffRoad(
+                grid.CellCenterXCm(x0),
+                grid.CellCenterYCm(y0),
+                grid.CellCenterXCm(x1),
+                grid.CellCenterYCm(y1),
+                MovementClass.Wheeled);
+        }
+
+        static bool VisitsCell(PathResult path, TerrainGrid grid, int cellX, int cellY)
+        {
+            int xCm = grid.CellCenterXCm(cellX);
+            int yCm = grid.CellCenterYCm(cellY);
+            for (int i = 0; i < path.Waypoints.Length; i++)
+            {
+                if (path.Waypoints[i].XCm == xCm && path.Waypoints[i].YCm == yCm)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        static bool FordBit(byte[] mvfd, int index)
+        {
+            return (mvfd[index >> 3] & (1 << (index & 7))) != 0;
         }
     }
 }
