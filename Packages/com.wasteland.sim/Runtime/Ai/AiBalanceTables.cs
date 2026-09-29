@@ -153,16 +153,28 @@ namespace Wasteland.Sim.Ai
     /// <c>schemaVersion</c> next to <c>dataVersion</c> (AI content is
     /// dataVersion 1; designer pack files are currently dataVersion 6).
     /// Parse requires <c>dataVersion</c> as an int32 — missing or non-integer
-    /// values are rejected.
+    /// values are rejected. <see cref="FromDirectory"/> also loads
+    /// <c>rules.json</c> <c>capture.timerTicksByTier</c> (hamlet / village /
+    /// town / city). The rest of <c>rules.json</c> is not read.
     /// </summary>
     public sealed class AiBalanceTables
     {
+        public const string CaptureRuleHamlet = "hamlet";
+        public const string CaptureRuleVillage = "village";
+        public const string CaptureRuleTown = "town";
+        public const string CaptureRuleCity = "city";
+
         private readonly AiPersonalityProfile[] _personalities;
         private readonly AiDifficultyProfile[] _difficulties;
         private readonly int[] _bindingFactionIds;
         private readonly string[] _bindingPersonalityIds;
 
         private readonly ulong _balanceKey;
+        private readonly bool _hasCaptureTable;
+        private readonly int _captureHamletTicks;
+        private readonly int _captureVillageTicks;
+        private readonly int _captureTownTicks;
+        private readonly int _captureCityTicks;
 
         private AiBalanceTables(
             ulong balanceKey,
@@ -171,7 +183,12 @@ namespace Wasteland.Sim.Ai
             AiPersonalityProfile[] personalities,
             AiDifficultyProfile[] difficulties,
             int[] bindingFactionIds,
-            string[] bindingPersonalityIds)
+            string[] bindingPersonalityIds,
+            bool hasCaptureTable,
+            int captureHamletTicks,
+            int captureVillageTicks,
+            int captureTownTicks,
+            int captureCityTicks)
         {
             _balanceKey = balanceKey;
             PersonalityJsonHash = personalityJsonHash;
@@ -180,6 +197,11 @@ namespace Wasteland.Sim.Ai
             _difficulties = difficulties;
             _bindingFactionIds = bindingFactionIds;
             _bindingPersonalityIds = bindingPersonalityIds;
+            _hasCaptureTable = hasCaptureTable;
+            _captureHamletTicks = captureHamletTicks;
+            _captureVillageTicks = captureVillageTicks;
+            _captureTownTicks = captureTownTicks;
+            _captureCityTicks = captureCityTicks;
         }
 
         public ulong BalanceKey
@@ -201,6 +223,11 @@ namespace Wasteland.Sim.Ai
             get { return _difficulties.Length; }
         }
 
+        public bool HasCaptureTable
+        {
+            get { return _hasCaptureTable; }
+        }
+
         public static AiBalanceTables FromDirectory(string balanceDirectory)
         {
             if (balanceDirectory == null)
@@ -210,13 +237,90 @@ namespace Wasteland.Sim.Ai
 
             string personalitiesPath = Path.Combine(balanceDirectory, "ai", "ai_personalities.json");
             string difficultyPath = Path.Combine(balanceDirectory, "ai", "ai_difficulty.json");
+            string rulesPath = Path.Combine(balanceDirectory, "rules.json");
             AiBalanceTables tables = Parse(
                 File.ReadAllText(personalitiesPath),
                 File.ReadAllText(difficultyPath));
-            return tables.WithBalanceKey(global::Wasteland.Sim.Movement.BalanceKey.For(balanceDirectory));
+            ParseCaptureRules(
+                File.ReadAllText(rulesPath),
+                out int hamletTicks,
+                out int villageTicks,
+                out int townTicks,
+                out int cityTicks);
+            return tables
+                .WithCapture(hamletTicks, villageTicks, townTicks, cityTicks)
+                .WithBalanceKey(global::Wasteland.Sim.Movement.BalanceKey.For(balanceDirectory));
         }
 
         public AiBalanceTables WithBalanceKey(ulong balanceKey)
+        {
+            return Clone(
+                balanceKey,
+                _hasCaptureTable,
+                _captureHamletTicks,
+                _captureVillageTicks,
+                _captureTownTicks,
+                _captureCityTicks);
+        }
+
+        public AiBalanceTables WithCapture(
+            int hamletTicks,
+            int villageTicks,
+            int townTicks,
+            int cityTicks)
+        {
+            if (hamletTicks < 1 || villageTicks < 1 || townTicks < 1 || cityTicks < 1)
+            {
+                throw new FormatException("capture.timerTicksByTier values must be >= 1.");
+            }
+
+            return Clone(
+                _balanceKey,
+                true,
+                hamletTicks,
+                villageTicks,
+                townTicks,
+                cityTicks);
+        }
+
+        public int CaptureTicksForClass(int populationClass)
+        {
+            if (!_hasCaptureTable)
+            {
+                throw new InvalidOperationException("Balance tables have no capture.timerTicksByTier.");
+            }
+
+            if (populationClass == 0)
+            {
+                return _captureHamletTicks;
+            }
+
+            if (populationClass == 1)
+            {
+                return _captureVillageTicks;
+            }
+
+            if (populationClass == 2)
+            {
+                return _captureTownTicks;
+            }
+
+            if (populationClass == 3)
+            {
+                return _captureCityTicks;
+            }
+
+            throw new FormatException(
+                "No capture.timerTicksByTier rule for populationClass " + populationClass + ".");
+        }
+
+        private AiBalanceTables Clone(
+            ulong balanceKey,
+            bool hasCaptureTable,
+            int captureHamletTicks,
+            int captureVillageTicks,
+            int captureTownTicks,
+            int captureCityTicks)
         {
             return new AiBalanceTables(
                 balanceKey,
@@ -225,7 +329,12 @@ namespace Wasteland.Sim.Ai
                 _personalities,
                 _difficulties,
                 _bindingFactionIds,
-                _bindingPersonalityIds);
+                _bindingPersonalityIds,
+                hasCaptureTable,
+                captureHamletTicks,
+                captureVillageTicks,
+                captureTownTicks,
+                captureCityTicks);
         }
 
         public static ulong HashUtf8(string text)
@@ -323,7 +432,39 @@ namespace Wasteland.Sim.Ai
                 personalities,
                 difficulties,
                 bindingFactionIds,
-                bindingPersonalityIds);
+                bindingPersonalityIds,
+                false,
+                0,
+                0,
+                0,
+                0);
+        }
+
+        public static void ParseCaptureRules(
+            string rulesJson,
+            out int hamletTicks,
+            out int villageTicks,
+            out int townTicks,
+            out int cityTicks)
+        {
+            if (rulesJson == null)
+            {
+                throw new ArgumentNullException(nameof(rulesJson));
+            }
+
+            JsonValue root = IntegerJsonParser.Parse(rulesJson);
+            if (JsonUtil.Int32(JsonUtil.Field(root, "schemaVersion"), "schemaVersion") != AiConstants.BalanceSchemaVersion)
+            {
+                throw new FormatException("Unsupported rules.json schema.");
+            }
+
+            JsonUtil.Int32(JsonUtil.Field(root, "dataVersion"), "dataVersion");
+            JsonValue capture = JsonUtil.Field(root, "capture");
+            JsonValue table = JsonUtil.Field(capture, "timerTicksByTier");
+            hamletTicks = RequireTierTicks(table, CaptureRuleHamlet);
+            villageTicks = RequireTierTicks(table, CaptureRuleVillage);
+            townTicks = RequireTierTicks(table, CaptureRuleTown);
+            cityTicks = RequireTierTicks(table, CaptureRuleCity);
         }
 
         public AiPersonalityProfile GetPersonality(string id)
@@ -394,6 +535,27 @@ namespace Wasteland.Sim.Ai
             {
                 throw new FormatException(fileName + " dataVersion is required and must be " + AiConstants.DataVersion + ".");
             }
+        }
+
+        private static int RequireTierTicks(JsonValue table, string ruleId)
+        {
+            if (!JsonUtil.TryField(table, ruleId, out JsonValue value))
+            {
+                throw new FormatException("Missing capture.timerTicksByTier rule '" + ruleId + "'.");
+            }
+
+            if (value.Kind != JsonKind.Int)
+            {
+                throw new FormatException("capture.timerTicksByTier rule '" + ruleId + "' must be an integer.");
+            }
+
+            int ticks = JsonUtil.Int32(value, "capture.timerTicksByTier." + ruleId);
+            if (ticks < 1)
+            {
+                throw new FormatException("capture.timerTicksByTier rule '" + ruleId + "' must be >= 1.");
+            }
+
+            return ticks;
         }
 
         private static AiPersonalityProfile ParsePersonality(JsonValue row)

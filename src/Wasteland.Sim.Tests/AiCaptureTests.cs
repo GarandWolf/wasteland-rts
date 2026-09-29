@@ -1,3 +1,4 @@
+using System;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.World;
@@ -7,34 +8,60 @@ namespace Wasteland.Sim.Tests
 {
     public sealed class AiCaptureTests
     {
-        [Fact]
-        public void CaptureTicks_MapPopulationClassToFourTierTable()
-        {
-            Assert.Equal(5, AiConstants.CaptureHoldTicksByPopulationClass.ClassCount);
-            Assert.Equal(30 * AiConstants.TickRateHz, AiConstants.CaptureHoldTicksByPopulationClass.Class0);
-            Assert.Equal(60 * AiConstants.TickRateHz, AiConstants.CaptureHoldTicksByPopulationClass.Class1);
-            Assert.Equal(120 * AiConstants.TickRateHz, AiConstants.CaptureHoldTicksByPopulationClass.Class2);
-            Assert.Equal(180 * AiConstants.TickRateHz, AiConstants.CaptureHoldTicksByPopulationClass.Class3);
-            Assert.Equal(180 * AiConstants.TickRateHz, AiConstants.CaptureHoldTicksByPopulationClass.Class4);
+        public const int ExpectedHamletTicks = 600;
+        public const int ExpectedVillageTicks = 1200;
+        public const int ExpectedTownTicks = 2400;
+        public const int ExpectedCityTicks = 3600;
 
-            Assert.Equal(600, AiMapSnapshot.CaptureTicksForClass(0));
-            Assert.Equal(1200, AiMapSnapshot.CaptureTicksForClass(1));
-            Assert.Equal(2400, AiMapSnapshot.CaptureTicksForClass(2));
-            Assert.Equal(3600, AiMapSnapshot.CaptureTicksForClass(3));
-            Assert.Equal(3600, AiMapSnapshot.CaptureTicksForClass(4));
-            Assert.Equal(600, AiMapSnapshot.CaptureTicksForClass(-1));
+        [Fact]
+        public void CaptureTicks_AreReadFromRulesTimerTicksByTier()
+        {
+            AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
+            Assert.True(tables.HasCaptureTable);
+            Assert.Equal(ExpectedHamletTicks, tables.CaptureTicksForClass(0));
+            Assert.Equal(ExpectedVillageTicks, tables.CaptureTicksForClass(1));
+            Assert.Equal(ExpectedTownTicks, tables.CaptureTicksForClass(2));
+            Assert.Equal(ExpectedCityTicks, tables.CaptureTicksForClass(3));
+            FormatException ex = Assert.Throws<FormatException>(() => tables.CaptureTicksForClass(4));
+            Assert.Contains("populationClass 4", ex.Message);
+        }
+
+        [Fact]
+        public void CaptureLoader_FailsWithRuleIdWhenTierMissing()
+        {
+            string rules = GoldenMapFiles.ReadRepoText("data/balance/rules.json")
+                .Replace("      \"hamlet\": 600,\n", string.Empty);
+            FormatException ex = Assert.Throws<FormatException>(() =>
+            {
+                AiBalanceTables.ParseCaptureRules(rules, out _, out _, out _, out _);
+            });
+            Assert.Contains(AiBalanceTables.CaptureRuleHamlet, ex.Message);
+        }
+
+        [Fact]
+        public void CaptureLoader_FailsWithRuleIdWhenTierIsNotInteger()
+        {
+            string rules = GoldenMapFiles.ReadRepoText("data/balance/rules.json")
+                .Replace(
+                    "\"timerTicksByTier\": {\n      \"hamlet\": 600",
+                    "\"timerTicksByTier\": {\n      \"hamlet\": \"600\"");
+            FormatException ex = Assert.Throws<FormatException>(() =>
+            {
+                AiBalanceTables.ParseCaptureRules(rules, out _, out _, out _, out _);
+            });
+            Assert.Contains(AiBalanceTables.CaptureRuleHamlet, ex.Message);
         }
 
         [Fact]
         public void GorgeTowns_UsePopulationClassZeroThroughTwo()
         {
             AiMapSnapshot map = AiMapSnapshot.FromWrmb(AiSeamsTests.LoadGorgeV1Bytes());
-            int[] counts = new int[AiConstants.CaptureHoldTicksByPopulationClass.ClassCount];
+            int[] counts = new int[4];
             int maxClass = 0;
             for (int i = 0; i < map.TownCount; i++)
             {
                 int populationClass = map.TownAt(i).PopulationClass;
-                Assert.InRange(populationClass, 0, AiConstants.CaptureHoldTicksByPopulationClass.ClassCount - 1);
+                Assert.InRange(populationClass, 0, 3);
                 counts[populationClass]++;
                 if (populationClass > maxClass)
                 {
@@ -47,18 +74,18 @@ namespace Wasteland.Sim.Tests
             Assert.True(counts[1] > 0);
             Assert.True(counts[2] > 0);
             Assert.Equal(0, counts[3]);
-            Assert.Equal(0, counts[4]);
         }
 
         [Fact]
         public void MixedOccupancy_PausesCaptureTimer()
         {
+            AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
             AiMatchHost host = AiMatchHost.Start(
                 MatchConfig.Default(0xC01055A1UL),
                 AiSeamsTests.LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
-                AiBalanceTablesTests.LoadBalance());
+                balance);
 
             int townIndex = FindNeutralTown(host);
             AiTownRecord town = host.Ai.Map.TownAt(townIndex);
@@ -77,7 +104,7 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.CaptureFactionAt(townIndex));
             int heldBeforeContest = host.Ai.Owned.CaptureHeldTicksAt(townIndex);
             Assert.True(heldBeforeContest > 0);
-            Assert.True(heldBeforeContest < AiMapSnapshot.CaptureTicksForClass(town.PopulationClass));
+            Assert.True(heldBeforeContest < balance.CaptureTicksForClass(town.PopulationClass));
 
             host.World.Submit(SimCommand.SpawnBattalion(
                 host.Tick,
@@ -121,7 +148,7 @@ namespace Wasteland.Sim.Tests
                 return i;
             }
 
-            throw new System.InvalidOperationException("No far unowned town on Gorge v1.");
+            throw new InvalidOperationException("No far unowned town on Gorge marsh.");
         }
 
         private static long DistSq(AiTownRecord a, AiTownRecord b)

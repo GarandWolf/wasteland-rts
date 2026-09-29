@@ -504,8 +504,8 @@ namespace Wasteland.Sim.Tests
 
         internal static byte[] LoadGorgeV1Bytes()
         {
-            string dir = GoldenMapFiles.FindDirectory(GoldenMapV1Tests.MapFileName);
-            return GoldenMapFiles.ReadWrmb(Path.Combine(dir, GoldenMapV1Tests.MapFileName), GoldenMapV1Tests.MapBytes);
+            string dir = GoldenMapFiles.FindDirectory(GoldenMapV1MarshTests.MapFileName);
+            return GoldenMapFiles.ReadWrmb(Path.Combine(dir, GoldenMapV1MarshTests.MapFileName), GoldenMapV1MarshTests.MapBytes);
         }
 
         internal static AiMapSnapshot LoadGorgeMap()

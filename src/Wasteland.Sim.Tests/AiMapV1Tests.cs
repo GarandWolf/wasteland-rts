@@ -9,11 +9,10 @@ namespace Wasteland.Sim.Tests
     public sealed class AiMapV1Tests
     {
         /// <summary>
-        /// Gorge merged-v1 wheeled-blocked count. AI tests load the v1 pair
-        /// (<c>golden-ci-columbia-gorge-100.v1.wrmb</c>), not the marsh pair
-        /// (29; chokepoints 5, 13, 21). Switching AI tests to marsh is a later step.
+        /// Gorge marsh-pair wheeled-blocked count (chokepoints 5, 13 and 21
+        /// are the three added since the merged v1 pair's 26).
         /// </summary>
-        public const int ExpectedWheeledBlockedChokepoints = 26;
+        public const int ExpectedWheeledBlockedChokepoints = 29;
 
         [Fact]
         public void NeighborLists_DoNotJoinGoldendaleAndHoodRiver()

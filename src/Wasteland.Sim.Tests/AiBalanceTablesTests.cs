@@ -10,8 +10,9 @@ namespace Wasteland.Sim.Tests
         /// <summary>
         /// Folder-wide <see cref="BalanceKey.For"/> of <c>data/balance</c> after
         /// PR #10 (units, buildings, economy, rules, balance-notes), PR #12
-        /// (<c>scenario.mapFile</c> → marsh), plus AI tables. Re-pin when those
-        /// files change. AI still only parses <c>ai/*.json</c>.
+        /// (<c>scenario.mapFile</c> → marsh), plus AI tables. FromDirectory
+        /// parses <c>ai/*.json</c> and <c>rules.json</c> <c>capture.timerTicksByTier</c>.
+        /// Re-pin when those files change.
         /// </summary>
         public const ulong ExpectedFolderBalanceKey = 0xF101ACA2ADF79E2CUL;
 
@@ -23,6 +24,11 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(4, tables.DifficultyCount);
             Assert.Equal(ExpectedFolderBalanceKey, tables.BalanceKey);
             Assert.Equal(BalanceKey.For(System.IO.Path.Combine(GoldenMapFiles.FindRepoRoot(), "data", "balance")), tables.BalanceKey);
+            Assert.True(tables.HasCaptureTable);
+            Assert.Equal(AiCaptureTests.ExpectedHamletTicks, tables.CaptureTicksForClass(0));
+            Assert.Equal(AiCaptureTests.ExpectedVillageTicks, tables.CaptureTicksForClass(1));
+            Assert.Equal(AiCaptureTests.ExpectedTownTicks, tables.CaptureTicksForClass(2));
+            Assert.Equal(AiCaptureTests.ExpectedCityTicks, tables.CaptureTicksForClass(3));
 
             AiPersonalityProfile settler = tables.GetPersonality(AiConstants.PersonalitySettler);
             Assert.False(settler.Stub);

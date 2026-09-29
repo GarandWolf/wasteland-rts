@@ -186,6 +186,13 @@ namespace Wasteland.Sim.Ai
             {
                 throw new ArgumentException("MapKey on the snapshot must equal match.MapKey.", nameof(mapBlob));
             }
+
+            if (!balance.HasCaptureTable)
+            {
+                throw new ArgumentException(
+                    "Balance tables must include capture.timerTicksByTier from rules.json.",
+                    nameof(balance));
+            }
             AiFactionState[] factions = new AiFactionState[factionIds.Length];
             for (int i = 0; i < factionIds.Length; i++)
             {
@@ -516,7 +523,7 @@ namespace Wasteland.Sim.Ai
                 }
 
                 held++;
-                int need = AiMapSnapshot.CaptureTicksForClass(town.PopulationClass);
+                int need = _balance.CaptureTicksForClass(town.PopulationClass);
                 if (held >= need)
                 {
                     _owned.SetTownOwner(i, occupant);

@@ -325,11 +325,6 @@ namespace Wasteland.Sim.Ai
             return false;
         }
 
-        public static int CaptureTicksForClass(int populationClass)
-        {
-            return AiConstants.CaptureHoldTicksByPopulationClass.ForClass(populationClass);
-        }
-
         public static int IncomePerSecondForClass(int populationClass)
         {
             if (populationClass <= 0)
