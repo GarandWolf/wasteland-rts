@@ -1,7 +1,7 @@
 # WRMB map files, layout v0 (container approved)
 
 > **Status: container and section directory APPROVED by the Lead Engineer (2026-09-28).** This is still layout **v0**: `formatVersion` = 0 and header flag bit0 `DRAFT_LAYOUT` stays set in every v0 file, because individual record layouts may still change before v1. Readers must find sections through the directory by tag, never by fixed offsets.
-> The files under `data/golden/` are the CI golden pair for `golden-ci-columbia-gorge-100`. Record layouts are not frozen; the committed bytes are.
+> The files under `data/golden/` are the CI golden pair for formatVersion 0 of `golden-ci-columbia-gorge-100`. Record layouts are not frozen; the committed bytes are. Format 1 is documented in [`wrmb-layout-v1.md`](wrmb-layout-v1.md) and does not replace these files.
 
 - **Two files per map** (each a complete WRMB container with its own header, META, directory, CRCs and content hash):
   - `<map>.v0.wrmb`: **main/AI file**, `META.fileKind` = 0. Sections: META, SRCS, GRID, TOWN, TDBG, TERR, RNOD, REDG, CHOK, RIVR, BRDG, WATR, WRNG, MSET, RSRC, CELL, CELX, pools.

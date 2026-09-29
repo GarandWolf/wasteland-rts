@@ -1,0 +1,1525 @@
+{
+ "note": "Stable ids (v1): permanent u64 keys from OSM ids + the committed manifest data/golden/stable-ids.json.",
+ "keyLayout": "bits63..60 osmType(1 node,2 way,3 relation) | bits59..52 disc | bits51..0 osmId",
+ "seededFrom": "v0 golden (golden-ci-columbia-gorge-100.v0.wrmb, sha256 a36b1954ee048637073fc44f5fec9913105ff7d6ffd0c54d4f93bedca2371757)",
+ "territories": {
+  "1152921504757811490": {
+   "id": 1,
+   "osmType": "node",
+   "disc": 0,
+   "osmId": 150964514,
+   "label": "Maupin"
+  },
+  "1152921504757814975": {
+   "id": 2,
+   "osmType": "node",
+   "disc": 0,
+   "osmId": 150967999,
+   "label": "Condon"
+  },
+  "1152921504757780529": {
+   "id": 3,
+   "osmType": "node",
+   "disc": 0,
+   "osmId": 150933553,
+   "label": "Wasco"
+  },
+  "1152921507617862930": {
+   "id": 4,
+   "osmType": "node",
+   "disc": 0,
+   "osmId": 3011015954,
+   "label": "The Dalles"
+  },
+  "1152921504757821170": {
+   "id": 5,
+   "osmType": "node",
+   "disc": 0,
+   "osmId": 150974194,
+   "label": "Cascade Locks"
+  },
+  "1152921504757818165": {
+   "id": 6,
+   "osmType": "node",
+   "disc": 0,
+   "osmId": 150971189,
+   "label": "Hood River"
+  },
+  "1152921504757795405": {
+   "id": 7,
+   "osmType": "node",
+   "disc": 0,
+   "osmId": 150948429,
+   "label": "Arlington"
+  },
+  "1152921504757825471": {
+   "id": 8,
+   "osmType": "node",
+   "disc": 0,
+   "osmId": 150978495,
+   "label": "Carson"
+  },
+  "1152921504757793049": {
+   "id": 9,
+   "osmType": "node",
+   "disc": 0,
+   "osmId": 150946073,
+   "label": "White Salmon"
+  },
+  "1152921504757784116": {
+   "id": 10,
+   "osmType": "node",
+   "disc": 0,
+   "osmId": 150937140,
+   "label": "Roosevelt"
+  },
+  "1152921504757792391": {
+   "id": 11,
+   "osmType": "node",
+   "disc": 0,
+   "osmId": 150945415,
+   "label": "Goldendale"
+  },
+  "1152921504757789375": {
+   "id": 12,
+   "osmType": "node",
+   "disc": 0,
+   "osmId": 150942399,
+   "label": "Trout Lake"
+  },
+  "1152921504757798683": {
+   "id": 13,
+   "osmType": "node",
+   "disc": 0,
+   "osmId": 150951707,
+   "label": "Outlook"
+  }
+ },
+ "bridges": {
+  "2305843009766216745": {
+   "id": 1,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 552522793,
+   "label": "Forest Road 6380"
+  },
+  "2305843009362192915": {
+   "id": 2,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 148498963,
+   "label": "Clackamas River Road"
+  },
+  "2305843009287971422": {
+   "id": 3,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 74277470,
+   "label": "Shaniko-Fossil Highway"
+  },
+  "2305843009535262280": {
+   "id": 4,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 321568328,
+   "label": "Warm Springs Highway"
+  },
+  "2305843009362785958": {
+   "id": 5,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 149092006,
+   "label": "Forest Road 4670"
+  },
+  "2305843009766216735": {
+   "id": 6,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 552522783,
+   "label": "Collawash River Road"
+  },
+  "2305843009766216736": {
+   "id": 7,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 552522784,
+   "label": "Collawash River Road"
+  },
+  "2305843009364281977": {
+   "id": 8,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 150588025,
+   "label": "Collawash River Road"
+  },
+  "2305843009362785985": {
+   "id": 9,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 149092033,
+   "label": "63 Road"
+  },
+  "2305843009364281941": {
+   "id": 10,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 150587989,
+   "label": "Timothy Lake Road"
+  },
+  "2305843009766216732": {
+   "id": 11,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 552522780,
+   "label": "Clackamas River Road"
+  },
+  "2305843009347778958": {
+   "id": 12,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 134085006,
+   "label": "Clackamas Highway"
+  },
+  "2305843009347778971": {
+   "id": 13,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 134085019,
+   "label": "Clackamas Highway"
+  },
+  "2305843009543888672": {
+   "id": 14,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 330194720,
+   "label": "White River Crossing Road"
+  },
+  "2305843010764597775": {
+   "id": 15,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 1550903823,
+   "label": "Clackamas Highway"
+  },
+  "2305843009251569109": {
+   "id": 16,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 37875157,
+   "label": "The Dalles-California Highway"
+  },
+  "2305843009364272026": {
+   "id": 17,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 150578074,
+   "label": "Cedar Burn Road"
+  },
+  "2305843009364272120": {
+   "id": 18,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 150578168,
+   "label": "Tygh Valley Road"
+  },
+  "2305843009312659951": {
+   "id": 19,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 98965999,
+   "label": "The Dalles-California Highway"
+  },
+  "2305843009332698702": {
+   "id": 20,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 119004750,
+   "label": "Sherar's Bridge Highway"
+  },
+  "2305843009765439071": {
+   "id": 21,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 551745119,
+   "label": "Forest Road 2618"
+  },
+  "2305843010301338540": {
+   "id": 22,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 1087644588,
+   "label": "Mount Hood Highway"
+  },
+  "2305843009995563197": {
+   "id": 23,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 781869245,
+   "label": "Road 31"
+  },
+  "2305843009364272062": {
+   "id": 24,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 150578110,
+   "label": "Mount Hood Highway"
+  },
+  "2305843009355876433": {
+   "id": 25,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 142182481,
+   "label": "East Bridge Street"
+  },
+  "2305843009364272082": {
+   "id": 26,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 150578130,
+   "label": "Forest Road 3540"
+  },
+  "2305843009364272093": {
+   "id": 27,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 150578141,
+   "label": "Road 20"
+  },
+  "2305843009355876435": {
+   "id": 28,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 142182483,
+   "label": "East Elk Park Road"
+  },
+  "2305843009258247793": {
+   "id": 29,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 44553841,
+   "label": "Mount Hood Highway"
+  },
+  "2305843009360679915": {
+   "id": 30,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 146985963,
+   "label": "Mount Hood Highway"
+  },
+  "2305843009218979078": {
+   "id": 31,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 5285126,
+   "label": "East Crystal Creek Road"
+  },
+  "2305843009336510233": {
+   "id": 32,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 122816281,
+   "label": "East Lolo Pass Road"
+  },
+  "2305843009364272042": {
+   "id": 33,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 150578090,
+   "label": "East Lolo Pass Road"
+  },
+  "2305843009258247798": {
+   "id": 34,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 44553846,
+   "label": "Mount Hood Highway"
+  },
+  "2305843009342640375": {
+   "id": 35,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 128946423,
+   "label": "East Brightwood Loop Road"
+  },
+  "2305843009340149115": {
+   "id": 36,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 126455163,
+   "label": "East Brightwood Bridge Road"
+  },
+  "2305843009336510232": {
+   "id": 37,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 122816280,
+   "label": "Forest Road 1825"
+  },
+  "2305843009342640374": {
+   "id": 38,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 128946422,
+   "label": "East Barlow Trail Road"
+  },
+  "2305843009328462646": {
+   "id": 39,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 114768694,
+   "label": "Mount Hood Highway"
+  },
+  "2305843010192571251": {
+   "id": 40,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 978877299,
+   "label": "Laurance Lake Road"
+  },
+  "2305843009280328456": {
+   "id": 41,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 66634504,
+   "label": "Mount Hood Highway"
+  },
+  "2305843009218777746": {
+   "id": 42,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 5083794,
+   "label": "Wasco-Heppner Highway"
+  },
+  "2305843009280328556": {
+   "id": 43,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 66634604,
+   "label": "Baseline Road"
+  },
+  "2305843009280328553": {
+   "id": 44,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 66634601,
+   "label": "Toll Bridge Road"
+  },
+  "2305843009287806459": {
+   "id": 45,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 74112507,
+   "label": "Red Hill Drive"
+  },
+  "2305843009287805994": {
+   "id": 46,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 74112042,
+   "label": "Lolo Pass Road"
+  },
+  "2305843009280328573": {
+   "id": 47,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 66634621,
+   "label": "Hood River Highway"
+  },
+  "2305843009280328590": {
+   "id": 48,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 66634638,
+   "label": "Woodworth Drive"
+  },
+  "2305843009287806002": {
+   "id": 49,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 74112050,
+   "label": "Lost Lake Road"
+  },
+  "2305843009280320058": {
+   "id": 50,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 66626106,
+   "label": "Dee Highway"
+  },
+  "2305843009383099957": {
+   "id": 51,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 169406005,
+   "label": "Barnett Road"
+  },
+  "2305843009621435292": {
+   "id": 52,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 407741340,
+   "label": "Lower Rock Creek Lane"
+  },
+  "2305843009280318262": {
+   "id": 53,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 66624310,
+   "label": "Lost Lake Road"
+  },
+  "2305843009280317288": {
+   "id": 54,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 66623336,
+   "label": "Punchbowl Road"
+  },
+  "2305843009352016403": {
+   "id": 55,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 138322451,
+   "label": "The Dalles Bridge"
+  },
+  "2305843009218889563": {
+   "id": 56,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 5195611,
+   "label": "Celilo-Wasco Highway"
+  },
+  "2305843009257574835": {
+   "id": 57,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 43880883,
+   "label": "Columbia River Highway"
+  },
+  "2305843009250721522": {
+   "id": 58,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 37027570,
+   "label": "Columbia River Highway"
+  },
+  "2305843009259011104": {
+   "id": 59,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 45317152,
+   "label": "Columbia River Highway"
+  },
+  "2305843009259011122": {
+   "id": 60,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 45317170,
+   "label": "Columbia River Highway"
+  },
+  "2305843009319977054": {
+   "id": 61,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 106283102,
+   "label": ""
+  },
+  "2305843009280317279": {
+   "id": 62,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 66623327,
+   "label": "Tucker Road"
+  },
+  "2305843009759940770": {
+   "id": 63,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 546246818,
+   "label": "Bridge of the Gods"
+  },
+  "2305843010751527551": {
+   "id": 64,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 1537833599,
+   "label": "Sam Hill Memorial Bridge"
+  },
+  "2305843009579641558": {
+   "id": 65,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 365947606,
+   "label": "Washougal River Road"
+  },
+  "2305843009294667966": {
+   "id": 66,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 80974014,
+   "label": "Evergreen Highway"
+  },
+  "2305843009252893287": {
+   "id": 67,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 39199335,
+   "label": "Lewis and Clark Trail Highway"
+  },
+  "2305843009250564245": {
+   "id": 68,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 36870293,
+   "label": "East State Street"
+  },
+  "2305843009250530777": {
+   "id": 69,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 36836825,
+   "label": "Columbia River Highway"
+  },
+  "2305843009249295527": {
+   "id": 70,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 35601575,
+   "label": "Columbia River Highway"
+  },
+  "2305843009335470176": {
+   "id": 71,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 121776224,
+   "label": "Fisher Hill Road"
+  },
+  "2305843009254288885": {
+   "id": 72,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 40594933,
+   "label": "Lewis and Clark Trail Highway"
+  },
+  "2305843009304265459": {
+   "id": 73,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 90571507,
+   "label": "Hood River Bridge"
+  },
+  "2305843009289992042": {
+   "id": 74,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 76298090,
+   "label": "Lewis and Clark Trail Highway"
+  },
+  "2305843009622706010": {
+   "id": 75,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 409012058,
+   "label": "W-2030 Road"
+  },
+  "2305843009274935933": {
+   "id": 76,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 61241981,
+   "label": "Columbia River Highway"
+  },
+  "2305843009274935934": {
+   "id": 77,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 61241982,
+   "label": "Columbia River Highway"
+  },
+  "2305843009289992018": {
+   "id": 78,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 76298066,
+   "label": "Lewis and Clark Trail Highway"
+  },
+  "2305843009251240078": {
+   "id": 79,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 37546126,
+   "label": "Columbia River Highway"
+  },
+  "2305843009251240084": {
+   "id": 80,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 37546132,
+   "label": "Columbia River Highway"
+  },
+  "2305843009281981368": {
+   "id": 81,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 68287416,
+   "label": ""
+  },
+  "2305843009290498964": {
+   "id": 82,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 76805012,
+   "label": "Wind River Road"
+  },
+  "2305843009281980716": {
+   "id": 83,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 68286764,
+   "label": "Cook-Underwood Road"
+  },
+  "2305843009281981567": {
+   "id": 84,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 68287615,
+   "label": "Northwestern Lake Road"
+  },
+  "2305843009281980718": {
+   "id": 85,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 68286766,
+   "label": "Willard Road"
+  },
+  "2305843009335470816": {
+   "id": 86,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 121776864,
+   "label": "State Route 142"
+  },
+  "2305843009286974379": {
+   "id": 87,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 73280427,
+   "label": "Husum Street"
+  },
+  "2305843009281980710": {
+   "id": 88,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 68286758,
+   "label": "Oklahoma Road"
+  },
+  "2305843009281982582": {
+   "id": 89,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 68288630,
+   "label": "State Route 141"
+  },
+  "2305843009995028357": {
+   "id": 90,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 781334405,
+   "label": "Olson Road"
+  },
+  "2305843009364425674": {
+   "id": 91,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 150731722,
+   "label": "Hemlock Road"
+  },
+  "2305843009995028359": {
+   "id": 92,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 781334407,
+   "label": "Esteb Road"
+  },
+  "2305843010095850654": {
+   "id": 93,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 882156702,
+   "label": "Tom Miller Road"
+  },
+  "2305843009460269633": {
+   "id": 94,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 246575681,
+   "label": "West Broadway Street"
+  },
+  "2305843009287014033": {
+   "id": 95,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 73320081,
+   "label": "Horseshoe Bend Road"
+  },
+  "2305843009466117167": {
+   "id": 96,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 252423215,
+   "label": "North Columbus Avenue"
+  },
+  "2305843009460269835": {
+   "id": 97,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 246575883,
+   "label": "Pipeline Drive"
+  },
+  "2305843009450187804": {
+   "id": 98,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 236493852,
+   "label": "State Route 142"
+  },
+  "2305843009665589737": {
+   "id": 99,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 451895785,
+   "label": "Oklahoma Road"
+  },
+  "2305843009287014036": {
+   "id": 100,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 73320084,
+   "label": "State Route 142"
+  },
+  "2305843009281982589": {
+   "id": 101,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 68288637,
+   "label": "BZ Glenwood Highway"
+  },
+  "2305843009476187965": {
+   "id": 102,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 262494013,
+   "label": "Woodland Road"
+  },
+  "2305843009364425687": {
+   "id": 103,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 150731735,
+   "label": "Mineral Springs Road"
+  },
+  "2305843009766357050": {
+   "id": 104,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 552663098,
+   "label": "Wind River Road"
+  },
+  "2305843009281983662": {
+   "id": 105,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 68289710,
+   "label": "Winegartner Road"
+  },
+  "2305843009390212665": {
+   "id": 106,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 176518713,
+   "label": "Glenwood Highway"
+  },
+  "2305843009712783455": {
+   "id": 107,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 499089503,
+   "label": "Strong Road"
+  },
+  "2305843009712783453": {
+   "id": 108,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 499089501,
+   "label": "Sunnyside Road"
+  },
+  "2305843010383396658": {
+   "id": 109,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 1169702706,
+   "label": "Champion Road"
+  },
+  "2305843009441298416": {
+   "id": 110,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 227604464,
+   "label": "River Road"
+  },
+  "2305843009441260416": {
+   "id": 111,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 227566464,
+   "label": "Trout Lake Farms Road"
+  },
+  "2305843009441260417": {
+   "id": 112,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 227566465,
+   "label": "Sunnyside Road"
+  },
+  "2305843009641432770": {
+   "id": 113,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 427738818,
+   "label": "Martins Road"
+  },
+  "2305843009641432768": {
+   "id": 114,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 427738816,
+   "label": "Mount Adams Recreation Area Highway"
+  },
+  "2305843009611080812": {
+   "id": 115,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 397386860,
+   "label": "Pepper Creek Road"
+  },
+  "2305843009556299944": {
+   "id": 116,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 342605992,
+   "label": "Lewis River Road"
+  },
+  "2305843009763378504": {
+   "id": 117,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 549684552,
+   "label": "Forest Road 8031"
+  },
+  "2305843009615542849": {
+   "id": 118,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 401848897,
+   "label": "Forest Road 25"
+  },
+  "2305843009582072327": {
+   "id": 119,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 368378375,
+   "label": "Lewis River Road"
+  },
+  "2305843010606900193": {
+   "id": 120,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 1393206241,
+   "label": "Forest Road 88"
+  },
+  "2305843010711789264": {
+   "id": 121,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 1498095312,
+   "label": "Signal Peak Road"
+  },
+  "2305843010546608859": {
+   "id": 122,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 1332914907,
+   "label": "Forest Road 23"
+  },
+  "2305843009450467363": {
+   "id": 123,
+   "osmType": "way",
+   "disc": 0,
+   "osmId": 236773411,
+   "label": "SR 223"
+  }
+ },
+ "chokepoints": {
+  "2310346608915341918": {
+   "id": 1,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 74277470,
+   "label": "Bridge: Shaniko-Fossil Highway"
+  },
+  "2310346608878939605": {
+   "id": 2,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 37875157,
+   "label": "Bridge: The Dalles-California Highway"
+  },
+  "2310346608991642558": {
+   "id": 3,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 150578110,
+   "label": "Bridge: Mount Hood Highway"
+  },
+  "2310346608885618289": {
+   "id": 4,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 44553841,
+   "label": "Bridge: Mount Hood Highway"
+  },
+  "2310346608988050411": {
+   "id": 5,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 146985963,
+   "label": "Bridge: Mount Hood Highway"
+  },
+  "2310346608846148242": {
+   "id": 6,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 5083794,
+   "label": "Bridge: Wasco-Heppner Highway"
+  },
+  "2310346608979386899": {
+   "id": 7,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 138322451,
+   "label": "Bridge: The Dalles Bridge"
+  },
+  "2310346608846260059": {
+   "id": 8,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 5195611,
+   "label": "Bridge: Celilo-Wasco Highway"
+  },
+  "2310346609387311266": {
+   "id": 9,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 546246818,
+   "label": "Bridge: Bridge of the Gods"
+  },
+  "2310346610378898047": {
+   "id": 10,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 1537833599,
+   "label": "Bridge: Sam Hill Memorial Bridge"
+  },
+  "2310346608880263783": {
+   "id": 11,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 39199335,
+   "label": "Bridge: Lewis and Clark Trail Highway"
+  },
+  "2310346608876666023": {
+   "id": 12,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 35601575,
+   "label": "Bridge: Columbia River Highway"
+  },
+  "2310346608917362538": {
+   "id": 13,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 76298090,
+   "label": "Bridge: Lewis and Clark Trail Highway"
+  },
+  "2310346608931635955": {
+   "id": 14,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 90571507,
+   "label": "Bridge: Hood River Bridge"
+  },
+  "2310346608917362514": {
+   "id": 15,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 76298066,
+   "label": "Bridge: Lewis and Clark Trail Highway"
+  },
+  "2310346608917869460": {
+   "id": 16,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 76805012,
+   "label": "Bridge: Wind River Road"
+  },
+  "2310346608962841312": {
+   "id": 17,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 121776864,
+   "label": "Bridge: State Route 142"
+  },
+  "2310346608909353078": {
+   "id": 18,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 68288630,
+   "label": "Bridge: State Route 141"
+  },
+  "2310346609077558300": {
+   "id": 19,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 236493852,
+   "label": "Bridge: State Route 142"
+  },
+  "2310346609017583161": {
+   "id": 20,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 176518713,
+   "label": "Bridge: Glenwood Highway"
+  },
+  "2310346609077837859": {
+   "id": 21,
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 236773411,
+   "label": "Bridge: SR 223"
+  },
+  "1161928703897796295": {
+   "id": 22,
+   "osmType": "node",
+   "disc": 2,
+   "osmId": 36208327,
+   "label": "Pass: Blue Box Pass"
+  },
+  "1161928704302420700": {
+   "id": 23,
+   "osmType": "node",
+   "disc": 2,
+   "osmId": 440832732,
+   "label": "Pass: Bennett Pass"
+  },
+  "1161928703897816202": {
+   "id": 24,
+   "osmType": "node",
+   "disc": 2,
+   "osmId": 36228234,
+   "label": "Pass: Tygh Ridge Summit"
+  },
+  "1161928710335391310": {
+   "id": 25,
+   "osmType": "node",
+   "disc": 2,
+   "osmId": 6473803342,
+   "label": "Pass: Satus Pass"
+  },
+  "2319353808214535268": {
+   "id": 26,
+   "osmType": "way",
+   "disc": 3,
+   "osmId": 118729828,
+   "label": "Causeway: Columbia River Highway"
+  },
+  "2319353808101921320": {
+   "id": 27,
+   "osmType": "way",
+   "disc": 3,
+   "osmId": 6115880,
+   "label": "Causeway: Lewis and Clark Trail Highway"
+  },
+  "2328361007355630080": {
+   "id": 28,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 5083648,
+   "label": "Gap: Sherar's Bridge Highway"
+  },
+  "2328361007718476933": {
+   "id": 29,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 367930501,
+   "label": "Gap: Mount Hood Highway"
+  },
+  "2328361008158244070": {
+   "id": 30,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 807697638,
+   "label": "Gap: Celilo-Wasco Highway"
+  },
+  "2328361007469276260": {
+   "id": 31,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 118729828,
+   "label": "Gap: Columbia River Highway"
+  },
+  "2328361007688621968": {
+   "id": 32,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 338075536,
+   "label": "Gap: Evergreen Highway"
+  },
+  "2328361007515913299": {
+   "id": 33,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 165366867,
+   "label": "Gap: Lewis and Clark Trail Highway"
+  },
+  "2328361008643039311": {
+   "id": 34,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 1292492879,
+   "label": "Gap: Lewis and Clark Trail Highway"
+  },
+  "2328361007356476820": {
+   "id": 35,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 5930388,
+   "label": "Gap: Lewis and Clark Trail Highway"
+  },
+  "2328361007426844487": {
+   "id": 36,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 76298055,
+   "label": "Gap: Lewis and Clark Trail Highway"
+  },
+  "2328361007356476789": {
+   "id": 37,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 5930357,
+   "label": "Gap: Lewis and Clark Trail Highway"
+  },
+  "2328361007356476416": {
+   "id": 38,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 5929984,
+   "label": "Gap: Roosevelt Grade Road"
+  },
+  "2328361007667176688": {
+   "id": 39,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 316630256,
+   "label": "Gap: State Route 142"
+  },
+  "2328361007356475739": {
+   "id": 40,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 5929307,
+   "label": "Gap: State Route 142"
+  },
+  "2328361008615985316": {
+   "id": 41,
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 1265438884,
+   "label": "Gap: Glenwood Highway"
+  },
+  "2337368207981083403": {
+   "id": 42,
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 1375795979,
+   "label": "Junction: Shaniko-Fossil Highway"
+  },
+  "2337368206643164723": {
+   "id": 43,
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 37877299,
+   "label": "Junction: Wapinitia Highway"
+  },
+  "2337368206610489027": {
+   "id": 44,
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 5201603,
+   "label": "Junction: Cottonwood Road"
+  },
+  "2337368206610480101": {
+   "id": 45,
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 5192677,
+   "label": "Junction: Sherars Bridge Highway"
+  },
+  "2337368206610489078": {
+   "id": 46,
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 5201654,
+   "label": "Junction: John Day Highway"
+  },
+  "2337368206796313568": {
+   "id": 47,
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 191026144,
+   "label": "Junction: The Dalles-California Highway"
+  },
+  "2337368206610488857": {
+   "id": 48,
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 5201433,
+   "label": "Junction: Cottonwood Road"
+  },
+  "2337368206661523051": {
+   "id": 49,
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 56235627,
+   "label": "Junction: Lewis and Clark Trail Highway"
+  }
+ },
+ "defenseGroups": {
+  "2310346608915341918": {
+   "id": 0,
+   "sidePair": [
+    2,
+    3
+   ],
+   "memberChokepointIds": [
+    1
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 74277470
+  },
+  "2310346608878939605": {
+   "id": 1,
+   "sidePair": [
+    1,
+    3
+   ],
+   "memberChokepointIds": [
+    2,
+    28,
+    45
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 37875157
+  },
+  "2310346608846148242": {
+   "id": 2,
+   "sidePair": [
+    2,
+    3
+   ],
+   "memberChokepointIds": [
+    6,
+    48
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 5083794
+  },
+  "2310346608979386899": {
+   "id": 3,
+   "sidePair": [
+    4,
+    11
+   ],
+   "memberChokepointIds": [
+    7
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 138322451
+  },
+  "2310346608846260059": {
+   "id": 4,
+   "sidePair": [
+    3,
+    4
+   ],
+   "memberChokepointIds": [
+    8
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 5195611
+  },
+  "2310346609387311266": {
+   "id": 5,
+   "sidePair": [
+    5,
+    8
+   ],
+   "memberChokepointIds": [
+    9
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 546246818
+  },
+  "2310346610378898047": {
+   "id": 6,
+   "sidePair": [
+    3,
+    11
+   ],
+   "memberChokepointIds": [
+    10
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 1537833599
+  },
+  "2310346608880263783": {
+   "id": 7,
+   "sidePair": [
+    9,
+    11
+   ],
+   "memberChokepointIds": [
+    11,
+    17,
+    19,
+    40
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 39199335
+  },
+  "2310346608931635955": {
+   "id": 8,
+   "sidePair": [
+    6,
+    9
+   ],
+   "memberChokepointIds": [
+    14
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 90571507
+  },
+  "2310346609017583161": {
+   "id": 9,
+   "sidePair": [
+    11,
+    12
+   ],
+   "memberChokepointIds": [
+    20,
+    41
+   ],
+   "osmType": "way",
+   "disc": 1,
+   "osmId": 176518713
+  },
+  "2319353808101921320": {
+   "id": 10,
+   "sidePair": [
+    8,
+    9
+   ],
+   "memberChokepointIds": [
+    27
+   ],
+   "osmType": "way",
+   "disc": 3,
+   "osmId": 6115880
+  },
+  "2328361007356476416": {
+   "id": 11,
+   "sidePair": [
+    10,
+    11
+   ],
+   "memberChokepointIds": [
+    38,
+    49
+   ],
+   "osmType": "way",
+   "disc": 5,
+   "osmId": 5929984
+  },
+  "2337368207981083403": {
+   "id": 12,
+   "sidePair": [
+    2,
+    3
+   ],
+   "memberChokepointIds": [
+    42
+   ],
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 1375795979
+  },
+  "2337368206643164723": {
+   "id": 13,
+   "sidePair": [
+    1,
+    6
+   ],
+   "memberChokepointIds": [
+    43
+   ],
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 37877299
+  },
+  "2337368206610489027": {
+   "id": 14,
+   "sidePair": [
+    2,
+    7
+   ],
+   "memberChokepointIds": [
+    44,
+    46
+   ],
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 5201603
+  },
+  "2337368206796313568": {
+   "id": 15,
+   "sidePair": [
+    1,
+    4
+   ],
+   "memberChokepointIds": [
+    47
+   ],
+   "osmType": "way",
+   "disc": 7,
+   "osmId": 191026144
+  }
+ }
+}
