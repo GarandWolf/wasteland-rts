@@ -7,12 +7,21 @@ namespace Wasteland.Sim.Tests
 {
     public sealed class AiBalanceTablesTests
     {
+        /// <summary>
+        /// Folder-wide <see cref="BalanceKey.For"/> of <c>data/balance</c> after
+        /// PR #10 (units, buildings, economy, rules, balance-notes) plus AI
+        /// tables. Re-pin when those files change. AI still only parses
+        /// <c>ai/*.json</c>.
+        /// </summary>
+        public const ulong ExpectedFolderBalanceKey = 0xAC2E112986329D18UL;
+
         [Fact]
         public void LoadsPersonalitiesAndDifficulties_FromBalanceFiles()
         {
             AiBalanceTables tables = LoadBalance();
             Assert.Equal(3, tables.PersonalityCount);
             Assert.Equal(4, tables.DifficultyCount);
+            Assert.Equal(ExpectedFolderBalanceKey, tables.BalanceKey);
             Assert.Equal(BalanceKey.For(System.IO.Path.Combine(GoldenMapFiles.FindRepoRoot(), "data", "balance")), tables.BalanceKey);
 
             AiPersonalityProfile settler = tables.GetPersonality(AiConstants.PersonalitySettler);

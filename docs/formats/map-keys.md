@@ -21,6 +21,10 @@ The on-disk HPA* cache (`WHPA`) is keyed by `terrainPayloadSha256`, the movement
 
 Changing a byte in a named section changes the key. A section that was not named does not. Tag and count are mixed in so two sections with identical payloads but different tags or element counts do not collide.
 
+### Per-section hash (validator report and manifest)
+
+`tools/map/wrmb_reader.py` reports, per section of each file, `sectionXxh64`: xxHash64 (seed 0) of the section's 4 ASCII tag bytes, its element count as `uint32` little-endian, then its raw bytes. It is the same per-section contribution `MapKey.For` mixes in, but **without** the leading `terrainPayloadSha256`, so it is a stable per-section value the sim can cross-check (`XxHash64Builder`: `AddBytes(tag)`, `AddUInt(count)`, `AddBytes(bytes)`, `Digest()`). `GoldenMapV1MarshTests` asserts every section of the v1-marsh pair against the Python values. The composite `MapKey` still needs the sim's own `terrainPayloadSha256`.
+
 ## `BalanceKey.For(directory)`
 
 xxHash64 of every file under `directory` (recursive). Paths are relative to that directory, UTF-8, forward slashes, sorted ordinal. Each file mixes path length, path bytes, content length, then content. The production tree is `data/balance/`. Any file add/remove/edit changes the key.

@@ -23,6 +23,8 @@ jobs:
           sha256sum -c golden-ci-columbia-gorge-100.terrain.v0.wrmb.sha256 --strict
           sha256sum -c golden-ci-columbia-gorge-100.v1.wrmb.sha256 --strict
           sha256sum -c golden-ci-columbia-gorge-100.terrain.v1.wrmb.sha256 --strict
+          sha256sum -c golden-ci-columbia-gorge-100.v1-marsh.wrmb.sha256 --strict
+          sha256sum -c golden-ci-columbia-gorge-100.terrain.v1-marsh.wrmb.sha256 --strict
 
       - name: Validate WRMB v0 pair
         run: |
@@ -36,6 +38,12 @@ jobs:
             data/golden/golden-ci-columbia-gorge-100.v1.wrmb \
             --terrain data/golden/golden-ci-columbia-gorge-100.terrain.v1.wrmb
 
+      - name: Validate WRMB v1-marsh pair (WTRA v2, WTRA/MVLC match check)
+        run: |
+          python3 tools/map/wrmb_reader.py \
+            data/golden/golden-ci-columbia-gorge-100.v1-marsh.wrmb \
+            --terrain data/golden/golden-ci-columbia-gorge-100.terrain.v1-marsh.wrmb
+
       - name: Check v1 stable ids
         run: |
           python3 tools/map/stable_ids.py \
@@ -43,8 +51,15 @@ jobs:
             --against data/golden/golden-ci-columbia-gorge-100.v0.wrmb \
             --manifest data/golden/stable-ids.json
 
-      - name: Reader tests (final v1)
+      - name: Check v1-marsh stable ids
+        run: |
+          python3 tools/map/stable_ids.py \
+            --check data/golden/golden-ci-columbia-gorge-100.v1-marsh.wrmb \
+            --against data/golden/golden-ci-columbia-gorge-100.v0.wrmb \
+            --manifest data/golden/stable-ids.json
+
+      - name: Reader tests (final v1, v1-marsh)
         run: |
           python3 tools/map/tests/test_reader_final_v1.py \
-            data/golden/golden-ci-columbia-gorge-100.v1.wrmb \
-            data/golden/golden-ci-columbia-gorge-100.terrain.v1.wrmb
+            data/golden/golden-ci-columbia-gorge-100.v1-marsh.wrmb \
+            data/golden/golden-ci-columbia-gorge-100.terrain.v1-marsh.wrmb

@@ -1,0 +1,626 @@
+{
+  "schemaVersion": 1,
+  "dataVersion": 6,
+  "fortification": {
+    "captureTimerPerLevelPpt": 250,
+    "captureTimerMaxPpt": 500,
+    "maxLevel": 2,
+    "garrisonDefensePerLevelPpt": 200,
+    "levelSourceBuildings": [
+      "town_walls_l1",
+      "town_walls_l2"
+    ],
+    "levelDropsWhenWallsDestroyed": true,
+    "structuresInFortifiedHoldingGetGarrisonDefense": true
+  },
+  "buildings": {
+    "town_walls_l1": {
+      "category": "defense",
+      "factions": [
+        "remnant_command",
+        "homestead_compact"
+      ],
+      "maxHp": 4000,
+      "targetClass": "structure",
+      "armorPpt": 500,
+      "cost": {
+        "manpower": 0,
+        "fuel": 0,
+        "materiel": 150
+      },
+      "buildTicks": 1200,
+      "techTier": 1,
+      "placement": "holding_town_or_village",
+      "sightCm": 0,
+      "fortificationLevel": 1,
+      "garrisonDefensePpt": 200,
+      "captureTimerPpt": 250,
+      "buildSlotCost": 0,
+      "weapon": null,
+      "requires": "none",
+      "highGroundSightBonus": false,
+      "supplySource": false,
+      "supplyRangeCm": 0,
+      "maxPerPlayer": 0,
+      "maxPerTerritory": 0,
+      "maxPerSite": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "resourceSite": false,
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 1,
+        "homestead_compact": 1
+      }
+    },
+    "town_walls_l2": {
+      "category": "defense",
+      "factions": [
+        "remnant_command",
+        "homestead_compact"
+      ],
+      "maxHp": 6000,
+      "targetClass": "structure",
+      "armorPpt": 550,
+      "cost": {
+        "manpower": 0,
+        "fuel": 0,
+        "materiel": 300
+      },
+      "buildTicks": 1800,
+      "techTier": 2,
+      "placement": "holding_town_or_village",
+      "sightCm": 0,
+      "requires": "town_walls_l1",
+      "fortificationLevel": 2,
+      "garrisonDefensePpt": 200,
+      "captureTimerPpt": 250,
+      "buildSlotCost": 0,
+      "weapon": null,
+      "highGroundSightBonus": false,
+      "supplySource": false,
+      "supplyRangeCm": 0,
+      "maxPerPlayer": 0,
+      "maxPerTerritory": 0,
+      "maxPerSite": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "resourceSite": false,
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 2,
+        "homestead_compact": 2
+      }
+    },
+    "bunker": {
+      "category": "defense",
+      "factions": [
+        "remnant_command",
+        "homestead_compact"
+      ],
+      "maxHp": 2500,
+      "targetClass": "structure",
+      "armorPpt": 500,
+      "cost": {
+        "manpower": 20,
+        "fuel": 0,
+        "materiel": 150
+      },
+      "buildTicks": 900,
+      "techTier": 1,
+      "placement": "owned_territory",
+      "sightCm": 482803,
+      "weapon": {
+        "damageVsSoft": 45,
+        "damageVsArmored": 15,
+        "rangeCm": 160934,
+        "minRangeCm": 0,
+        "reloadTicks": 60,
+        "indirect": false,
+        "canTargetAir": true,
+        "deployTicks": 0
+      },
+      "buildSlotCost": 0,
+      "fortificationLevel": 0,
+      "garrisonDefensePpt": 0,
+      "captureTimerPpt": 0,
+      "requires": "none",
+      "highGroundSightBonus": false,
+      "supplySource": false,
+      "supplyRangeCm": 0,
+      "maxPerPlayer": 0,
+      "maxPerTerritory": 0,
+      "maxPerSite": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "resourceSite": false,
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 1,
+        "homestead_compact": 1
+      }
+    },
+    "watchtower": {
+      "category": "defense",
+      "factions": [
+        "remnant_command",
+        "homestead_compact"
+      ],
+      "maxHp": 800,
+      "targetClass": "structure",
+      "armorPpt": 300,
+      "cost": {
+        "manpower": 0,
+        "fuel": 0,
+        "materiel": 60
+      },
+      "buildTicks": 400,
+      "techTier": 1,
+      "placement": "owned_territory",
+      "sightCm": 1126541,
+      "highGroundSightBonus": true,
+      "buildSlotCost": 0,
+      "weapon": null,
+      "fortificationLevel": 0,
+      "garrisonDefensePpt": 0,
+      "captureTimerPpt": 0,
+      "requires": "none",
+      "supplySource": false,
+      "supplyRangeCm": 0,
+      "maxPerPlayer": 0,
+      "maxPerTerritory": 0,
+      "maxPerSite": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "resourceSite": false,
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 1,
+        "homestead_compact": 1
+      }
+    },
+    "at_emplacement": {
+      "category": "defense",
+      "factions": [
+        "remnant_command",
+        "homestead_compact"
+      ],
+      "maxHp": 1400,
+      "targetClass": "structure",
+      "armorPpt": 500,
+      "cost": {
+        "manpower": 20,
+        "fuel": 0,
+        "materiel": 240
+      },
+      "buildTicks": 1000,
+      "techTier": 1,
+      "placement": "owned_territory",
+      "sightCm": 482803,
+      "weapon": {
+        "damageVsSoft": 5,
+        "damageVsArmored": 100,
+        "rangeCm": 241402,
+        "minRangeCm": 0,
+        "reloadTicks": 80,
+        "indirect": false,
+        "canTargetAir": false,
+        "deployTicks": 0
+      },
+      "buildSlotCost": 0,
+      "fortificationLevel": 0,
+      "garrisonDefensePpt": 0,
+      "captureTimerPpt": 0,
+      "requires": "none",
+      "highGroundSightBonus": false,
+      "supplySource": false,
+      "supplyRangeCm": 0,
+      "maxPerPlayer": 0,
+      "maxPerTerritory": 0,
+      "maxPerSite": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "resourceSite": false,
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 1,
+        "homestead_compact": 1
+      }
+    },
+    "artillery_position": {
+      "category": "defense",
+      "factions": [
+        "remnant_command",
+        "homestead_compact"
+      ],
+      "maxHp": 2500,
+      "targetClass": "structure",
+      "armorPpt": 600,
+      "cost": {
+        "manpower": 30,
+        "fuel": 0,
+        "materiel": 250
+      },
+      "buildTicks": 1200,
+      "techTier": 2,
+      "placement": "owned_territory",
+      "sightCm": 321869,
+      "weapon": {
+        "damageVsSoft": 170,
+        "damageVsArmored": 90,
+        "rangeCm": 1609344,
+        "minRangeCm": 160934,
+        "reloadTicks": 200,
+        "indirect": true,
+        "canTargetAir": false,
+        "deployTicks": 0
+      },
+      "buildSlotCost": 0,
+      "fortificationLevel": 0,
+      "garrisonDefensePpt": 0,
+      "captureTimerPpt": 0,
+      "requires": "none",
+      "highGroundSightBonus": false,
+      "supplySource": false,
+      "supplyRangeCm": 0,
+      "maxPerPlayer": 0,
+      "maxPerTerritory": 0,
+      "maxPerSite": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "resourceSite": false,
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 2,
+        "homestead_compact": 1
+      }
+    },
+    "hq": {
+      "category": "economy",
+      "factions": [
+        "remnant_command",
+        "homestead_compact"
+      ],
+      "maxHp": 8000,
+      "targetClass": "structure",
+      "armorPpt": 600,
+      "cost": {
+        "manpower": 0,
+        "fuel": 0,
+        "materiel": 0
+      },
+      "buildTicks": 0,
+      "techTier": 1,
+      "placement": "start_only",
+      "sightCm": 482803,
+      "supplySource": true,
+      "supplyRangeCm": 6437376,
+      "maxPerPlayer": 1,
+      "popCapBonus": 30,
+      "canHostProduction": [
+        "heavy_works"
+      ],
+      "buildSlotCost": 0,
+      "weapon": null,
+      "fortificationLevel": 0,
+      "garrisonDefensePpt": 0,
+      "captureTimerPpt": 0,
+      "requires": "none",
+      "highGroundSightBonus": false,
+      "maxPerTerritory": 0,
+      "maxPerSite": 0,
+      "resourceSite": false,
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 1,
+        "homestead_compact": 1
+      }
+    },
+    "supply_depot": {
+      "category": "economy",
+      "factions": [
+        "remnant_command",
+        "homestead_compact"
+      ],
+      "maxHp": 2000,
+      "targetClass": "structure",
+      "armorPpt": 400,
+      "cost": {
+        "manpower": 0,
+        "fuel": 50,
+        "materiel": 200
+      },
+      "buildTicks": 900,
+      "techTier": 1,
+      "placement": "town_slot_or_road_node",
+      "sightCm": 482803,
+      "supplySource": true,
+      "supplyRangeCm": 4828032,
+      "buildSlotCost": 1,
+      "weapon": null,
+      "fortificationLevel": 0,
+      "garrisonDefensePpt": 0,
+      "captureTimerPpt": 0,
+      "requires": "none",
+      "highGroundSightBonus": false,
+      "maxPerPlayer": 0,
+      "maxPerTerritory": 0,
+      "maxPerSite": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "resourceSite": false,
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 1,
+        "homestead_compact": 1
+      }
+    },
+    "fuel_pump": {
+      "category": "economy",
+      "factions": [
+        "remnant_command",
+        "homestead_compact"
+      ],
+      "maxHp": 1500,
+      "targetClass": "structure",
+      "armorPpt": 300,
+      "cost": {
+        "manpower": 0,
+        "fuel": 0,
+        "materiel": 150
+      },
+      "buildTicks": 800,
+      "techTier": 1,
+      "placement": "fuel_storage_depot_or_refinery_site",
+      "sightCm": 482803,
+      "resourceSite": true,
+      "maxPerSite": 1,
+      "buildSlotCost": 0,
+      "weapon": null,
+      "fortificationLevel": 0,
+      "garrisonDefensePpt": 0,
+      "captureTimerPpt": 0,
+      "requires": "none",
+      "highGroundSightBonus": false,
+      "supplySource": false,
+      "supplyRangeCm": 0,
+      "maxPerPlayer": 0,
+      "maxPerTerritory": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 1,
+        "homestead_compact": 1
+      }
+    },
+    "salvage_yard": {
+      "category": "economy",
+      "factions": [
+        "remnant_command",
+        "homestead_compact"
+      ],
+      "maxHp": 1500,
+      "targetClass": "structure",
+      "armorPpt": 300,
+      "cost": {
+        "manpower": 0,
+        "fuel": 50,
+        "materiel": 100
+      },
+      "buildTicks": 800,
+      "techTier": 1,
+      "placement": "territory_with_industrial_area",
+      "sightCm": 482803,
+      "resourceSite": true,
+      "maxPerTerritory": 1,
+      "buildSlotCost": 0,
+      "weapon": null,
+      "fortificationLevel": 0,
+      "garrisonDefensePpt": 0,
+      "captureTimerPpt": 0,
+      "requires": "none",
+      "highGroundSightBonus": false,
+      "supplySource": false,
+      "supplyRangeCm": 0,
+      "maxPerPlayer": 0,
+      "maxPerSite": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 1,
+        "homestead_compact": 1
+      }
+    },
+    "recruitment_office": {
+      "category": "economy",
+      "factions": [
+        "remnant_command",
+        "homestead_compact"
+      ],
+      "maxHp": 1200,
+      "targetClass": "structure",
+      "armorPpt": 300,
+      "cost": {
+        "manpower": 0,
+        "fuel": 0,
+        "materiel": 120
+      },
+      "buildTicks": 600,
+      "techTier": 1,
+      "placement": "town_slot",
+      "sightCm": 482803,
+      "manpowerBonusPpt": 250,
+      "buildSlotCost": 1,
+      "weapon": null,
+      "fortificationLevel": 0,
+      "garrisonDefensePpt": 0,
+      "captureTimerPpt": 0,
+      "requires": "none",
+      "highGroundSightBonus": false,
+      "supplySource": false,
+      "supplyRangeCm": 0,
+      "maxPerPlayer": 0,
+      "maxPerTerritory": 0,
+      "maxPerSite": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "resourceSite": false,
+      "techTierByFaction": {
+        "remnant_command": 1,
+        "homestead_compact": 1
+      }
+    },
+    "muster_camp": {
+      "category": "production",
+      "factions": [
+        "remnant_command",
+        "homestead_compact"
+      ],
+      "maxHp": 2000,
+      "targetClass": "structure",
+      "armorPpt": 300,
+      "cost": {
+        "manpower": 0,
+        "fuel": 0,
+        "materiel": 150
+      },
+      "buildTicks": 600,
+      "techTier": 1,
+      "placement": "town_slot",
+      "sightCm": 482803,
+      "buildSlotCost": 1,
+      "weapon": null,
+      "fortificationLevel": 0,
+      "garrisonDefensePpt": 0,
+      "captureTimerPpt": 0,
+      "requires": "none",
+      "highGroundSightBonus": false,
+      "supplySource": false,
+      "supplyRangeCm": 0,
+      "maxPerPlayer": 0,
+      "maxPerTerritory": 0,
+      "maxPerSite": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "resourceSite": false,
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 1,
+        "homestead_compact": 1
+      }
+    },
+    "motor_pool": {
+      "category": "production",
+      "factions": [
+        "remnant_command"
+      ],
+      "maxHp": 2000,
+      "targetClass": "structure",
+      "armorPpt": 300,
+      "cost": {
+        "manpower": 0,
+        "fuel": 50,
+        "materiel": 200
+      },
+      "buildTicks": 900,
+      "techTier": 1,
+      "placement": "town_slot",
+      "sightCm": 482803,
+      "buildSlotCost": 1,
+      "weapon": null,
+      "fortificationLevel": 0,
+      "garrisonDefensePpt": 0,
+      "captureTimerPpt": 0,
+      "requires": "none",
+      "highGroundSightBonus": false,
+      "supplySource": false,
+      "supplyRangeCm": 0,
+      "maxPerPlayer": 0,
+      "maxPerTerritory": 0,
+      "maxPerSite": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "resourceSite": false,
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 1
+      }
+    },
+    "heavy_works": {
+      "category": "production",
+      "factions": [
+        "remnant_command"
+      ],
+      "maxHp": 3000,
+      "targetClass": "structure",
+      "armorPpt": 400,
+      "cost": {
+        "manpower": 0,
+        "fuel": 100,
+        "materiel": 300
+      },
+      "buildTicks": 1500,
+      "techTier": 2,
+      "placement": "town_slot_or_hq",
+      "sightCm": 482803,
+      "buildSlotCost": 1,
+      "weapon": null,
+      "fortificationLevel": 0,
+      "garrisonDefensePpt": 0,
+      "captureTimerPpt": 0,
+      "requires": "none",
+      "highGroundSightBonus": false,
+      "supplySource": false,
+      "supplyRangeCm": 0,
+      "maxPerPlayer": 0,
+      "maxPerTerritory": 0,
+      "maxPerSite": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "resourceSite": false,
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 2
+      }
+    },
+    "drone_workshop": {
+      "category": "production",
+      "factions": [
+        "remnant_command"
+      ],
+      "maxHp": 2000,
+      "targetClass": "structure",
+      "armorPpt": 300,
+      "cost": {
+        "manpower": 0,
+        "fuel": 100,
+        "materiel": 300
+      },
+      "buildTicks": 1200,
+      "techTier": 2,
+      "placement": "town_slot_or_hq",
+      "sightCm": 482803,
+      "buildSlotCost": 1,
+      "weapon": null,
+      "fortificationLevel": 0,
+      "garrisonDefensePpt": 0,
+      "captureTimerPpt": 0,
+      "requires": "none",
+      "highGroundSightBonus": false,
+      "supplySource": false,
+      "supplyRangeCm": 0,
+      "maxPerPlayer": 0,
+      "maxPerTerritory": 0,
+      "maxPerSite": 0,
+      "popCapBonus": 0,
+      "canHostProduction": [],
+      "resourceSite": false,
+      "manpowerBonusPpt": 0,
+      "techTierByFaction": {
+        "remnant_command": 2
+      }
+    }
+  }
+}
