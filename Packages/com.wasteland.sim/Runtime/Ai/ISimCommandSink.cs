@@ -18,8 +18,9 @@ namespace Wasteland.Sim.Ai
     }
 
     /// <summary>
-    /// Fog-honest world reads. Enemy live state is unknown until a vision hook
-    /// exists; M0 therefore returns no visible enemies.
+    /// Fog-honest world reads plus occupancy (capture is a sim process, not
+    /// vision). Enemy live intent stays hidden; <see cref="CopyAllBattalions"/>
+    /// is the occupancy stub until the sim owns capture zones.
     /// </summary>
     public interface ISimWorldView
     {
@@ -30,6 +31,8 @@ namespace Wasteland.Sim.Ai
         void CopyOwnBattalionIds(int factionId, List<int> into);
 
         void CopyVisibleEnemyBattalionIds(int factionId, List<int> into);
+
+        void CopyAllBattalions(List<SimBattalion> into);
 
         int CountOwnBattalions(int factionId);
 

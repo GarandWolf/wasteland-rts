@@ -12,12 +12,38 @@ namespace Wasteland.Sim.Ai
         public readonly int Id;
         public readonly int TerritoryId;
         public readonly int NameHash;
+        public readonly int XCm;
+        public readonly int YCm;
+        public readonly int RoadNodeId;
+        public readonly int StrategicValue;
+        public readonly int PopulationClass;
+        public readonly int Population;
 
-        public AiTownRecord(int id, int territoryId, int nameHash)
+        public AiTownRecord(
+            int id,
+            int territoryId,
+            int nameHash,
+            int xCm,
+            int yCm,
+            int roadNodeId,
+            int strategicValue,
+            int populationClass,
+            int population)
         {
             Id = id;
             TerritoryId = territoryId;
             NameHash = nameHash;
+            XCm = xCm;
+            YCm = yCm;
+            RoadNodeId = roadNodeId;
+            StrategicValue = strategicValue;
+            PopulationClass = populationClass;
+            Population = population;
+        }
+
+        public bool IsSeatClassTownOrCity
+        {
+            get { return PopulationClass >= 1; }
         }
     }
 
@@ -25,42 +51,125 @@ namespace Wasteland.Sim.Ai
     {
         public readonly int Id;
         public readonly int SeatTownId;
+        public readonly ulong StableKey;
 
-        public AiTerritoryRecord(int id, int seatTownId)
+        public AiTerritoryRecord(int id, int seatTownId, ulong stableKey)
         {
             Id = id;
             SeatTownId = seatTownId;
+            StableKey = stableKey;
+        }
+    }
+
+    public readonly struct AiChokepointRecord
+    {
+        public readonly int Id;
+        public readonly byte DefenseGroupId;
+        public readonly byte BypassWheeledBlocked;
+        public readonly int BypassMaxGradePpt;
+        public readonly int SideATerritoryId;
+        public readonly int SideBTerritoryId;
+        public readonly int XCm;
+        public readonly int YCm;
+        public readonly int RoadNodeId;
+        public readonly ulong StableKey;
+
+        public AiChokepointRecord(
+            int id,
+            byte defenseGroupId,
+            byte bypassWheeledBlocked,
+            int bypassMaxGradePpt,
+            int sideATerritoryId,
+            int sideBTerritoryId,
+            int xCm,
+            int yCm,
+            int roadNodeId,
+            ulong stableKey)
+        {
+            Id = id;
+            DefenseGroupId = defenseGroupId;
+            BypassWheeledBlocked = bypassWheeledBlocked;
+            BypassMaxGradePpt = bypassMaxGradePpt;
+            SideATerritoryId = sideATerritoryId;
+            SideBTerritoryId = sideBTerritoryId;
+            XCm = xCm;
+            YCm = yCm;
+            RoadNodeId = roadNodeId;
+            StableKey = stableKey;
+        }
+
+        public bool HasDefenseGroup
+        {
+            get { return DefenseGroupId != Wrmb.NoDefenseGroup; }
+        }
+
+        public bool IsBorder
+        {
+            get
+            {
+                return SideATerritoryId != 0
+                    && SideBTerritoryId != 0
+                    && SideATerritoryId != SideBTerritoryId;
+            }
+        }
+
+        public bool IsHardPost
+        {
+            get { return IsBorder && BypassMaxGradePpt == 65535; }
         }
     }
 
     /// <summary>
-    /// Thin v0 map ingest for M0 seams: towns, seats, The Dalles id, and the
-    /// road-connected adjacency stopgap. Not the M1 derived-map pass.
+    /// Map ingest for M1: towns, seats, neighbour lists, defense groups,
+    /// wheeled-bypass flags, node territory ids, and stable u64 keys.
+    /// v0 still builds <see cref="RoadConnectedTerritoryAdjacency"/>.
     /// </summary>
     public sealed class AiMapSnapshot
     {
         public const int TownRecordSize = 64;
-        public const int TerritoryRecordSize = 40;
+        public const int TerritoryRecordSizeV0 = 40;
+        public const int TerritoryRecordSizeV1 = 48;
         public const int RoadEdgeRecordSize = 64;
+        public const int ChokepointRecordSizeV0 = 80;
+        public const int ChokepointRecordSizeV1 = 88;
 
         private readonly AiTownRecord[] _towns;
         private readonly AiTerritoryRecord[] _territories;
+        private readonly AiChokepointRecord[] _chokepoints;
 
         private AiMapSnapshot(
+            ushort formatVersion,
             ulong contentHash,
             int theDallesTownId,
             int theDallesTerritoryId,
+            int goldendaleTownId,
+            int hoodRiverTownId,
+            int whiteSalmonTownId,
+            int klickitatTownId,
+            int wheeledBlockedCount,
             AiTownRecord[] towns,
             AiTerritoryRecord[] territories,
+            AiChokepointRecord[] chokepoints,
+            RoadGraph roads,
             ITerritoryAdjacency adjacency)
         {
+            FormatVersion = formatVersion;
             ContentHash = contentHash;
             TheDallesTownId = theDallesTownId;
             TheDallesTerritoryId = theDallesTerritoryId;
+            GoldendaleTownId = goldendaleTownId;
+            HoodRiverTownId = hoodRiverTownId;
+            WhiteSalmonTownId = whiteSalmonTownId;
+            KlickitatTownId = klickitatTownId;
+            WheeledBlockedCount = wheeledBlockedCount;
             _towns = towns;
             _territories = territories;
+            _chokepoints = chokepoints;
+            Roads = roads;
             Adjacency = adjacency;
         }
+
+        public ushort FormatVersion { get; }
 
         public ulong ContentHash { get; }
 
@@ -68,7 +177,24 @@ namespace Wasteland.Sim.Ai
 
         public int TheDallesTerritoryId { get; }
 
+        public int GoldendaleTownId { get; }
+
+        public int HoodRiverTownId { get; }
+
+        public int WhiteSalmonTownId { get; }
+
+        public int KlickitatTownId { get; }
+
+        public int WheeledBlockedCount { get; }
+
         public ITerritoryAdjacency Adjacency { get; }
+
+        public RoadGraph Roads { get; }
+
+        public bool UsesMapNeighborLists
+        {
+            get { return Adjacency.SourceName == AiConstants.MapNeighborListAdjacencySource; }
+        }
 
         public int TownCount
         {
@@ -78,6 +204,11 @@ namespace Wasteland.Sim.Ai
         public int TerritoryCount
         {
             get { return _territories.Length; }
+        }
+
+        public int ChokepointCount
+        {
+            get { return _chokepoints.Length; }
         }
 
         public AiTownRecord TownAt(int index)
@@ -90,19 +221,132 @@ namespace Wasteland.Sim.Ai
             return _territories[index];
         }
 
+        public AiChokepointRecord ChokepointAt(int index)
+        {
+            return _chokepoints[index];
+        }
+
         public bool TryGetTown(int townId, out AiTownRecord town)
         {
-            for (int i = 0; i < _towns.Length; i++)
+            int index = IndexOfTown(townId);
+            if (index < 0)
             {
-                if (_towns[i].Id == townId)
+                town = default;
+                return false;
+            }
+
+            town = _towns[index];
+            return true;
+        }
+
+        public int IndexOfTown(int townId)
+        {
+            int lo = 0;
+            int hi = _towns.Length - 1;
+            while (lo <= hi)
+            {
+                int mid = lo + ((hi - lo) / 2);
+                int id = _towns[mid].Id;
+                if (id == townId)
                 {
-                    town = _towns[i];
+                    return mid;
+                }
+
+                if (id < townId)
+                {
+                    lo = mid + 1;
+                }
+                else
+                {
+                    hi = mid - 1;
+                }
+            }
+
+            return -1;
+        }
+
+        public bool TryGetTerritory(int territoryId, out AiTerritoryRecord territory)
+        {
+            int index = IndexOfTerritory(territoryId);
+            if (index < 0)
+            {
+                territory = default;
+                return false;
+            }
+
+            territory = _territories[index];
+            return true;
+        }
+
+        public int IndexOfTerritory(int territoryId)
+        {
+            int lo = 0;
+            int hi = _territories.Length - 1;
+            while (lo <= hi)
+            {
+                int mid = lo + ((hi - lo) / 2);
+                int id = _territories[mid].Id;
+                if (id == territoryId)
+                {
+                    return mid;
+                }
+
+                if (id < territoryId)
+                {
+                    lo = mid + 1;
+                }
+                else
+                {
+                    hi = mid - 1;
+                }
+            }
+
+            return -1;
+        }
+
+        public bool TryGetChokepoint(int chokepointId, out AiChokepointRecord chokepoint)
+        {
+            for (int i = 0; i < _chokepoints.Length; i++)
+            {
+                if (_chokepoints[i].Id == chokepointId)
+                {
+                    chokepoint = _chokepoints[i];
                     return true;
                 }
             }
 
-            town = default;
+            chokepoint = default;
             return false;
+        }
+
+        public static int CaptureTicksForClass(int populationClass)
+        {
+            if (populationClass <= 0)
+            {
+                return AiConstants.CaptureVillageTicks;
+            }
+
+            if (populationClass == 1)
+            {
+                return AiConstants.CaptureTownTicks;
+            }
+
+            return AiConstants.CaptureCityTicks;
+        }
+
+        public static int IncomePerSecondForClass(int populationClass)
+        {
+            if (populationClass <= 0)
+            {
+                return AiConstants.IncomeVillagePerSecond;
+            }
+
+            if (populationClass == 1)
+            {
+                return AiConstants.IncomeTownPerSecond;
+            }
+
+            return AiConstants.IncomeCityPerSecond;
         }
 
         public static AiMapSnapshot FromWrmb(byte[] mapBlob)
@@ -114,10 +358,10 @@ namespace Wasteland.Sim.Ai
 
             WrmbFile file = WrmbFile.Parse(mapBlob);
             ulong contentHash = HashBytes(file.ContentHash);
+            RoadGraph roads = Wrmb.ReadRoadGraph(file);
 
             WrmbDirEntry townEntry = file.RequireSection("TOWN");
             WrmbDirEntry terrEntry = file.RequireSection("TERR");
-            WrmbDirEntry redgEntry = file.RequireSection("REDG");
             WrmbDirEntry i32pEntry = file.RequireSection("I32P");
             WrmbDirEntry strpEntry = file.RequireSection("STRP");
 
@@ -126,14 +370,11 @@ namespace Wasteland.Sim.Ai
                 throw new InvalidDataException("TOWN elementSize must be 64.");
             }
 
-            if (terrEntry.ElementSize != TerritoryRecordSize)
+            bool v1 = file.FileFormatVersion >= WrmbFile.FormatVersionV1;
+            int expectedTerr = v1 ? TerritoryRecordSizeV1 : TerritoryRecordSizeV0;
+            if (terrEntry.ElementSize != expectedTerr)
             {
-                throw new InvalidDataException("TERR elementSize must be 40.");
-            }
-
-            if (redgEntry.ElementSize != RoadEdgeRecordSize)
-            {
-                throw new InvalidDataException("REDG elementSize must be 64.");
+                throw new InvalidDataException("TERR elementSize must be " + expectedTerr + ".");
             }
 
             int[] i32p = ReadInt32Pool(file.SectionBytes(i32pEntry));
@@ -144,15 +385,25 @@ namespace Wasteland.Sim.Ai
             AiTownRecord[] towns = new AiTownRecord[townEntry.Count];
             int theDallesTownId = 0;
             int theDallesTerritoryId = 0;
+            int goldendaleTownId = 0;
+            int hoodRiverTownId = 0;
+            int whiteSalmonTownId = 0;
+            int klickitatTownId = 0;
             BlobReader townReader = new BlobReader(file.SectionBytes(townEntry));
             int previousTownId = -1;
             for (int i = 0; i < townEntry.Count; i++)
             {
                 int id = townReader.I32();
-                townReader.Skip(8);
+                int xCm = townReader.I32();
+                int yCm = townReader.I32();
                 int territoryId = townReader.I32();
                 int nameHash = townReader.I32();
-                townReader.Skip(16);
+                int population = townReader.I32();
+                townReader.Skip(4);
+                int roadNodeId = townReader.I32();
+                short strategicValue = townReader.I16();
+                sbyte populationClass = townReader.I8();
+                townReader.U8();
                 int neighborOff = (int)townReader.U32();
                 int neighborCount = (int)townReader.U32();
                 townReader.Skip(8);
@@ -167,41 +418,188 @@ namespace Wasteland.Sim.Ai
                 }
 
                 previousTownId = id;
-                towns[i] = new AiTownRecord(id, territoryId, nameHash);
+                if (strategicValue < 0 || strategicValue > 1000)
+                {
+                    throw new InvalidDataException("TOWN strategicValue out of range.");
+                }
+
+                towns[i] = new AiTownRecord(
+                    id,
+                    territoryId,
+                    nameHash,
+                    xCm,
+                    yCm,
+                    roadNodeId,
+                    strategicValue,
+                    populationClass,
+                    population);
                 string name = ReadUtf8(strp, nameOff, nameLen);
                 if (name == AiConstants.TheDallesTownName)
                 {
                     theDallesTownId = id;
                     theDallesTerritoryId = territoryId;
                 }
+                else if (name == AiConstants.GoldendaleTownName)
+                {
+                    goldendaleTownId = id;
+                }
+                else if (name == AiConstants.HoodRiverTownName)
+                {
+                    hoodRiverTownId = id;
+                }
+                else if (name == AiConstants.WhiteSalmonTownName)
+                {
+                    whiteSalmonTownId = id;
+                }
+                else if (name == AiConstants.KlickitatTownName)
+                {
+                    klickitatTownId = id;
+                }
             }
 
             AiTerritoryRecord[] territories = new AiTerritoryRecord[terrEntry.Count];
+            int[] territoryIds = new int[terrEntry.Count];
+            int[][] neighborArrays = new int[terrEntry.Count][];
             BlobReader terrReader = new BlobReader(file.SectionBytes(terrEntry));
             int previousTerrId = -1;
             for (int i = 0; i < terrEntry.Count; i++)
             {
                 int id = terrReader.I32();
                 int seatTownId = terrReader.I32();
-                terrReader.Skip(32);
+                terrReader.Skip(24);
+                int neighborOff = (int)terrReader.U32();
+                int neighborCount = (int)terrReader.U32();
+                ulong stableKey = 0;
+                if (v1)
+                {
+                    stableKey = terrReader.U64();
+                }
+
                 if (i > 0 && id <= previousTerrId)
                 {
                     throw new InvalidDataException("TERR ids must be sorted unique.");
                 }
 
                 previousTerrId = id;
-                territories[i] = new AiTerritoryRecord(id, seatTownId);
+                if (neighborOff < 0 || neighborCount < 0 || neighborOff + neighborCount > i32p.Length)
+                {
+                    throw new InvalidDataException("TERR neighborTerritoryIds span is invalid.");
+                }
+
+                int[] neighbors = new int[neighborCount];
+                for (int n = 0; n < neighborCount; n++)
+                {
+                    neighbors[n] = i32p[neighborOff + n];
+                }
+
+                territoryIds[i] = id;
+                neighborArrays[i] = neighbors;
+                territories[i] = new AiTerritoryRecord(id, seatTownId, stableKey);
             }
 
-            ITerritoryAdjacency adjacency = BuildRoadConnected(
-                territories,
+            AiChokepointRecord[] chokepoints = ReadChokepoints(file, v1, out int wheeledBlocked);
+
+            ITerritoryAdjacency adjacency;
+            if (v1)
+            {
+                adjacency = new MapNeighborListAdjacency(territoryIds, neighborArrays);
+            }
+            else
+            {
+                WrmbDirEntry redgEntry = file.RequireSection("REDG");
+                if (redgEntry.ElementSize != RoadEdgeRecordSize)
+                {
+                    throw new InvalidDataException("REDG elementSize must be 64.");
+                }
+
+                adjacency = BuildRoadConnected(
+                    territories,
+                    towns,
+                    i32p,
+                    townNeighborOffsets,
+                    townNeighborCounts,
+                    file.SectionBytes(redgEntry),
+                    redgEntry.Count);
+            }
+
+            return new AiMapSnapshot(
+                file.FileFormatVersion,
+                contentHash,
+                theDallesTownId,
+                theDallesTerritoryId,
+                goldendaleTownId,
+                hoodRiverTownId,
+                whiteSalmonTownId,
+                klickitatTownId,
+                wheeledBlocked,
                 towns,
-                i32p,
-                townNeighborOffsets,
-                townNeighborCounts,
-                file.SectionBytes(redgEntry),
-                redgEntry.Count);
-            return new AiMapSnapshot(contentHash, theDallesTownId, theDallesTerritoryId, towns, territories, adjacency);
+                territories,
+                chokepoints,
+                roads,
+                adjacency);
+        }
+
+        private static AiChokepointRecord[] ReadChokepoints(WrmbFile file, bool v1, out int wheeledBlocked)
+        {
+            wheeledBlocked = 0;
+            if (!file.TryGetSection("CHOK", out WrmbDirEntry chok))
+            {
+                return Array.Empty<AiChokepointRecord>();
+            }
+
+            int expected = v1 ? ChokepointRecordSizeV1 : ChokepointRecordSizeV0;
+            if (chok.ElementSize != expected)
+            {
+                throw new InvalidDataException("CHOK elementSize must be " + expected + ".");
+            }
+
+            AiChokepointRecord[] records = new AiChokepointRecord[chok.Count];
+            BlobReader r = new BlobReader(file.SectionBytes(chok));
+            for (int i = 0; i < chok.Count; i++)
+            {
+                r.Seek(i * chok.ElementSize);
+                int id = r.I32();
+                r.U8();
+                r.U8();
+                r.U8();
+                byte defenseGroupId = r.U8();
+                int x = r.I32();
+                int y = r.I32();
+                r.I32();
+                int roadNodeId = r.I32();
+                r.I32();
+                r.Skip(16);
+                int sideA = r.I32();
+                int sideB = r.I32();
+                r.Skip(24);
+                int bypassMaxGradePpt = r.U16();
+                r.U8();
+                byte bypassWheeled = r.U8();
+                ulong stableKey = 0;
+                if (chok.ElementSize >= ChokepointRecordSizeV1)
+                {
+                    stableKey = r.U64();
+                }
+
+                if (bypassWheeled != 0)
+                {
+                    wheeledBlocked++;
+                }
+
+                records[i] = new AiChokepointRecord(
+                    id,
+                    defenseGroupId,
+                    bypassWheeled,
+                    bypassMaxGradePpt,
+                    sideA,
+                    sideB,
+                    x,
+                    y,
+                    roadNodeId,
+                    stableKey);
+            }
+
+            return records;
         }
 
         private static ITerritoryAdjacency BuildRoadConnected(

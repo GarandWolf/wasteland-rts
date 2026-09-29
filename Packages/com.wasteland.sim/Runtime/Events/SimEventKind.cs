@@ -4,6 +4,7 @@ namespace Wasteland.Sim.Events
     {
         CommandRejected = 1,
         BattalionSpawned = 2,
-        BattalionArrived = 3
+        BattalionArrived = 3,
+        BuildAccepted = 4
     }
 }

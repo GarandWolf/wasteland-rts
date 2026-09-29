@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Commands;
+using Wasteland.Sim.Events;
 using Wasteland.Sim.World;
 using Xunit;
 
@@ -47,11 +48,19 @@ namespace Wasteland.Sim.Tests
         {
             AiMatchHost host = StartHost();
             host.Run(200);
-            Assert.Equal(0, host.World.BattalionCount);
-            Assert.Empty(host.World.Events);
-            Assert.IsType<SimWorldCommandSink>(host.Ai.Commands);
+            Assert.IsType<LoggingCommandSink>(host.Ai.Commands);
             Assert.Equal(host.World.CommandDelayTicks, host.Ai.Commands.CommandDelayTicks);
             Assert.Equal(SimConfig.DefaultCommandDelayTicks, host.World.CommandDelayTicks);
+            for (int i = 0; i < host.World.Events.Count; i++)
+            {
+                SimEvent ev = host.World.Events[i];
+                if (ev.Kind == SimEventKind.CommandRejected)
+                {
+                    Assert.NotEqual(CommandRejectReason.UnknownKind, ev.RejectReason);
+                }
+            }
+
+            Assert.True(host.CommandLog.Count > 0);
             host.Shutdown();
         }
 
@@ -109,6 +118,12 @@ namespace Wasteland.Sim.Tests
             }
 
             return bytes;
+        }
+
+        internal static byte[] LoadGorgeV1Bytes()
+        {
+            string path = TestDataPaths.FindRepoFile("data/golden/" + GoldenMapV1Tests.MapFileName);
+            return GoldenMapFiles.ReadWrmb(path, GoldenMapV1Tests.MapBytes);
         }
 
         internal static AiMapSnapshot LoadGorgeMap()

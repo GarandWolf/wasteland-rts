@@ -211,12 +211,12 @@ namespace Wasteland.Sim.Ai
 
             JsonValue personalityRoot = IntegerJsonParser.Parse(personalitiesJson);
             JsonValue difficultyRoot = IntegerJsonParser.Parse(difficultyJson);
-            if (JsonUtil.Int32(JsonUtil.Field(personalityRoot, "schemaVersion"), "schemaVersion") != AiConstants.SchemaVersion)
+            if (JsonUtil.Int32(JsonUtil.Field(personalityRoot, "schemaVersion"), "schemaVersion") != AiConstants.BalanceSchemaVersion)
             {
                 throw new FormatException("Unsupported ai_personalities.json schema.");
             }
 
-            if (JsonUtil.Int32(JsonUtil.Field(difficultyRoot, "schemaVersion"), "schemaVersion") != AiConstants.SchemaVersion)
+            if (JsonUtil.Int32(JsonUtil.Field(difficultyRoot, "schemaVersion"), "schemaVersion") != AiConstants.BalanceSchemaVersion)
             {
                 throw new FormatException("Unsupported ai_difficulty.json schema.");
             }

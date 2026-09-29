@@ -5,6 +5,27 @@ using Wasteland.Sim.Random;
 
 namespace Wasteland.Sim.Ai
 {
+    public struct AiOrder
+    {
+        public int Id;
+        public AiGoalType Type;
+        public int TargetTownId;
+        public int TargetTerritoryId;
+        public int TargetNodeId;
+        public int BattalionId;
+        public int Score;
+    }
+
+    public struct AiDepot
+    {
+        public int TerritoryId;
+        public ulong TerritoryStableKey;
+        public int SeatTownId;
+        public int NodeId;
+        public int XCm;
+        public int YCm;
+    }
+
     /// <summary>
     /// Per-faction AI memory. Other sim systems must not read this. Stored in
     /// faction-id order, hashed, and save/loadable.
@@ -20,6 +41,9 @@ namespace Wasteland.Sim.Ai
         public readonly int MinGarrisonPerTown;
         public readonly int ManpowerReserveSeconds;
         public readonly int EconomyBonusPpt;
+        public readonly int MaxCandidateGoals;
+        public readonly int TaskForceTargetSize;
+        public readonly int ReservePpt;
 
         public AiPosture Posture;
         public int NextOrderId;
@@ -29,6 +53,19 @@ namespace Wasteland.Sim.Ai
         public int PathRequestsThisTick;
         public int WorkUnitsThisTick;
         public bool StrategicDeferred;
+        public bool OpeningForceIssued;
+        public int HomeTerritoryId;
+        public int HomeTownId;
+        public int HqNodeId;
+        public int NextBattalionId;
+        public int Manpower;
+        public int ManpowerCarry;
+        public int DepotCount;
+        public int PickedPostCount;
+        public readonly AiOrder[] Orders;
+        public readonly AiDepot[] Depots;
+        public readonly int[] PickedPostIds;
+        public readonly int[] PickedGroupIds;
         public SimRandom StrategyRng;
         public SimRandom TacticalRng;
         public SimRandom MistakeRng;
@@ -44,6 +81,9 @@ namespace Wasteland.Sim.Ai
             int minGarrisonPerTown,
             int manpowerReserveSeconds,
             int economyBonusPpt,
+            int maxCandidateGoals,
+            int taskForceTargetSize,
+            int reservePpt,
             AiPosture posture,
             SimRandom strategyRng,
             SimRandom tacticalRng,
@@ -59,8 +99,16 @@ namespace Wasteland.Sim.Ai
             MinGarrisonPerTown = minGarrisonPerTown;
             ManpowerReserveSeconds = manpowerReserveSeconds;
             EconomyBonusPpt = economyBonusPpt;
+            MaxCandidateGoals = maxCandidateGoals;
+            TaskForceTargetSize = taskForceTargetSize;
+            ReservePpt = reservePpt;
             Posture = posture;
             NextOrderId = 1;
+            NextBattalionId = factionId * AiConstants.BattalionIdStride + 1;
+            Orders = new AiOrder[System.Math.Max(1, maxActiveOrders)];
+            Depots = new AiDepot[16];
+            PickedPostIds = new int[64];
+            PickedGroupIds = new int[64];
             StrategyRng = strategyRng;
             TacticalRng = tacticalRng;
             MistakeRng = mistakeRng;
@@ -78,12 +126,20 @@ namespace Wasteland.Sim.Ai
     public sealed class AiOwnedState
     {
         private readonly AiFactionState[] _factions;
+        private readonly int[] _townOwnerIds;
+        private readonly int[] _captureFactionIds;
+        private readonly int[] _captureHeldTicks;
 
-        public AiOwnedState(AiFactionState[] factions)
+        public AiOwnedState(AiFactionState[] factions, int townCount)
         {
             if (factions == null || factions.Length < 1)
             {
                 throw new ArgumentException("At least one AI faction is required.", nameof(factions));
+            }
+
+            if (townCount < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(townCount));
             }
 
             _factions = (AiFactionState[])factions.Clone();
@@ -95,11 +151,20 @@ namespace Wasteland.Sim.Ai
                     throw new ArgumentException("Duplicate AI faction id.");
                 }
             }
+
+            _townOwnerIds = new int[townCount];
+            _captureFactionIds = new int[townCount];
+            _captureHeldTicks = new int[townCount];
         }
 
         public int FactionCount
         {
             get { return _factions.Length; }
+        }
+
+        public int TownSlotCount
+        {
+            get { return _townOwnerIds.Length; }
         }
 
         public AiFactionState FactionAt(int index)
@@ -120,6 +185,34 @@ namespace Wasteland.Sim.Ai
             throw new InvalidOperationException("Unknown AI faction " + factionId + ".");
         }
 
+        public int TownOwnerAt(int townIndex)
+        {
+            return _townOwnerIds[townIndex];
+        }
+
+        public void SetTownOwner(int townIndex, int ownerId)
+        {
+            _townOwnerIds[townIndex] = ownerId;
+            _captureFactionIds[townIndex] = 0;
+            _captureHeldTicks[townIndex] = 0;
+        }
+
+        public int CaptureFactionAt(int townIndex)
+        {
+            return _captureFactionIds[townIndex];
+        }
+
+        public int CaptureHeldTicksAt(int townIndex)
+        {
+            return _captureHeldTicks[townIndex];
+        }
+
+        public void SetCapture(int townIndex, int factionId, int heldTicks)
+        {
+            _captureFactionIds[townIndex] = factionId;
+            _captureHeldTicks[townIndex] = heldTicks;
+        }
+
         public void HashInto(XxHash64Builder hash)
         {
             hash.AddInt(_factions.Length);
@@ -135,6 +228,9 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.MinGarrisonPerTown);
                 hash.AddInt(faction.ManpowerReserveSeconds);
                 hash.AddInt(faction.EconomyBonusPpt);
+                hash.AddInt(faction.MaxCandidateGoals);
+                hash.AddInt(faction.TaskForceTargetSize);
+                hash.AddInt(faction.ReservePpt);
                 hash.AddByte((byte)faction.Posture);
                 hash.AddInt(faction.NextOrderId);
                 hash.AddInt(faction.OrderCount);
@@ -143,6 +239,15 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.PathRequestsThisTick);
                 hash.AddInt(faction.WorkUnitsThisTick);
                 hash.AddBool(faction.StrategicDeferred);
+                hash.AddBool(faction.OpeningForceIssued);
+                hash.AddInt(faction.HomeTerritoryId);
+                hash.AddInt(faction.HomeTownId);
+                hash.AddInt(faction.HqNodeId);
+                hash.AddInt(faction.NextBattalionId);
+                hash.AddInt(faction.Manpower);
+                hash.AddInt(faction.ManpowerCarry);
+                hash.AddInt(faction.DepotCount);
+                hash.AddInt(faction.PickedPostCount);
                 hash.AddULong(faction.StrategyRng.State);
                 hash.AddULong(faction.StrategyRng.Stream);
                 hash.AddULong(faction.TacticalRng.State);
@@ -151,6 +256,42 @@ namespace Wasteland.Sim.Ai
                 hash.AddULong(faction.MistakeRng.Stream);
                 hash.AddULong(faction.ScoutRng.State);
                 hash.AddULong(faction.ScoutRng.Stream);
+                for (int o = 0; o < faction.OrderCount; o++)
+                {
+                    AiOrder order = faction.Orders[o];
+                    hash.AddInt(order.Id);
+                    hash.AddByte((byte)order.Type);
+                    hash.AddInt(order.TargetTownId);
+                    hash.AddInt(order.TargetTerritoryId);
+                    hash.AddInt(order.TargetNodeId);
+                    hash.AddInt(order.BattalionId);
+                    hash.AddInt(order.Score);
+                }
+
+                for (int d = 0; d < faction.DepotCount; d++)
+                {
+                    AiDepot depot = faction.Depots[d];
+                    hash.AddInt(depot.TerritoryId);
+                    hash.AddULong(depot.TerritoryStableKey);
+                    hash.AddInt(depot.SeatTownId);
+                    hash.AddInt(depot.NodeId);
+                    hash.AddInt(depot.XCm);
+                    hash.AddInt(depot.YCm);
+                }
+
+                for (int p = 0; p < faction.PickedPostCount; p++)
+                {
+                    hash.AddInt(faction.PickedPostIds[p]);
+                    hash.AddInt(faction.PickedGroupIds[p]);
+                }
+            }
+
+            hash.AddInt(_townOwnerIds.Length);
+            for (int i = 0; i < _townOwnerIds.Length; i++)
+            {
+                hash.AddInt(_townOwnerIds[i]);
+                hash.AddInt(_captureFactionIds[i]);
+                hash.AddInt(_captureHeldTicks[i]);
             }
         }
 
@@ -172,6 +313,9 @@ namespace Wasteland.Sim.Ai
                 writer.Write(faction.MinGarrisonPerTown);
                 writer.Write(faction.ManpowerReserveSeconds);
                 writer.Write(faction.EconomyBonusPpt);
+                writer.Write(faction.MaxCandidateGoals);
+                writer.Write(faction.TaskForceTargetSize);
+                writer.Write(faction.ReservePpt);
                 writer.Write((byte)faction.Posture);
                 writer.Write(faction.NextOrderId);
                 writer.Write(faction.OrderCount);
@@ -180,10 +324,55 @@ namespace Wasteland.Sim.Ai
                 writer.Write(faction.PathRequestsThisTick);
                 writer.Write(faction.WorkUnitsThisTick);
                 writer.Write(faction.StrategicDeferred);
+                writer.Write(faction.OpeningForceIssued);
+                writer.Write(faction.HomeTerritoryId);
+                writer.Write(faction.HomeTownId);
+                writer.Write(faction.HqNodeId);
+                writer.Write(faction.NextBattalionId);
+                writer.Write(faction.Manpower);
+                writer.Write(faction.ManpowerCarry);
+                writer.Write(faction.DepotCount);
+                writer.Write(faction.PickedPostCount);
                 WriteRng(writer, faction.StrategyRng);
                 WriteRng(writer, faction.TacticalRng);
                 WriteRng(writer, faction.MistakeRng);
                 WriteRng(writer, faction.ScoutRng);
+                for (int o = 0; o < faction.OrderCount; o++)
+                {
+                    AiOrder order = faction.Orders[o];
+                    writer.Write(order.Id);
+                    writer.Write((byte)order.Type);
+                    writer.Write(order.TargetTownId);
+                    writer.Write(order.TargetTerritoryId);
+                    writer.Write(order.TargetNodeId);
+                    writer.Write(order.BattalionId);
+                    writer.Write(order.Score);
+                }
+
+                for (int d = 0; d < faction.DepotCount; d++)
+                {
+                    AiDepot depot = faction.Depots[d];
+                    writer.Write(depot.TerritoryId);
+                    writer.Write(depot.TerritoryStableKey);
+                    writer.Write(depot.SeatTownId);
+                    writer.Write(depot.NodeId);
+                    writer.Write(depot.XCm);
+                    writer.Write(depot.YCm);
+                }
+
+                for (int p = 0; p < faction.PickedPostCount; p++)
+                {
+                    writer.Write(faction.PickedPostIds[p]);
+                    writer.Write(faction.PickedGroupIds[p]);
+                }
+            }
+
+            writer.Write(_townOwnerIds.Length);
+            for (int i = 0; i < _townOwnerIds.Length; i++)
+            {
+                writer.Write(_townOwnerIds[i]);
+                writer.Write(_captureFactionIds[i]);
+                writer.Write(_captureHeldTicks[i]);
             }
 
             writer.Flush();
@@ -231,6 +420,9 @@ namespace Wasteland.Sim.Ai
                 reader.ReadInt32();
                 reader.ReadInt32();
                 reader.ReadInt32();
+                reader.ReadInt32();
+                reader.ReadInt32();
+                reader.ReadInt32();
                 _factions[i].Posture = (AiPosture)reader.ReadByte();
                 _factions[i].NextOrderId = reader.ReadInt32();
                 _factions[i].OrderCount = reader.ReadInt32();
@@ -239,10 +431,69 @@ namespace Wasteland.Sim.Ai
                 _factions[i].PathRequestsThisTick = reader.ReadInt32();
                 _factions[i].WorkUnitsThisTick = reader.ReadInt32();
                 _factions[i].StrategicDeferred = reader.ReadBoolean();
+                _factions[i].OpeningForceIssued = reader.ReadBoolean();
+                _factions[i].HomeTerritoryId = reader.ReadInt32();
+                _factions[i].HomeTownId = reader.ReadInt32();
+                _factions[i].HqNodeId = reader.ReadInt32();
+                _factions[i].NextBattalionId = reader.ReadInt32();
+                _factions[i].Manpower = reader.ReadInt32();
+                _factions[i].ManpowerCarry = reader.ReadInt32();
+                _factions[i].DepotCount = reader.ReadInt32();
+                _factions[i].PickedPostCount = reader.ReadInt32();
                 _factions[i].StrategyRng = ReadRng(reader);
                 _factions[i].TacticalRng = ReadRng(reader);
                 _factions[i].MistakeRng = ReadRng(reader);
                 _factions[i].ScoutRng = ReadRng(reader);
+                if (_factions[i].OrderCount > _factions[i].Orders.Length
+                    || _factions[i].DepotCount > _factions[i].Depots.Length
+                    || _factions[i].PickedPostCount > _factions[i].PickedPostIds.Length)
+                {
+                    throw new InvalidDataException("AI collection count exceeds slot capacity.");
+                }
+
+                for (int o = 0; o < _factions[i].OrderCount; o++)
+                {
+                    AiOrder order = default;
+                    order.Id = reader.ReadInt32();
+                    order.Type = (AiGoalType)reader.ReadByte();
+                    order.TargetTownId = reader.ReadInt32();
+                    order.TargetTerritoryId = reader.ReadInt32();
+                    order.TargetNodeId = reader.ReadInt32();
+                    order.BattalionId = reader.ReadInt32();
+                    order.Score = reader.ReadInt32();
+                    _factions[i].Orders[o] = order;
+                }
+
+                for (int d = 0; d < _factions[i].DepotCount; d++)
+                {
+                    AiDepot depot = default;
+                    depot.TerritoryId = reader.ReadInt32();
+                    depot.TerritoryStableKey = reader.ReadUInt64();
+                    depot.SeatTownId = reader.ReadInt32();
+                    depot.NodeId = reader.ReadInt32();
+                    depot.XCm = reader.ReadInt32();
+                    depot.YCm = reader.ReadInt32();
+                    _factions[i].Depots[d] = depot;
+                }
+
+                for (int p = 0; p < _factions[i].PickedPostCount; p++)
+                {
+                    _factions[i].PickedPostIds[p] = reader.ReadInt32();
+                    _factions[i].PickedGroupIds[p] = reader.ReadInt32();
+                }
+            }
+
+            int towns = reader.ReadInt32();
+            if (towns != _townOwnerIds.Length)
+            {
+                throw new InvalidDataException("AI town slot count changed across save/load.");
+            }
+
+            for (int i = 0; i < towns; i++)
+            {
+                _townOwnerIds[i] = reader.ReadInt32();
+                _captureFactionIds[i] = reader.ReadInt32();
+                _captureHeldTicks[i] = reader.ReadInt32();
             }
         }
 

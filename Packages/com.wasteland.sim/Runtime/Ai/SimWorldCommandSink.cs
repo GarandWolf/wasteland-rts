@@ -64,6 +64,21 @@ namespace Wasteland.Sim.Ai
             into.Clear();
         }
 
+        public void CopyAllBattalions(List<SimBattalion> into)
+        {
+            if (into == null)
+            {
+                throw new ArgumentNullException(nameof(into));
+            }
+
+            into.Clear();
+            IReadOnlyList<SimBattalion> battalions = _world.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                into.Add(battalions[i]);
+            }
+        }
+
         public int CountOwnBattalions(int factionId)
         {
             int count = 0;

@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Wasteland.Sim.Ai;
+using Wasteland.Sim.Commands;
 using Wasteland.Sim.World;
 using Xunit;
 
@@ -10,27 +11,63 @@ namespace Wasteland.Sim.Tests
         private const ulong MatchSeed = 0xC01055A1UL;
 
         [Fact]
-        public void TwoAiFactions_OnGorgeV0_SameSeed_SameHashStream()
+        public void TwoAiFactions_OnGorgeV1_SameSeed_SameHashStream()
         {
-            List<ulong> first = Run(MatchSeed, out List<string> logsA, out int theDallesTownId);
-            List<ulong> second = Run(MatchSeed, out List<string> logsB, out int theDallesTownIdB);
+            List<ulong> first = Run(MatchSeed, out List<string> logsA, out int theDallesTownId, out AiMatchHost hostA);
+            List<ulong> second = Run(MatchSeed, out List<string> logsB, out int theDallesTownIdB, out AiMatchHost hostB);
 
             Assert.Equal(14, theDallesTownId);
             Assert.Equal(theDallesTownId, theDallesTownIdB);
             Assert.Equal(first, second);
             Assert.Equal(logsA, logsB);
-            Assert.True(first.Count >= 1 + (AiConstants.M0DeterminismTicks / AiConstants.HashPeriodTicks));
+            Assert.True(first.Count >= 1 + (AiConstants.M1DeterminismTicks / AiConstants.HashPeriodTicks));
 
             AssertRequiredHeadlessLogs(logsA);
-            for (int i = 0; i < logsA.Count; i++)
+            Assert.Contains("theDallesTown=14", logsA[0]);
+            Assert.True(hostA.Ai.Map.UsesMapNeighborLists);
+            Assert.Equal(AiMapV1Tests.ExpectedWheeledBlockedChokepoints, hostA.Ai.Map.WheeledBlockedCount);
+
+            hostA.Shutdown();
+            hostB.Shutdown();
+        }
+
+        [Fact]
+        public void SaveLoadMidRun_ReplaysCommandsAndRestoresAiHash()
+        {
+            AiMatchHost original = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
+            original.Run(AiConstants.SaveLoadMidRunTick);
+            ulong atSave = original.HashWorld();
+            byte[] blob = original.Ai.Save();
+            SimCommand[] log = CopyLog(original.CommandLog);
+
+            AiMatchHost restored = AiMatchHost.ReplayTo(
+                MatchConfig.Default(MatchSeed),
+                AiSeamsTests.LoadGorgeV1Bytes(),
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                AiConstants.DifficultyNormal,
+                AiBalanceTablesTests.LoadBalance(),
+                log,
+                blob,
+                AiConstants.SaveLoadMidRunTick);
+
+            Assert.Equal(original.Tick, restored.Tick);
+            Assert.Equal(atSave, restored.HashWorld());
+
+            int remain = AiConstants.M1DeterminismTicks - AiConstants.SaveLoadMidRunTick;
+            original.Run(remain);
+            restored.Run(remain);
+
+            List<AiHashSample> originalTail = TailFrom(original.Hashes, AiConstants.SaveLoadMidRunTick);
+            List<AiHashSample> restoredTail = TailFrom(restored.Hashes, AiConstants.SaveLoadMidRunTick);
+            Assert.Equal(originalTail.Count, restoredTail.Count);
+            for (int i = 0; i < originalTail.Count; i++)
             {
-                Assert.Contains("manpower=0", logsA[i]);
-                Assert.Contains("reserve=0", logsA[i]);
-                Assert.Contains("techSavings=0", logsA[i]);
-                Assert.Contains("battalions=0", logsA[i]);
-                Assert.Contains("theDallesTown=14", logsA[i]);
-                Assert.Contains("theDallesOwner=0", logsA[i]);
+                Assert.Equal(originalTail[i].Tick, restoredTail[i].Tick);
+                Assert.Equal(originalTail[i].Hash, restoredTail[i].Hash);
             }
+
+            restored.Shutdown();
+            original.Shutdown();
         }
 
         [Fact]
@@ -49,10 +86,10 @@ namespace Wasteland.Sim.Tests
             brutal.Shutdown();
         }
 
-        private static List<ulong> Run(ulong seed, out List<string> logs, out int theDallesTownId)
+        private static List<ulong> Run(ulong seed, out List<string> logs, out int theDallesTownId, out AiMatchHost host)
         {
-            AiMatchHost host = Start(seed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
-            host.Run(AiConstants.M0DeterminismTicks);
+            host = Start(seed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
+            host.Run(AiConstants.M1DeterminismTicks);
             logs = new List<string>(host.HeadlessLogs);
             theDallesTownId = host.Ai.Map.TheDallesTownId;
             List<ulong> hashes = new List<ulong>(host.Hashes.Count);
@@ -61,7 +98,6 @@ namespace Wasteland.Sim.Tests
                 hashes.Add(host.Hashes[i].Hash);
             }
 
-            host.Shutdown();
             return hashes;
         }
 
@@ -69,10 +105,35 @@ namespace Wasteland.Sim.Tests
         {
             return AiMatchHost.Start(
                 MatchConfig.Default(seed),
-                AiSeamsTests.LoadGorgeBytes(),
+                AiSeamsTests.LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 difficultyId,
                 balance);
+        }
+
+        private static SimCommand[] CopyLog(IReadOnlyList<SimCommand> log)
+        {
+            SimCommand[] copy = new SimCommand[log.Count];
+            for (int i = 0; i < log.Count; i++)
+            {
+                copy[i] = log[i];
+            }
+
+            return copy;
+        }
+
+        private static List<AiHashSample> TailFrom(IReadOnlyList<AiHashSample> hashes, int tick)
+        {
+            List<AiHashSample> tail = new List<AiHashSample>();
+            for (int i = 0; i < hashes.Count; i++)
+            {
+                if (hashes[i].Tick >= tick)
+                {
+                    tail.Add(hashes[i]);
+                }
+            }
+
+            return tail;
         }
 
         private static void AssertRequiredHeadlessLogs(List<string> logs)
