@@ -11,7 +11,7 @@ Headless, integer-only, deterministic. Player UI preview and AI call the same fu
 
 ## Map blobs (WRMB)
 
-Roads and terrain arrive as **two** WRMB files (same container; sections located by tag). See [formats/wrmb-v0.md](formats/wrmb-v0.md).
+Roads and terrain arrive as **two** WRMB files (same container; sections located by tag). See [formats/wrmb-v0.md](formats/wrmb-v0.md). The loader accepts formatVersion 0 and 1 (v1 requires `V1_FINAL` and, on terrain files, `WTRA`, which the sim skips). Map/balance identity: [formats/map-keys.md](formats/map-keys.md).
 
 - Map/AI file: `RNOD` / `REDG`. Bridges are two `BridgeHead` nodes plus a `bridgeSpan` edge.
 - Terrain file: `MVSL` (uint16 per-mille slope), `MVLC` (land cover), `MVFD` (ford bits). Row 0 is south. Sim x = east, y = north, origin SW.
@@ -70,7 +70,7 @@ Larger maps, per movement class, at match load (pure function of that class's co
 
 Clusters are built with `Parallel.For` (deterministic CSR sort afterwards). Classes run in parallel only when `BuildWorkers >= ClassCount * 2` so a 4-core VM spends all cores inside one class rather than starving cluster work. Serial vs parallel fingerprints are tested (`workers=1` vs `workers=8`).
 
-Optional **WHPA** on-disk cache (`MovementServiceConfig.HierarchyCacheDirectory`): keyed by terrain WRMB `contentHash`, movement-table xxHash64, algorithm version, cluster size, and `W×H`. Payload SHA-256 is checked on load; a mismatch rebuilds. Repeat loads of the same map are then dominated by cost-grid fill + ALT, not HPA*.
+Optional **WHPA** on-disk cache (`MovementServiceConfig.HierarchyCacheDirectory`): keyed by terrain `terrainPayloadSha256` (MVSL|MVLC|MVFD|MVEL, **not** the file `contentHash`, so config or provenance-only rebuilds stay valid), movement-table xxHash64, algorithm version, cluster size, and `W×H`. Payload SHA-256 is checked on load; a mismatch rebuilds. Repeat loads of the same map are then dominated by cost-grid fill + ALT, not HPA*.
 
 Query:
 

@@ -4,7 +4,7 @@ Archived clip (NOT in the repo, ODbL source retained for the share-alike / produ
   path   : gorge/archive/osm/gorge-clip.osm.pbf (pipeline box, /workspace/rts-map/gorge/archive/osm/)
   bytes  : 17153637
   sha256 : 3eebb2957d33270446cbb2f46ea4a87631086da7c6418f7700693b7dc8b87176
-  equals META.osmClipSha256 in both .wrmb files
+  equals META.osmClipSha256 in both v1 .wrmb files (and in the v0 pair: same clip)
 
 Upstream extracts (Geofabrik, replication timestamp 2026-09-27T20:23:36Z, sequence 4924):
   https://download.geofabrik.de/north-america/us/oregon-260927.osm.pbf  sha256 3733bf8ec038c1dc6f662f61d77e8fc881ff735c359ab5197d84b4f189b91c8b

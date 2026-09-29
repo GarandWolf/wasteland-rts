@@ -219,6 +219,33 @@ namespace Wasteland.Sim.Hashing
             _buffer[_length++] = (byte)(value >> 56);
         }
 
+        public void AddBytes(byte[] data)
+        {
+            if (data == null)
+            {
+                throw new ArgumentNullException(nameof(data));
+            }
+
+            AddBytes(data, 0, data.Length);
+        }
+
+        public void AddBytes(byte[] data, int offset, int length)
+        {
+            if (data == null)
+            {
+                throw new ArgumentNullException(nameof(data));
+            }
+
+            if (offset < 0 || length < 0 || offset + length > data.Length)
+            {
+                throw new ArgumentOutOfRangeException(nameof(length));
+            }
+
+            Ensure(length);
+            Array.Copy(data, offset, _buffer, _length, length);
+            _length += length;
+        }
+
         public ulong Digest()
         {
             return XxHash64.Hash(_buffer, 0, _length, _seed);
