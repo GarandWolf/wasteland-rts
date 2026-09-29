@@ -7,7 +7,7 @@
 
 This is the working contract for enemy AI. Numbers marked **placeholder** are starting values for the first playable; they are not balance commitments.
 
-Designer answers in [Draft designer positions](#draft-designer-positions-pending-garand-sign-off) are **draft pending Garand’s sign-off**. Lead-engineer answers in [Lead engineer decisions](#lead-engineer-decisions) are **locked decisions**, not drafts. Map-pipeline answers in [Map pipeline decisions](#map-pipeline-decisions) are **accepted contract changes** (CI golden map approved Sep 28, 2026; soak regions still pending Garand). [Team decisions (28 Sep 2026)](#team-decisions-28-sep-2026) (morning: race, manpower reserve, depot pre-check, stable map ids, headless logs; evening: defense groups, v1 bypass, frontline-from-data, seat ownership — tied to Gorge v1 in [PR #6](https://github.com/GarandWolf/wasteland-rts/pull/6), not merged yet) are **agreed**, not drafts.
+Designer answers in [Draft designer positions](#draft-designer-positions-pending-garand-sign-off) are **draft pending Garand’s sign-off**, except **Brutal’s +10% income** (approved, owner decision, Sep 28, 2026) and the three **locked launch factions** (working titles). Lead-engineer answers in [Lead engineer decisions](#lead-engineer-decisions) are **locked decisions**, not drafts. Map-pipeline answers in [Map pipeline decisions](#map-pipeline-decisions) are **accepted contract changes** (CI golden map approved Sep 28, 2026; soak regions still pending Garand). [Team decisions (28 Sep 2026)](#team-decisions-28-sep-2026) (morning: race, manpower reserve, depot pre-check, stable map ids, headless logs; evening: defense groups, v1 bypass, frontline-from-data, seat ownership — tied to Gorge v1 in [PR #6](https://github.com/GarandWolf/wasteland-rts/pull/6), not merged yet) are **agreed**, not drafts.
 
 ---
 
@@ -28,16 +28,16 @@ Designer answers in [Draft designer positions](#draft-designer-positions-pending
 
 ## Draft designer positions (pending Garand sign-off)
 
-These are the Game Designer’s draft answers. They are **not final** until Garand signs off. Until then, AI behavior in this doc follows them so engineering has one spec.
+These are the Game Designer’s draft answers. They are **not final** until Garand signs off, **except** Brutal’s +10% income (**approved**, owner decision, Sep 28, 2026) and the three launch factions (**locked**; names are working titles). Until then, AI behavior in this doc follows the drafts so engineering has one spec.
 
 | Topic | Draft position | AI consequence |
 | --- | --- | --- |
 | Scale | **Operational.** The balance unit is a **`Battalion`**. Players zoom from the strategic map down into fights; on-screen **sections** (6-figure groups inside a battalion) are **presentation** only. | One `Battalion` (e.g. `remnant_motor_rifles`) has pooled HP, one position/path, one command queue. That is the AI’s smallest commandable unit. Coordinated action uses **task forces** (ordered battalion ids + a goal) in **AI-owned deterministic state**. Tactical layer is route, capture-zone, and supply, not soldier spacing. `taskForceTargetSize` is the v0.3 personality field. |
-| Factions | Working names: **Remnant**, **Compact**, **Clans**. Compact personality is `homestead_compact_settler`. Compact **+150‰ manpower is a faction trait**, not an AI bonus. | Personalities live in `data/balance/ai_personalities.json`; difficulty in `ai_difficulty.json`. Any personality runs at any difficulty. Do not fork the planner. |
+| Factions | **Locked** (working titles): **Remnant Command**, **Homestead Compact**, **Road Clans**. Homestead Compact personality is `homestead_compact_settler`. Compact **+150‰ manpower is a faction trait**, not an AI bonus. | Personalities and difficulty live under **`data/balance/ai/`** so **`BalanceKey`** (whole `data/balance/` folder) covers them. Any personality runs at any difficulty. Do not fork the planner. |
 | Capture | Every town has a **capture zone** and a **garrison**. Clear all enemy combat **battalions** from the zone, then hold it uncontested for a timer (**60 s village, 120 s town, 180 s city**). An enemy combat battalion in the zone **pauses** the timer; it does not reset. A territory belongs to whoever holds its **seat town** (team 28 Sep evening; White Salmon’s seat is White Salmon town). Holding a non-seat town does **not** grant ownership. Fortified buildings **slow** capture; they do not block it. | Assault = clear then hold. Contest = park a combat battalion in the zone to pause. Defend the **seat**. Score a non-seat town (e.g. Klickitat in territory 9) for income and staging toward the seat, never as ownership. Depot search only after the seat is held. `minGarrisonPerTown` counts battalions and applies to **towns and cities**. |
 | Supply | Cutting roads **does** starve supply. Supply traces the **road graph** from depots and HQ to battalions. A segment is cut when an enemy **holds its node** or a **bridge is destroyed**. A battalion is out of supply when it has no friendly road path back to a depot within a **short off-road** snap distance. Out-of-supply battalions stop refilling fuel and ammo. After ~**60 s** grace, fire rate and speed drop and they **cannot reinforce**. Off-road movement penalties are a separate rule. Supply is recomputed on a **fixed tick** with integer graph math. | Raid/cut enemy roads and bridges, guard own lines, do not over-extend, bake supply into routes and assault timing, value bridges and junctions. Read supply from sim hooks. |
 | Fog | Vision is **per player**, from **battalions and buildings**, with **terrain LoS** from the heightmap (high ground sees further, ridges block). Recon battalions get extra range. Explored enemy structures persist as **last-seen snapshots**. **No** global reveal of own territory. | AI **never** cheats fog. Scout with recon and `HasHighGround` vs the watched cell. Memory = snapshots + confidence decay. Own empty ground is fog unless a battalion or building sees it. |
-| Brutal | **+10% income is acceptable** at launch. It is the **only numeric advantage**. The rest of Brutal is better decisions. | `EconomyBonusPpt` is the single tunable resource cheat. Cadence, mistakes, memory, and operational quality are not extra money or vision. |
+| Brutal | **+10% income is approved** (owner decision, Sep 28, 2026). It is the **only numeric advantage**. The rest of Brutal is better decisions. | `EconomyBonusPpt` is the single tunable resource cheat. Cadence, mistakes, memory, and operational quality are not extra money or vision. |
 
 ---
 
@@ -80,7 +80,7 @@ These are **decisions**, not drafts. They lock the sim seams the AI is written a
 | Threading | Launch: **fixed-step sim on the main thread**. A dedicated sim thread comes later. The AI stays **inside the sim tick** either way. |
 | Core / headless | Core is **pure C# with no `UnityEngine`**. Headless runs via `dotnet test` or a console host in GitHub Actions. |
 | Blobs | **WRMB** is the single map format (Map Pipeline Engineer’s versioned little-endian container, directory-by-tag, per-section CRCs). Layout spec: `blob-layout-v0.md` (map pipeline). Arrays sorted by id. Variable-length fields are `(offset, count)` into shared pools. **No hash-set rebuild on load.** Terrain is a **second WRMB** (elevation in whole decimetres on the 1,800×1,800 grid, plus slope‰ and land-cover); each file stores the other’s `contentHash`. |
-| Hash / PRNG | **xxHash64** and **PCG32**, both in-repo with golden tests. `hash64` means xxHash64 over the listed fields. `ai_personalities.json` and `ai_difficulty.json` hashes are **match config**. AI-owned state (task forces, goals, non-pure caches, cooldowns, RNG) is **in the periodic hash**. |
+| Hash / PRNG | **xxHash64** and **PCG32**, both in-repo with golden tests. `hash64` means xxHash64 over the listed fields. **`BalanceKey`** covers the whole `data/balance/` folder (AI configs live under `data/balance/ai/`). AI-owned state (task forces, goals, non-pure caches, cooldowns, RNG) is **in the periodic hash**. Headless baselines key on `MapKey.For(chokepoints, territories incl. neighbour lists, road nodes, road edges, bridges, towns)` combined with `BalanceKey`. |
 | Perf targets | **1.5 ms AI** and **8 ms sim** are the accepted targets. The wall-clock **ship gate waits for a vertical slice**. The **AI work-unit cap alone** governs behavior. |
 | Per-PR CI | Frozen golden **100×100** map under `data/golden/` (Git LFS + SHA-256), **2 AI** factions, **12,000 ticks** (10 game minutes), run **twice** with the same seed, identical hashes every **200** ticks, finish in **under 5 minutes**. |
 | Nightly soak | Starts at about **200** matches and grows toward **1,000** once there are perf numbers. |
@@ -145,10 +145,10 @@ Launch is single-player against AI opponents. The AI *is* the opposing side of t
 | --- | --- |
 | Credible opponent | An AI faction takes anchor towns by clearing and holding capture zones, fortifies, cuts or guards supply, and assaults neighbors on a cadence a player can read and counter. |
 | Fair information | The AI only knows what its battalions and buildings see, plus last-seen snapshots of explored structures. It never cheats fog. Own territory is not auto-revealed. |
-| Personality | Working names **Remnant**, **Compact**, **Clans** share one brain. Compact uses `homestead_compact_settler`; Warlord/Raider JSON profiles are stubs. Compact +150‰ manpower is a **faction trait**, not an AI bonus. |
+| Personality | Locked launch factions (**working titles**): **Remnant Command**, **Homestead Compact**, **Road Clans**. One brain. Homestead Compact uses `homestead_compact_settler`. Compact +150‰ manpower is a **faction trait**, not an AI bonus. |
 | Terrain literacy | The AI uses roads, supply, chokepoints, bridges, high ground (`HasHighGround`: `attackerDm - targetDm >= 500`), rivers, and town/anchor value — not a Euclidean rush. |
 | Deterministic sim | Same match seed + same inputs → identical AI decisions. Required for headless test, later replays, later lockstep netcode. |
-| Tunable difficulty | Easy through Brutal are parameter sets, not separate AIs. Brutal’s only numeric advantage is `EconomyBonusPpt`. |
+| Tunable difficulty | Easy through Brutal are parameter sets, not separate AIs. Brutal’s only numeric advantage is `EconomyBonusPpt` (**approved**, owner decision, Sep 28, 2026). |
 | Budget-bound | Several AI factions on a 200×200 mile map stay inside the per-tick work budget (see §7). |
 
 The player should be able to answer, after a loss: “they cut the bridge, starved my garrison, walked into the capture zone, and held it.” That is the quality bar. Opaque omniscience is a failure even if the AI wins.
@@ -1046,7 +1046,7 @@ Event payloads include ids and ticks only — **cm and ppt, never Fixed**.
 
 | Hook | When |
 | --- | --- |
-| `AiMatchInit(matchSeed, mapBlob, factionIds, difficulty, personalityId, personalityJsonHash, difficultyJsonHash)` | Once, before tick 0. Personality and difficulty file hashes are **match config**. Read `rules.json` `supply` (`maxDepotsPerNode`, `depotMinSpacingCm`, HQ/depot ranges) here. |
+| `AiMatchInit(matchSeed, mapBlob, factionIds, difficulty, personalityId, personalityJsonHash, difficultyJsonHash)` | Once, before tick 0. AI configs are under `data/balance/ai/`; **`BalanceKey`** (whole `data/balance/`) is **match config**. Read `rules.json` `supply` (`maxDepotsPerNode`, `depotMinSpacingCm`, HQ/depot ranges) here. |
 | `AiOnTick(tick)` | Every sim tick, **after the world step** (including supply recompute if this is a supply tick) and **before dispatch**. AI commands enqueue on the same queue as the player. |
 | `AiMatchShutdown()` | Tests / teardown. |
 
@@ -1056,7 +1056,7 @@ Event payloads include ids and ticks only — **cm and ppt, never Fixed**.
 
 ## 5. Difficulty
 
-Four levels. One brain. Parameter sets only. Difficulty lives in **`data/balance/ai_difficulty.json`**: strict JSON, `schemaVersion` 1. Its content hash is part of **match config**. Any personality can run at any difficulty — do not bake difficulty into the personality file.
+Four levels. One brain. Parameter sets only. Difficulty lives in **`data/balance/ai/ai_difficulty.json`**: strict JSON, `schemaVersion` 1. Covered by **`BalanceKey`** (whole `data/balance/` folder). Any personality can run at any difficulty — do not bake difficulty into the personality file.
 
 **Honesty.** The AI never cheats fog at any level: no extra vision, no reveal of own territory, no live reads of unseen enemies. No extra build speed. The **only numeric advantage** in this table is `EconomyBonusPpt` (Brutal +10% income). Compact’s **+150‰ manpower is a faction trait**, not an AI bonus, and is not in this table. Everything else is slower/faster **decisions** and more/fewer **mistakes**.
 
@@ -1080,7 +1080,7 @@ Four levels. One brain. Parameter sets only. Difficulty lives in **`data/balance
 | `MaxCandidateGoals` | 32 | 64 | 64 | 64 |
 | `manpowerReserveSeconds` | **60** | **60** | **60** | **60** |
 
-All values except the meaning of Brutal `EconomyBonusPpt` = 100 are **placeholder**. The +10% itself is a **draft designer position pending Garand sign-off**.
+All values except Brutal `EconomyBonusPpt` = 100 are **placeholder**. The +10% itself is **approved** (owner decision, Sep 28, 2026).
 
 ### 5.1 What the knobs mean
 
@@ -1092,7 +1092,7 @@ All values except the meaning of Brutal `EconomyBonusPpt` = 100 are **placeholde
 
 **Scouting and fog.** Higher difficulties scout more often (recon to cells with `HasHighGround` vs the watched target) and forget **battalion** contacts slower. Structure snapshots still persist at all levels. They do **not** see through fog. `FogCheat` is `none` at all four levels and is not a planned Brutal unlock.
 
-**Economy bonus.** Brutal’s **+10% income** (`EconomyBonusPpt = 100`) is the only numeric cheat at launch. Surface it in the difficulty blurb. Hard wins by better cadence, supply play, capture contest, memory, and fewer mistakes. `manpowerReserveSeconds` is **60** at every difficulty including Brutal — it is a spend discipline, not a cheat.
+**Economy bonus.** Brutal’s **+10% income** (`EconomyBonusPpt = 100`) is **approved** (owner decision, Sep 28, 2026). It is the only numeric cheat at launch. Surface it in the difficulty blurb. Hard wins by better cadence, supply play, capture contest, memory, and fewer mistakes. `manpowerReserveSeconds` is **60** at every difficulty including Brutal — it is a spend discipline, not a cheat.
 
 **Manpower reserve.** See §2.1. The same 60-second income floor plus unmet `minGarrisonPerTown` cost applies on Easy through Brutal. Compact bleeding to manpower 0 by 5:00 on Brutal (balance v0.5) is the reason this is not a personality field.
 
@@ -1118,9 +1118,9 @@ Retreat mistakes: if `d2 < MistakeRatePpt / 2`, Easy/Normal may ignore a single 
 
 Personality is a **parameter profile** layered on the same core. It is not a second AI. Difficulty is a **separate** file so any personality runs at any difficulty.
 
-**Source of truth:** `data/balance/ai_personalities.json` (designer’s file, **strict JSON**, `schemaVersion` **1**). Difficulty: `data/balance/ai_difficulty.json` (same strict rules). **Both files’ hashes are match config** (passed into `AiMatchInit`; they are not rebuilt per tick). Do not fork the planner.
+**Source of truth:** AI configs live under **`data/balance/ai/`** (`ai_personalities.json`, `ai_difficulty.json`; designer files, **strict JSON**, `schemaVersion` **1**). **`BalanceKey`** hashes the whole `data/balance/` folder, so those files are match config (passed into `AiMatchInit`; they are not rebuilt per tick). Do not fork the planner.
 
-**Draft (pending Garand sign-off):** working names **Remnant**, **Compact**, **Clans**. Compact uses **`homestead_compact_settler`**. **Warlord and Raider profiles in that file are stubs.** Compact’s **+150‰ manpower is a faction trait**, not an AI personality or difficulty bonus — do not put it in these JSON files as an AI cheat.
+**Locked launch factions** (working titles): **Remnant Command**, **Homestead Compact**, **Road Clans**. Homestead Compact uses **`homestead_compact_settler`**. **Warlord and Raider profiles in that file are stubs** until mapped. Compact’s **+150‰ manpower is a faction trait**, not an AI personality or difficulty bonus — do not put it in these JSON files as an AI cheat.
 
 Shared fields (all ppt unless noted; names as in the JSON):
 
@@ -1152,7 +1152,7 @@ Shared fields (all ppt unless noted; names as in the JSON):
 
 ### 6.1 Archetypes (stubs in JSON)
 
-The table below is the stub/placeholder layout. Live values come from `ai_personalities.json`. Compact’s playable profile is `homestead_compact_settler` (Settler column). Warlord and Raider rows are **stubs** until filled in that file.
+The table below is the stub/placeholder layout. Live values come from `data/balance/ai/ai_personalities.json`. Homestead Compact’s playable profile is `homestead_compact_settler` (Settler column). Warlord and Raider rows are **stubs** until filled in that file.
 
 | Field | A. Warlord | B. Settler | C. Raider |
 | --- | --- | --- | --- |
@@ -1185,7 +1185,7 @@ The table below is the stub/placeholder layout. Live values come from `ai_person
 
 **Raider** should make roads and bridges matter: hold nodes or destroy bridges, contest (pause) rather than win fair holds (`flags.raidAvoidSiege`), take a town when it is open, OOS, or already ticking.
 
-When design names remaining factions, add a mapping table `FactionId → personalityId` in data (Compact already maps to `homestead_compact_settler`). Keep these columns; do not fork the planner.
+`FactionId → personalityId` lives under `data/balance/ai/`. **Homestead Compact** maps to `homestead_compact_settler`. **Remnant Command** and **Road Clans** get ids in that same folder. Keep these columns; do not fork the planner.
 
 ---
 
@@ -1260,6 +1260,8 @@ A playerless sim host loads a baked map + terrain WRMB pair, N AI factions, a se
 - Final score / winner
 - `HashWorld` (**xxHash64**) every `HashPeriodTicks` (**200**)
 
+**Baselines.** Headless AI baselines are keyed on `MapKey.For(chokepoints, territories incl. neighbour lists, road nodes, road edges, bridges, towns)` combined with **`BalanceKey`** (the whole `data/balance/` folder, which includes `data/balance/ai/`). A change to either key is a new baseline, not a silent hash drift.
+
 **Per-PR CI (locked):** frozen golden **`golden-ci-columbia-gorge-100`** (Mid-Columbia Gorge, 100×100 miles, Hood River to The Dalles — **approved Sep 28, 2026**), **2 AI** factions, **12,000 ticks**, run **twice** with the same seed, assert identical hashes every 200 ticks, finish in **under 5 minutes**. Map WRMB + terrain WRMB + manifest + SHA-256 files live under **`data/golden/`** (Git LFS). CI verifies the checksums before the run.
 
 **Nightly soak:** start at about **200** matches; grow toward **1,000** once there are perf numbers. Soak maps: **`golden-soak-illinois-iowa-200`** and **`golden-soak-central-alps-200`**. Fail the soak on crash, deadlock, or hash mismatch — not on “AI played poorly.”
@@ -1286,7 +1288,7 @@ Inputs `I` for AI-vs-AI are empty (no player commands). Later, a recorded player
 - Using `float` or storing Fixed64 in scoring / events / hash inputs.
 - Wall-clock slice: force the thread to sleep in a test double of the host; hashes must not change.
 
-Hash includes: town owners, capture ticks, resources, battalion positions (cm), pooled HP ‰, supply states, order tables, **AI-owned state** (task forces, strategic goals, non-pure influence caches, cooldowns, AI RNG) in **fixed id-sorted order**, PRNG states, derived-map cell values that are not a pure rebuild, structure snapshots, and **match-config hashes** of `ai_personalities.json` and `ai_difficulty.json`. It does **not** include Unity transforms, debug names, Fixed64 scratch, or presentation **section** counts. Other sim systems do not read AI-owned state. Anything the AI can fully recompute from world state may be excluded from the hash **only if** it is recomputed deterministically on load.
+Hash includes: town owners, capture ticks, resources, battalion positions (cm), pooled HP ‰, supply states, order tables, **AI-owned state** (task forces, strategic goals, non-pure influence caches, cooldowns, AI RNG) in **fixed id-sorted order**, PRNG states, derived-map cell values that are not a pure rebuild, structure snapshots, and **`BalanceKey`** (whole `data/balance/`, including `data/balance/ai/`). Headless baselines also pin `MapKey.For(chokepoints, territories incl. neighbour lists, road nodes, road edges, bridges, towns)`. It does **not** include Unity transforms, debug names, Fixed64 scratch, or presentation **section** counts. Other sim systems do not read AI-owned state. Anything the AI can fully recompute from world state may be excluded from the hash **only if** it is recomputed deterministically on load.
 
 ### 8.3 Debug visualizations
 
@@ -1317,7 +1319,7 @@ Toggle per faction. Clicking a town shows the last candidate scores that involve
 
 ### 9.1 Game designer
 
-Answered items (scale / `Battalion` entity, Compact personality file, capture / **seat ownership**, supply, fog, Brutal +10%) are recorded as [draft positions pending Garand sign-off](#draft-designer-positions-pending-garand-sign-off) and the [evening team decisions](#evening--gorge-v1-pr-6-not-merged-yet). Removed here.
+Answered items (scale / `Battalion` entity, **locked launch factions**, Homestead Compact personality file, capture / **seat ownership**, supply, fog) are recorded as [draft positions pending Garand sign-off](#draft-designer-positions-pending-garand-sign-off) and the [evening team decisions](#evening--gorge-v1-pr-6-not-merged-yet). **Brutal +10% income** is **approved** (owner decision, Sep 28, 2026) — not an open question. Removed here.
 
 Still open:
 
@@ -1330,7 +1332,6 @@ Still open:
 7. Territory counts / generated travel-cost partitions vs any designer overlay for seats vs other towns.
 8. In-match demolish/repair of roads and bridges (`graphVersion`), or initial state only?
 9. **Garand:** approve soak golden regions (Illinois–Iowa and Central Alps).
-10. Map remaining names **Remnant / Clans** onto personality ids (Compact is `homestead_compact_settler`). Warlord/Raider JSON profiles are stubs.
 
 ### 9.2 Lead engineer
 
@@ -1350,18 +1351,18 @@ No Unity scaffolding in this PR. Milestones assume the sim and map blob exist or
 
 | Milestone | Deliverable | Exit |
 | --- | --- | --- |
-| **M0 — Seams** | Plug into the foundation command queue. `AiMatchInit` / `AiOnTick` stubs, PCG32 + xxHash64, empty battalion order tables, AI-owned state (id-sorted, hashed, save/load), personality/difficulty JSON hashes in match config. | Determinism check on empty match (hash stable over 10k ticks). |
+| **M0 — Seams** | Plug into the foundation command queue. `AiMatchInit` / `AiOnTick` stubs, PCG32 + xxHash64, empty battalion order tables, AI-owned state (id-sorted, hashed, save/load), `BalanceKey` + `MapKey.For(...)` in match config. | Determinism check on empty match (hash stable over 10k ticks). |
 | **M1 — Map ingest + derived maps** | Load WRMB pair (map + terrain, mutual `contentHash`) per `blob-layout-v0.md`; `cellSizeCm` from META; `CellExt`; influence maps; `TDBG` overlay; stable-id manifest; `defenseGroupId`; neighbour-list frontline (Gorge v1). Ignore **WTRA**. | Overlay matches stamped battalions; corridor fallback respects `edgeBlockMask`; binary→JSON→binary round-trip; companion hashes match; reconcile hash; AI state stores no raw node/edge ids; Goldendale 11 is not adjacent to Hood River 6. |
 | **M2 — Strategy** | Posture, candidate generation (including Contest/HoldCapture/CutSupply/GuardSupply/`PlaceDepot`/`ResearchTech`/`HoldChokepoint` by group), utility selection (neutral-town race on cadence), manpower reserve gate, spend envelope, **seat** scoring, frontline from neighbour lists. | In AI-vs-AI on the golden 100×100 blob, factions issue `HoldCaptureZone` / `Fortify` / `AssaultTown` / `CutSupply` / `PlaceDepot` with stable hashes; Compact does not hit manpower 0 by 5:00 from skipping the gate; Remnant does not depot-search White Salmon before its seat; border posts match grouped chokepoints. |
 | **M3 — Tactical movement** | Battalions call sim `PathOnRoads` (movement class, ppt weights, `int64` cost); `EstimateTravelTicks(path, movementClass)`; column vs deployed; reports flow back; `executeTick = issuedTick + commandDelayTicks`. | A battalion given `AssaultTown` reaches staging via **supplied** roads, not crow-flies; held-node / destroyed-bridge repath works; wheeled refuses >299‰ off-road; race checks never run off the strategic cadence. |
 | **M4 — Capture, supply, reinforce, retreat** | Clear/hold/contest phases; isolate by cutting nodes/bridges; contest pauses timers; OOS blocks reinforce after grace; depot pre-check (seat ownership); forward-depot / relay prerequisites. | Fixtures: zone-clear starts timer; enemy combat battalion pauses it; territory flips only when the **seat** is held (Klickitat does not flip territory 9); OOS past grace cannot reinforce; depot `CmdBuild` that violates `maxDepotsPerNode` / `depotMinSpacingCm` / **seat** ownership / connectivity is never issued. |
-| **M5 — Difficulty + personality** | Load `ai_personalities.json` + `ai_difficulty.json` (`schemaVersion` 1); hashes in match config; Compact `homestead_compact_settler`; Warlord/Raider stubs; `EconomyBonusPpt` as the sole AI numeric cheat (Compact manpower is a faction trait). | Same seed, different difficulty → different hashes (expected) but each pair of reruns matches; swapping personality at fixed difficulty is valid; Brutal income +10% visible in economy log; vision queries never return fogged live enemies. |
-| **M6 — Harness** | `dotnet test` / console host. Per-PR: golden 100×100, 2 AI, 12,000 ticks × 2, hash every 200 ticks. Headless log every 10 s (minutes 2–5 min.) of manpower, reserve, tech savings, battalion count, The Dalles control. Border-post check vs `defenseGroupId` and no-bypass hard posts. Nightly soak from ~200 matches. | CI finishes in under 5 minutes; identical hash streams; forbidden-iterate canary; 10 s logs present and **not** in the hash; AI border posts match grouped chokepoints. |
-| **M7 — Playable opponent** | Warlord profile tuned on one frozen map; debug goal / supply / capture overlay usable by design. | Design can play a match vs Warlord/Normal and identify *why* they lost or won from the overlay. |
+| **M5 — Difficulty + personality** | Load `data/balance/ai/` (`ai_personalities.json` + `ai_difficulty.json`, `schemaVersion` 1); `BalanceKey` in match config; locked factions Remnant Command / Homestead Compact / Road Clans; Homestead Compact `homestead_compact_settler`; `EconomyBonusPpt` **approved** as the sole AI numeric cheat (Compact manpower is a faction trait). | Same seed, different difficulty → different hashes (expected) but each pair of reruns matches; swapping personality at fixed difficulty is valid; Brutal income +10% visible in economy log; vision queries never return fogged live enemies. |
+| **M6 — Harness** | `dotnet test` / console host. Per-PR: golden 100×100, 2 AI, 12,000 ticks × 2, hash every 200 ticks. Baselines keyed on `MapKey.For(chokepoints, territories incl. neighbour lists, road nodes, road edges, bridges, towns)` + `BalanceKey`. Headless log every 10 s (minutes 2–5 min.) of manpower, reserve, tech savings, battalion count, The Dalles control. Border-post check vs `defenseGroupId` and no-bypass hard posts. Nightly soak from ~200 matches. | CI finishes in under 5 minutes; identical hash streams; forbidden-iterate canary; 10 s logs present and **not** in the hash; AI border posts match grouped chokepoints. |
+| **M7 — Playable opponent** | Remnant Command (or Homestead Compact) profile tuned on one frozen map; debug goal / supply / capture overlay usable by design. | Design can play a match vs Remnant Command/Normal and identify *why* they lost or won from the overlay. |
 
 **Suggested sequence with the rest of the project.** M0 can land against dummy queries. M1 wants Gorge v1 (PR #6) or a synthetic blob with neighbour lists and defense groups. M2–M4 are the vertical slice of “AI takes a neighboring **seat**, places a legal forward depot, and contests the player’s timer.” M5–M7 are launch quality. Multiplayer/replay work should consume M0’s command stream unchanged.
 
-**Out of milestone on purpose.** Remaining FactionId → personalityId mapping (Remnant / Clans), **battalion split/merge**, ML, naval graphs, soldier micro, fog cheats, and a live tuner.
+**Out of milestone on purpose.** **Battalion split/merge**, ML, naval graphs, soldier micro, fog cheats, and a live tuner.
 
 ---
 
@@ -1410,7 +1411,7 @@ Locked values from lead-engineer decisions are marked **locked**. The rest are p
 | `PathRequestsPerTick` | 8 | count (enforced in sim path service) |
 | `HashPeriodTicks` | 200 | ticks (**locked** for CI) |
 | `CiMatchTicks` | 12000 | ticks (**locked** per-PR: 10 game minutes) |
-| `EconomyBonusPpt` (Brutal) | 100 | ppt (+10%) |
+| `EconomyBonusPpt` (Brutal) | 100 | ppt (+10%; **approved**, owner decision, Sep 28, 2026) |
 | `SchemaVersion` | 1 | — |
 
 ## Appendix B — Explicit non-cheats
@@ -1443,4 +1444,4 @@ If a programmer is tempted to “just for now” do any of the following, that c
 
 ---
 
-*End of proposed contract. Designer positions are draft pending Garand sign-off. Lead-engineer seams, map-pipeline field contract, and team decisions of 28 Sep 2026 (morning: race, manpower reserve, depot pre-check, stable map ids, headless logs; evening: defense groups, v1 bypass, frontline-from-data, seat ownership) above are **decisions** (WRMB approved; CI golden map approved Sep 28, 2026; soak regions still pending Garand; Gorge v1 lands with [PR #6](https://github.com/GarandWolf/wasteland-rts/pull/6)). Next step: M0 against the foundation command queue, and `golden-ci-columbia-gorge-100` under `data/golden/`.*
+*End of proposed contract. Designer positions are draft pending Garand sign-off, except **Brutal +10% income** (**approved**, owner decision, Sep 28, 2026) and the three **locked launch factions** (Remnant Command, Homestead Compact, Road Clans; working titles). Lead-engineer seams, map-pipeline field contract, and team decisions of 28 Sep 2026 (morning: race, manpower reserve, depot pre-check, stable map ids, headless logs; evening: defense groups, v1 bypass, frontline-from-data, seat ownership) above are **decisions** (WRMB approved; CI golden map approved Sep 28, 2026; soak regions still pending Garand; Gorge v1 lands with [PR #6](https://github.com/GarandWolf/wasteland-rts/pull/6)). AI configs live under `data/balance/ai/`; headless baselines key on `MapKey.For(...)` + `BalanceKey`. Next step: M0 against the foundation command queue, and `golden-ci-columbia-gorge-100` under `data/golden/`.*
