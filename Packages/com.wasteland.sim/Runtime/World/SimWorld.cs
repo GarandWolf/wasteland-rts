@@ -139,7 +139,7 @@ namespace Wasteland.Sim.World
             hash.AddULong(_seed);
             hash.AddInt(_commandDelayTicks);
             hash.AddULong(_rng.State);
-            hash.AddULong(_rng.Stream);
+            hash.AddULong(_rng.Increment);
             hash.AddInt(_battalions.Count);
 
             for (int i = 0; i < _battalions.Count; i++)

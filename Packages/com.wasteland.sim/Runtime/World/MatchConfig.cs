@@ -5,8 +5,8 @@ namespace Wasteland.Sim.World
     {
         public readonly ulong Seed;
         public readonly int CommandDelayTicks;
-        public readonly ulong PersonalityJsonHash;
-        public readonly ulong DifficultyJsonHash;
+        public readonly ulong BalanceKey;
+        public readonly ulong MapKey;
 
         public MatchConfig(ulong seed, int commandDelayTicks = SimConfig.DefaultCommandDelayTicks)
             : this(seed, commandDelayTicks, 0UL, 0UL)
@@ -16,13 +16,13 @@ namespace Wasteland.Sim.World
         public MatchConfig(
             ulong seed,
             int commandDelayTicks,
-            ulong personalityJsonHash,
-            ulong difficultyJsonHash)
+            ulong balanceKey,
+            ulong mapKey)
         {
             Seed = seed;
             CommandDelayTicks = commandDelayTicks;
-            PersonalityJsonHash = personalityJsonHash;
-            DifficultyJsonHash = difficultyJsonHash;
+            BalanceKey = balanceKey;
+            MapKey = mapKey;
         }
 
         public static MatchConfig Default(ulong seed)
@@ -30,9 +30,9 @@ namespace Wasteland.Sim.World
             return new MatchConfig(seed, SimConfig.DefaultCommandDelayTicks);
         }
 
-        public MatchConfig WithBalanceHashes(ulong personalityJsonHash, ulong difficultyJsonHash)
+        public MatchConfig WithKeys(ulong balanceKey, ulong mapKey)
         {
-            return new MatchConfig(Seed, CommandDelayTicks, personalityJsonHash, difficultyJsonHash);
+            return new MatchConfig(Seed, CommandDelayTicks, balanceKey, mapKey);
         }
     }
 }

@@ -140,25 +140,26 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.OrderCount);
                 hash.AddInt(faction.TaskForceCount);
                 hash.AddInt(faction.WorkResumeId);
-                hash.AddInt(faction.PathRequestsThisTick);
-                hash.AddInt(faction.WorkUnitsThisTick);
                 hash.AddBool(faction.StrategicDeferred);
                 hash.AddULong(faction.StrategyRng.State);
-                hash.AddULong(faction.StrategyRng.Stream);
+                hash.AddULong(faction.StrategyRng.Increment);
                 hash.AddULong(faction.TacticalRng.State);
-                hash.AddULong(faction.TacticalRng.Stream);
+                hash.AddULong(faction.TacticalRng.Increment);
                 hash.AddULong(faction.MistakeRng.State);
-                hash.AddULong(faction.MistakeRng.Stream);
+                hash.AddULong(faction.MistakeRng.Increment);
                 hash.AddULong(faction.ScoutRng.State);
-                hash.AddULong(faction.ScoutRng.Stream);
+                hash.AddULong(faction.ScoutRng.Increment);
             }
         }
 
-        public byte[] Save()
+        public byte[] Save(ulong matchSeed, ulong balanceKey, ulong mapKey)
         {
             MemoryStream stream = new MemoryStream();
             BinaryWriter writer = new BinaryWriter(stream);
-            writer.Write(AiConstants.SchemaVersion);
+            writer.Write(AiConstants.StateSchemaVersion);
+            writer.Write(matchSeed);
+            writer.Write(balanceKey);
+            writer.Write(mapKey);
             writer.Write(_factions.Length);
             for (int i = 0; i < _factions.Length; i++)
             {
@@ -177,8 +178,6 @@ namespace Wasteland.Sim.Ai
                 writer.Write(faction.OrderCount);
                 writer.Write(faction.TaskForceCount);
                 writer.Write(faction.WorkResumeId);
-                writer.Write(faction.PathRequestsThisTick);
-                writer.Write(faction.WorkUnitsThisTick);
                 writer.Write(faction.StrategicDeferred);
                 WriteRng(writer, faction.StrategyRng);
                 WriteRng(writer, faction.TacticalRng);
@@ -190,7 +189,7 @@ namespace Wasteland.Sim.Ai
             return stream.ToArray();
         }
 
-        public void Load(byte[] blob)
+        public void Load(byte[] blob, ulong matchSeed, ulong balanceKey, ulong mapKey)
         {
             if (blob == null)
             {
@@ -199,9 +198,17 @@ namespace Wasteland.Sim.Ai
 
             BinaryReader reader = new BinaryReader(new MemoryStream(blob));
             int schema = reader.ReadInt32();
-            if (schema != AiConstants.SchemaVersion)
+            if (schema != AiConstants.StateSchemaVersion)
             {
                 throw new InvalidDataException("Unsupported AI state schema.");
+            }
+
+            ulong savedSeed = reader.ReadUInt64();
+            ulong savedBalance = reader.ReadUInt64();
+            ulong savedMap = reader.ReadUInt64();
+            if (savedSeed != matchSeed || savedBalance != balanceKey || savedMap != mapKey)
+            {
+                throw new InvalidDataException("AI save header does not match current match seed/balance/map.");
             }
 
             int count = reader.ReadInt32();
@@ -225,38 +232,47 @@ namespace Wasteland.Sim.Ai
                     throw new InvalidDataException("AI personality/difficulty changed across save/load.");
                 }
 
-                reader.ReadInt32();
-                reader.ReadInt32();
-                reader.ReadInt32();
-                reader.ReadInt32();
-                reader.ReadInt32();
-                reader.ReadInt32();
+                RequireInt32(reader, _factions[i].ReactionExtraTicks, "ReactionExtraTicks");
+                RequireInt32(reader, _factions[i].StrategicCadenceTicks, "StrategicCadenceTicks");
+                RequireInt32(reader, _factions[i].MaxActiveOrders, "MaxActiveOrders");
+                RequireInt32(reader, _factions[i].MinGarrisonPerTown, "MinGarrisonPerTown");
+                RequireInt32(reader, _factions[i].ManpowerReserveSeconds, "ManpowerReserveSeconds");
+                RequireInt32(reader, _factions[i].EconomyBonusPpt, "EconomyBonusPpt");
                 _factions[i].Posture = (AiPosture)reader.ReadByte();
                 _factions[i].NextOrderId = reader.ReadInt32();
                 _factions[i].OrderCount = reader.ReadInt32();
                 _factions[i].TaskForceCount = reader.ReadInt32();
                 _factions[i].WorkResumeId = reader.ReadInt32();
-                _factions[i].PathRequestsThisTick = reader.ReadInt32();
-                _factions[i].WorkUnitsThisTick = reader.ReadInt32();
                 _factions[i].StrategicDeferred = reader.ReadBoolean();
                 _factions[i].StrategyRng = ReadRng(reader);
                 _factions[i].TacticalRng = ReadRng(reader);
                 _factions[i].MistakeRng = ReadRng(reader);
                 _factions[i].ScoutRng = ReadRng(reader);
+                _factions[i].PathRequestsThisTick = 0;
+                _factions[i].WorkUnitsThisTick = 0;
+            }
+        }
+
+        private static void RequireInt32(BinaryReader reader, int expected, string name)
+        {
+            int actual = reader.ReadInt32();
+            if (actual != expected)
+            {
+                throw new InvalidDataException("AI save " + name + " does not match current config.");
             }
         }
 
         private static void WriteRng(BinaryWriter writer, SimRandom rng)
         {
             writer.Write(rng.State);
-            writer.Write(rng.Stream);
+            writer.Write(rng.Increment);
         }
 
         private static SimRandom ReadRng(BinaryReader reader)
         {
             ulong state = reader.ReadUInt64();
-            ulong stream = reader.ReadUInt64();
-            return SimRandom.FromPersisted(state, stream);
+            ulong increment = reader.ReadUInt64();
+            return SimRandom.FromPersisted(state, increment);
         }
 
         private static void SortByFactionId(AiFactionState[] factions)

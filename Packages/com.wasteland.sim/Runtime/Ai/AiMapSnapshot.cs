@@ -34,13 +34,14 @@ namespace Wasteland.Sim.Ai
     }
 
     /// <summary>
-    /// Thin v0 map ingest for M0 seams: towns, seats, The Dalles id, and the
-    /// road-connected adjacency stopgap. Not the M1 derived-map pass.
+    /// Thin map ingest for M0 seams: towns, seats, The Dalles id, and the
+    /// road-connected adjacency stopgap. Accepts WRMB v0 and v1 via
+    /// <see cref="Wrmb.ReadTerritories"/> / <see cref="Wrmb.ReadChokepoints"/>.
+    /// Not the M1 derived-map pass.
     /// </summary>
     public sealed class AiMapSnapshot
     {
         public const int TownRecordSize = 64;
-        public const int TerritoryRecordSize = 40;
         public const int RoadEdgeRecordSize = 64;
 
         private readonly AiTownRecord[] _towns;
@@ -48,6 +49,7 @@ namespace Wasteland.Sim.Ai
 
         private AiMapSnapshot(
             ulong contentHash,
+            ulong mapKey,
             int theDallesTownId,
             int theDallesTerritoryId,
             AiTownRecord[] towns,
@@ -55,6 +57,7 @@ namespace Wasteland.Sim.Ai
             ITerritoryAdjacency adjacency)
         {
             ContentHash = contentHash;
+            MapKey = mapKey;
             TheDallesTownId = theDallesTownId;
             TheDallesTerritoryId = theDallesTerritoryId;
             _towns = towns;
@@ -63,6 +66,8 @@ namespace Wasteland.Sim.Ai
         }
 
         public ulong ContentHash { get; }
+
+        public ulong MapKey { get; }
 
         public int TheDallesTownId { get; }
 
@@ -114,6 +119,9 @@ namespace Wasteland.Sim.Ai
 
             WrmbFile file = WrmbFile.Parse(mapBlob);
             ulong contentHash = HashBytes(file.ContentHash);
+            ulong mapKey = global::Wasteland.Sim.Movement.MapKey.For(file, AiConstants.MapKeySectionTags());
+            Territory[] wrmbTerritories = Wrmb.ReadTerritories(file);
+            _ = Wrmb.ReadChokepoints(file);
 
             WrmbDirEntry townEntry = file.RequireSection("TOWN");
             WrmbDirEntry terrEntry = file.RequireSection("TERR");
@@ -126,14 +134,14 @@ namespace Wasteland.Sim.Ai
                 throw new InvalidDataException("TOWN elementSize must be 64.");
             }
 
-            if (terrEntry.ElementSize != TerritoryRecordSize)
-            {
-                throw new InvalidDataException("TERR elementSize must be 40.");
-            }
-
             if (redgEntry.ElementSize != RoadEdgeRecordSize)
             {
                 throw new InvalidDataException("REDG elementSize must be 64.");
+            }
+
+            if (wrmbTerritories.Length != terrEntry.Count)
+            {
+                throw new InvalidDataException("TERR record count does not match Wrmb.ReadTerritories.");
             }
 
             int[] i32p = ReadInt32Pool(file.SectionBytes(i32pEntry));
@@ -177,13 +185,19 @@ namespace Wasteland.Sim.Ai
             }
 
             AiTerritoryRecord[] territories = new AiTerritoryRecord[terrEntry.Count];
-            BlobReader terrReader = new BlobReader(file.SectionBytes(terrEntry));
+            byte[] terrBytes = file.SectionBytes(terrEntry);
+            BlobReader terrReader = new BlobReader(terrBytes);
             int previousTerrId = -1;
             for (int i = 0; i < terrEntry.Count; i++)
             {
+                terrReader.Seek(i * terrEntry.ElementSize);
                 int id = terrReader.I32();
                 int seatTownId = terrReader.I32();
-                terrReader.Skip(32);
+                if (id != wrmbTerritories[i].Id)
+                {
+                    throw new InvalidDataException("TERR id does not match Wrmb.ReadTerritories.");
+                }
+
                 if (i > 0 && id <= previousTerrId)
                 {
                     throw new InvalidDataException("TERR ids must be sorted unique.");
@@ -201,7 +215,7 @@ namespace Wasteland.Sim.Ai
                 townNeighborCounts,
                 file.SectionBytes(redgEntry),
                 redgEntry.Count);
-            return new AiMapSnapshot(contentHash, theDallesTownId, theDallesTerritoryId, towns, territories, adjacency);
+            return new AiMapSnapshot(contentHash, mapKey, theDallesTownId, theDallesTerritoryId, towns, territories, adjacency);
         }
 
         private static ITerritoryAdjacency BuildRoadConnected(

@@ -2,7 +2,6 @@ using System;
 using System.IO;
 using System.Text;
 using Wasteland.Sim.Movement;
-using Xunit;
 
 namespace Wasteland.Sim.Tests
 {
@@ -30,6 +29,29 @@ namespace Wasteland.Sim.Tests
 
             throw new InvalidOperationException(
                 "Could not find data/golden/" + fileName + " by walking up from the test output directory.");
+        }
+
+        public static string FindRepoRoot()
+        {
+            string golden = FindDirectory(GoldenMapTests.MapFileName);
+            DirectoryInfo? data = Directory.GetParent(golden);
+            if (data == null || data.Name != "data")
+            {
+                throw new InvalidOperationException("Could not resolve repo root from " + golden + ".");
+            }
+
+            DirectoryInfo? root = data.Parent;
+            if (root == null)
+            {
+                throw new InvalidOperationException("Could not resolve repo root from " + golden + ".");
+            }
+
+            return root.FullName;
+        }
+
+        public static string ReadRepoText(string relativePath)
+        {
+            return File.ReadAllText(Path.Combine(FindRepoRoot(), relativePath));
         }
 
         public static byte[] ReadWrmb(string path, int expectedLength)

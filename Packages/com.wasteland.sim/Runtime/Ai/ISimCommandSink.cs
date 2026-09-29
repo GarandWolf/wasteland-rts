@@ -6,7 +6,7 @@ namespace Wasteland.Sim.Ai
 {
     /// <summary>
     /// The only mutation path the AI may use. Implementations must forward to
-    /// the foundation <see cref="SimWorld.Submit"/> (or a test double of it).
+    /// the foundation <see cref="SimWorld.Submit"/> (or a test sink of it).
     /// </summary>
     public interface ISimCommandSink
     {
