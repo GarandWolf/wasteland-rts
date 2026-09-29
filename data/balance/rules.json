@@ -211,7 +211,7 @@
   },
   "scenario": {
     "id": "columbia_gorge_100mi_test",
-    "mapFile": "golden_ci_columbia_gorge_100_v1",
+    "mapFile": "golden_ci_columbia_gorge_100_v1_marsh",
     "mapFormatVersion": 1,
     "players": {
       "player": "remnant_command",
