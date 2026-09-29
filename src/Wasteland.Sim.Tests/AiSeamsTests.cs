@@ -33,10 +33,10 @@ namespace Wasteland.Sim.Tests
         [Fact]
         public void FromWrmb_LoadsV1Gorge()
         {
-            string dir = GoldenMapFiles.FindDirectory(GoldenMapV1Tests.MapFileName);
+            string dir = GoldenMapFiles.FindDirectory(GoldenMapV1MarshTests.MapFileName);
             byte[] bytes = GoldenMapFiles.ReadWrmb(
-                Path.Combine(dir, GoldenMapV1Tests.MapFileName),
-                GoldenMapV1Tests.MapBytes);
+                Path.Combine(dir, GoldenMapV1MarshTests.MapFileName),
+                GoldenMapV1MarshTests.MapBytes);
             AiMapSnapshot map = AiMapSnapshot.FromWrmb(bytes);
             Assert.Equal(14, map.TheDallesTownId);
             Assert.NotEqual(0UL, map.MapKey);
