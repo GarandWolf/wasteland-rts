@@ -385,6 +385,107 @@ namespace Wasteland.Sim.Tests
             host.Shutdown();
         }
 
+        [Fact]
+        public void ReactionDelayQueue_DropsLowestPriorityWhenFull()
+        {
+            AiMatchHost host = StartHost();
+            AiFactionState faction = host.Ai.Owned.FactionAt(0);
+            for (int i = 0; i < AiConstants.PendingCommandCapacity; i++)
+            {
+                AiPendingCommand move = default;
+                move.ReadyTick = 1000;
+                move.BattalionId = 100 + i;
+                move.Kind = CommandKind.Move;
+                Assert.True(faction.EnqueuePending(move));
+            }
+
+            Assert.Equal(AiConstants.PendingCommandCapacity, faction.PendingCount);
+            ulong full = host.Ai.HashState();
+
+            AiPendingCommand spawn = default;
+            spawn.ReadyTick = 1;
+            spawn.BattalionId = 1;
+            spawn.Kind = CommandKind.SpawnBattalion;
+            Assert.True(faction.EnqueuePending(spawn));
+            Assert.Equal(AiConstants.PendingCommandCapacity, faction.PendingCount);
+            Assert.Equal(1, faction.PendingDropped);
+            Assert.NotEqual(full, host.Ai.HashState());
+
+            bool foundSpawn = false;
+            bool foundReplacedMove = false;
+            for (int i = 0; i < faction.PendingCount; i++)
+            {
+                if (faction.Pending[i].Kind == CommandKind.SpawnBattalion
+                    && faction.Pending[i].BattalionId == 1)
+                {
+                    foundSpawn = true;
+                }
+
+                if (faction.Pending[i].BattalionId == 100 + AiConstants.PendingCommandCapacity - 1)
+                {
+                    foundReplacedMove = true;
+                }
+            }
+
+            Assert.True(foundSpawn);
+            Assert.False(foundReplacedMove);
+
+            AiPendingCommand build = default;
+            build.ReadyTick = 9999;
+            build.BattalionId = 9999;
+            build.Kind = CommandKind.Build;
+            Assert.False(faction.EnqueuePending(build));
+            Assert.Equal(2, faction.PendingDropped);
+            Assert.Equal(AiConstants.PendingCommandCapacity, faction.PendingCount);
+
+            byte[] blob = host.Ai.Save();
+            AiMatchHost restored = StartHost();
+            restored.Ai.Load(blob);
+            Assert.Equal(2, restored.Ai.Owned.FactionAt(0).PendingDropped);
+            Assert.Equal(host.Ai.HashState(), restored.Ai.HashState());
+            restored.Shutdown();
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void CaptureOccupancy_ReturnsOnlyEmptyOneFactionOrContested()
+        {
+            SimWorld world = new SimWorld(MatchConfig.Default(1UL));
+            SimWorldCommandSink sink = new SimWorldCommandSink(world);
+            CaptureZoneOccupancyResult empty = sink.OccupancyOf(0, 0, 80000);
+            Assert.Equal(CaptureOccupancyKind.Empty, empty.Kind);
+            Assert.Equal(0, empty.FactionId);
+
+            sink.Submit(SimCommand.SpawnBattalion(0, 1, 11, 0, 0, 100));
+            sink.Submit(SimCommand.SpawnBattalion(0, 2, 12, 0, 0, 100));
+            world.Step();
+            world.Step();
+            world.Step();
+
+            CaptureZoneOccupancyResult contested = sink.OccupancyOf(0, 0, 80000);
+            Assert.Equal(CaptureOccupancyKind.Contested, contested.Kind);
+            Assert.Equal(0, contested.FactionId);
+
+            CaptureZoneOccupancyResult far = sink.OccupancyOf(5_000_000, 5_000_000, 100);
+            Assert.Equal(CaptureOccupancyKind.Empty, far.Kind);
+        }
+
+        [Fact]
+        public void LoggingCommandSink_CapsTheRecordedLog()
+        {
+            Assert.Equal(4096, AiConstants.CommandLogCapacity);
+            SimWorld world = new SimWorld(MatchConfig.Default(1UL));
+            LoggingCommandSink sink = new LoggingCommandSink(world);
+            for (int i = 0; i < 4; i++)
+            {
+                sink.Submit(SimCommand.SpawnBattalion(0, 1, 20 + i, i, 0, 100));
+            }
+
+            Assert.Equal(4, sink.Log.Count);
+            Assert.Equal(0, sink.DroppedFromLog);
+            Assert.Equal(world.Tick, sink.Log[0].IssuedTick);
+        }
+
         private static AiMatchHost StartHost()
         {
             return AiMatchHost.Start(

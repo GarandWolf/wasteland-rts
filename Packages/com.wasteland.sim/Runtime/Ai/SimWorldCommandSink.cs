@@ -77,19 +77,42 @@ namespace Wasteland.Sim.Ai
             into.Clear();
         }
 
-        public void CopyOccupancyBattalions(List<SimBattalion> into)
+        public CaptureZoneOccupancyResult OccupancyOf(int xCm, int yCm, int radiusCm)
         {
-            if (into == null)
+            if (radiusCm < 0)
             {
-                throw new ArgumentNullException(nameof(into));
+                throw new ArgumentOutOfRangeException(nameof(radiusCm));
             }
 
-            into.Clear();
+            long radiusSq = (long)radiusCm * radiusCm;
+            int occupant = 0;
             IReadOnlyList<SimBattalion> battalions = _world.Battalions;
             for (int i = 0; i < battalions.Count; i++)
             {
-                into.Add(battalions[i]);
+                SimBattalion battalion = battalions[i];
+                long dx = (long)battalion.PositionXCm - xCm;
+                long dy = (long)battalion.PositionYCm - yCm;
+                if ((dx * dx) + (dy * dy) > radiusSq)
+                {
+                    continue;
+                }
+
+                if (occupant == 0)
+                {
+                    occupant = battalion.OwnerId;
+                }
+                else if (occupant != battalion.OwnerId)
+                {
+                    return new CaptureZoneOccupancyResult(CaptureOccupancyKind.Contested, 0);
+                }
             }
+
+            if (occupant == 0)
+            {
+                return new CaptureZoneOccupancyResult(CaptureOccupancyKind.Empty, 0);
+            }
+
+            return new CaptureZoneOccupancyResult(CaptureOccupancyKind.OneFaction, occupant);
         }
 
         public int CountOwnBattalions(int factionId)

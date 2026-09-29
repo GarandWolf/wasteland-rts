@@ -38,12 +38,32 @@ namespace Wasteland.Sim.Ai
     }
 
     /// <summary>
-    /// Capture occupancy is a world process, not vision. Until the sim owns
-    /// capture zones this copies every battalion position.
+    /// Capture occupancy is a world process, not vision. The AI may ask about
+    /// zones it already knows; the view returns only empty / one faction /
+    /// contested. Battalion identities and positions are not exposed.
     /// </summary>
+    public enum CaptureOccupancyKind : byte
+    {
+        Empty = 0,
+        OneFaction = 1,
+        Contested = 2
+    }
+
+    public readonly struct CaptureZoneOccupancyResult
+    {
+        public readonly CaptureOccupancyKind Kind;
+        public readonly int FactionId;
+
+        public CaptureZoneOccupancyResult(CaptureOccupancyKind kind, int factionId)
+        {
+            Kind = kind;
+            FactionId = factionId;
+        }
+    }
+
     public interface ICaptureOccupancyView
     {
-        void CopyOccupancyBattalions(List<SimBattalion> into);
+        CaptureZoneOccupancyResult OccupancyOf(int xCm, int yCm, int radiusCm);
     }
 
     /// <summary>

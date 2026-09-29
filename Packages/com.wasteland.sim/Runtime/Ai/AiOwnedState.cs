@@ -79,6 +79,7 @@ namespace Wasteland.Sim.Ai
         public int DepotCount;
         public int PickedPostCount;
         public int PendingCount;
+        public int PendingDropped;
         public readonly AiOrder[] Orders;
         public readonly AiDepot[] Depots;
         public readonly int[] PickedPostIds;
@@ -132,6 +133,79 @@ namespace Wasteland.Sim.Ai
             TacticalRng = tacticalRng;
             MistakeRng = mistakeRng;
             ScoutRng = scoutRng;
+        }
+
+        /// <summary>
+        /// Enqueue a reaction-delayed command. If the 128-slot queue is full,
+        /// drop the lowest-priority pending (or the incoming command if it is
+        /// lowest). Priority is Kind rank (Spawn, Move, Build, other), then
+        /// sooner <see cref="AiPendingCommand.ReadyTick"/>, then lower
+        /// battalion id. Deterministic; increments <see cref="PendingDropped"/>.
+        /// </summary>
+        public bool EnqueuePending(AiPendingCommand pending)
+        {
+            if (PendingCount < Pending.Length)
+            {
+                Pending[PendingCount] = pending;
+                PendingCount++;
+                return true;
+            }
+
+            int worst = 0;
+            for (int i = 1; i < PendingCount; i++)
+            {
+                if (ComparePriority(Pending[i], Pending[worst]) < 0)
+                {
+                    worst = i;
+                }
+            }
+
+            if (ComparePriority(pending, Pending[worst]) <= 0)
+            {
+                PendingDropped++;
+                return false;
+            }
+
+            Pending[worst] = pending;
+            PendingDropped++;
+            return true;
+        }
+
+        public static int ComparePriority(AiPendingCommand a, AiPendingCommand b)
+        {
+            int kind = KindRank(a.Kind).CompareTo(KindRank(b.Kind));
+            if (kind != 0)
+            {
+                return kind;
+            }
+
+            int ready = b.ReadyTick.CompareTo(a.ReadyTick);
+            if (ready != 0)
+            {
+                return ready;
+            }
+
+            return b.BattalionId.CompareTo(a.BattalionId);
+        }
+
+        private static int KindRank(CommandKind kind)
+        {
+            if (kind == CommandKind.SpawnBattalion)
+            {
+                return 3;
+            }
+
+            if (kind == CommandKind.Move)
+            {
+                return 2;
+            }
+
+            if (kind == CommandKind.Build)
+            {
+                return 1;
+            }
+
+            return 0;
         }
 
         public bool PlanThisTick(int tick)
@@ -266,6 +340,7 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.DepotCount);
                 hash.AddInt(faction.PickedPostCount);
                 hash.AddInt(faction.PendingCount);
+                hash.AddInt(faction.PendingDropped);
                 hash.AddULong(faction.StrategyRng.State);
                 hash.AddULong(faction.StrategyRng.Increment);
                 hash.AddULong(faction.TacticalRng.State);
@@ -364,6 +439,7 @@ namespace Wasteland.Sim.Ai
                 writer.Write(faction.DepotCount);
                 writer.Write(faction.PickedPostCount);
                 writer.Write(faction.PendingCount);
+                writer.Write(faction.PendingDropped);
                 WriteRng(writer, faction.StrategyRng);
                 WriteRng(writer, faction.TacticalRng);
                 WriteRng(writer, faction.MistakeRng);
@@ -489,6 +565,7 @@ namespace Wasteland.Sim.Ai
                 _factions[i].DepotCount = reader.ReadInt32();
                 _factions[i].PickedPostCount = reader.ReadInt32();
                 _factions[i].PendingCount = reader.ReadInt32();
+                _factions[i].PendingDropped = reader.ReadInt32();
                 _factions[i].StrategyRng = ReadRng(reader);
                 _factions[i].TacticalRng = ReadRng(reader);
                 _factions[i].MistakeRng = ReadRng(reader);

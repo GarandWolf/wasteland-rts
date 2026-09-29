@@ -29,7 +29,6 @@ namespace Wasteland.Sim.Ai
         private readonly ulong _mapKey;
         private readonly ulong _adjacencyHash;
         private readonly int _commandDelayTicks;
-        private readonly List<SimBattalion> _battalionScratch = new List<SimBattalion>();
         private readonly List<int> _idScratch = new List<int>();
         private readonly Candidate[] _candidates = new Candidate[64];
         private readonly int[] _networkScratch = new int[32];
@@ -483,16 +482,20 @@ namespace Wasteland.Sim.Ai
 
         private void StepCaptureOccupancy()
         {
-            _occupancy.CopyOccupancyBattalions(_battalionScratch);
             for (int i = 0; i < _map.TownCount; i++)
             {
                 AiTownRecord town = _map.TownAt(i);
                 int owner = _owned.TownOwnerAt(i);
-                CaptureZoneOccupancy occupancy = ClassifyTownOccupancy(town, out int occupant);
-                if (occupancy != CaptureZoneOccupancy.Unique)
+                CaptureZoneOccupancyResult zone = _occupancy.OccupancyOf(
+                    town.XCm,
+                    town.YCm,
+                    AiConstants.CaptureZoneRadiusCm);
+                if (zone.Kind != CaptureOccupancyKind.OneFaction)
                 {
                     continue;
                 }
+
+                int occupant = zone.FactionId;
 
                 if (owner != 0 && occupant != owner)
                 {
@@ -523,32 +526,6 @@ namespace Wasteland.Sim.Ai
                     _owned.SetCapture(i, current, held);
                 }
             }
-        }
-
-        private CaptureZoneOccupancy ClassifyTownOccupancy(AiTownRecord town, out int occupant)
-        {
-            occupant = 0;
-            long radiusSq = (long)AiConstants.CaptureZoneRadiusCm * AiConstants.CaptureZoneRadiusCm;
-            for (int i = 0; i < _battalionScratch.Count; i++)
-            {
-                SimBattalion battalion = _battalionScratch[i];
-                if (!InRadius(battalion.PositionXCm, battalion.PositionYCm, town.XCm, town.YCm, radiusSq))
-                {
-                    continue;
-                }
-
-                if (occupant == 0)
-                {
-                    occupant = battalion.OwnerId;
-                }
-                else if (occupant != battalion.OwnerId)
-                {
-                    occupant = 0;
-                    return CaptureZoneOccupancy.Contested;
-                }
-            }
-
-            return occupant == 0 ? CaptureZoneOccupancy.Empty : CaptureZoneOccupancy.Unique;
         }
 
         private int CountOwnBattalionsInTown(int factionId, AiTownRecord town)
@@ -665,11 +642,6 @@ namespace Wasteland.Sim.Ai
 
         private void Issue(AiFactionState faction, CommandKind kind, int battalionId, int arg0, int arg1, int arg2)
         {
-            if (faction.PendingCount >= faction.Pending.Length)
-            {
-                throw new InvalidOperationException("AI reaction-delay queue is full.");
-            }
-
             int extra = faction.ReactionExtraTicks;
             if (extra < 0)
             {
@@ -683,8 +655,7 @@ namespace Wasteland.Sim.Ai
             pending.Arg0 = arg0;
             pending.Arg1 = arg1;
             pending.Arg2 = arg2;
-            faction.Pending[faction.PendingCount] = pending;
-            faction.PendingCount++;
+            faction.EnqueuePending(pending);
         }
 
         private void FlushPendingCommands()
@@ -1407,12 +1378,5 @@ namespace Wasteland.Sim.Ai
                 + " theDallesOwner=" + TheDallesOwnerId
                 + " tierIITick=" + TierIITick;
         }
-    }
-
-    internal enum CaptureZoneOccupancy : byte
-    {
-        Empty = 0,
-        Unique = 1,
-        Contested = 2
     }
 }
