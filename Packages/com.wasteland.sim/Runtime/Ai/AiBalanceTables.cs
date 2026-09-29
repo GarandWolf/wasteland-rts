@@ -592,11 +592,11 @@ namespace Wasteland.Sim.Ai
                 JsonUtil.Int32(JsonUtil.Field(row, "turtleBias"), "turtleBias"),
                 JsonUtil.Int32(JsonUtil.Field(row, "raidBias"), "raidBias"),
                 JsonUtil.Int32(JsonUtil.Field(row, "scoutBias"), "scoutBias"),
-                JsonUtil.Int32(JsonUtil.Field(row, "ReservePpt"), "ReservePpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "SiegeInvestRatioPpt"), "SiegeInvestRatioPpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "SiegeAssaultRatioPpt"), "SiegeAssaultRatioPpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "RetreatThresholdPpt"), "RetreatThresholdPpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "PostureSwitchMarginPpt"), "PostureSwitchMarginPpt"),
+                RequirePpt(row, "reservePpt"),
+                RequirePpt(row, "siegeInvestRatioPpt"),
+                RequirePpt(row, "siegeAssaultRatioPpt"),
+                RequirePpt(row, "retreatThresholdPpt"),
+                RequirePpt(row, "postureSwitchMarginPpt"),
                 minGarrison,
                 JsonUtil.Int32(JsonUtil.Field(row, "taskForceTargetSize"), "taskForceTargetSize"),
                 (AiPosture)defaultPosture);
@@ -604,53 +604,58 @@ namespace Wasteland.Sim.Ai
 
         private static AiDifficultyProfile ParseDifficulty(JsonValue row)
         {
-            string fogCheat = JsonUtil.String(JsonUtil.Field(row, "FogCheat"), "FogCheat");
+            string fogCheat = JsonUtil.String(JsonUtil.Field(row, "fogCheat"), "fogCheat");
             if (fogCheat != AiConstants.FogCheatNone)
             {
-                throw new FormatException("FogCheat must be 'none' at every difficulty.");
+                throw new FormatException("fogCheat must be 'none' at every difficulty.");
             }
 
-            int cadence = JsonUtil.Int32(JsonUtil.Field(row, "StrategicCadenceTicks"), "StrategicCadenceTicks");
+            int cadence = JsonUtil.Int32(JsonUtil.Field(row, "strategicCadenceTicks"), "strategicCadenceTicks");
             if (cadence < 1)
             {
-                throw new FormatException("StrategicCadenceTicks must be >= 1.");
+                throw new FormatException("strategicCadenceTicks must be >= 1.");
             }
 
-            int reaction = JsonUtil.Int32(JsonUtil.Field(row, "ReactionExtraTicks"), "ReactionExtraTicks");
+            int reaction = JsonUtil.Int32(JsonUtil.Field(row, "reactionExtraTicks"), "reactionExtraTicks");
             if (reaction < 0)
             {
-                throw new FormatException("ReactionExtraTicks must be >= 0.");
+                throw new FormatException("reactionExtraTicks must be >= 0.");
             }
 
-            int economyBonus = JsonUtil.Int32(JsonUtil.Field(row, "EconomyBonusPpt"), "EconomyBonusPpt");
-            if (economyBonus < 0)
-            {
-                throw new FormatException("EconomyBonusPpt must be >= 0.");
-            }
-
-            int maxActiveOrders = JsonUtil.Int32(JsonUtil.Field(row, "MaxActiveOrders"), "MaxActiveOrders");
+            int maxActiveOrders = JsonUtil.Int32(JsonUtil.Field(row, "maxActiveOrders"), "maxActiveOrders");
             if (maxActiveOrders < 1)
             {
-                throw new FormatException("MaxActiveOrders must be >= 1.");
+                throw new FormatException("maxActiveOrders must be >= 1.");
             }
 
             return new AiDifficultyProfile(
                 JsonUtil.String(JsonUtil.Field(row, "id"), "id"),
                 reaction,
                 cadence,
-                JsonUtil.Int32(JsonUtil.Field(row, "AggressionMulPpt"), "AggressionMulPpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "ScoutCadenceTicks"), "ScoutCadenceTicks"),
+                RequirePpt(row, "aggressionMulPpt"),
+                JsonUtil.Int32(JsonUtil.Field(row, "scoutCadenceTicks"), "scoutCadenceTicks"),
                 fogCheat,
-                JsonUtil.Int32(JsonUtil.Field(row, "MemoryDecayPerCadencePpt"), "MemoryDecayPerCadencePpt"),
-                economyBonus,
-                JsonUtil.Int32(JsonUtil.Field(row, "BuildSpeedBonusPpt"), "BuildSpeedBonusPpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "VisionRadiusBonusCm"), "VisionRadiusBonusCm"),
-                JsonUtil.Int32(JsonUtil.Field(row, "MicroQuality"), "MicroQuality"),
-                JsonUtil.Int32(JsonUtil.Field(row, "MistakeRatePpt"), "MistakeRatePpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "RetreatThresholdMulPpt"), "RetreatThresholdMulPpt"),
+                RequirePpt(row, "memoryDecayPerCadencePpt"),
+                RequirePpt(row, "economyBonusPpt"),
+                RequirePpt(row, "buildSpeedBonusPpt"),
+                JsonUtil.Int32(JsonUtil.Field(row, "visionRadiusBonusCm"), "visionRadiusBonusCm"),
+                JsonUtil.Int32(JsonUtil.Field(row, "microQuality"), "microQuality"),
+                RequirePpt(row, "mistakeRatePpt"),
+                RequirePpt(row, "retreatThresholdMulPpt"),
                 maxActiveOrders,
-                JsonUtil.Int32(JsonUtil.Field(row, "MaxCandidateGoals"), "MaxCandidateGoals"),
+                JsonUtil.Int32(JsonUtil.Field(row, "maxCandidateGoals"), "maxCandidateGoals"),
                 JsonUtil.Int32(JsonUtil.Field(row, "manpowerReserveSeconds"), "manpowerReserveSeconds"));
+        }
+
+        private static int RequirePpt(JsonValue row, string key)
+        {
+            int value = JsonUtil.Int32(JsonUtil.Field(row, key), key);
+            if (value < 0)
+            {
+                throw new FormatException(key + " must be >= 0.");
+            }
+
+            return value;
         }
 
         private static void RequireUniquePersonalityIds(AiPersonalityProfile[] rows)

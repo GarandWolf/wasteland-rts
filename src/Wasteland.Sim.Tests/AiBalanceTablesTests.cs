@@ -10,11 +10,11 @@ namespace Wasteland.Sim.Tests
         /// <summary>
         /// Folder-wide <see cref="BalanceKey.For"/> of <c>data/balance</c> after
         /// PR #10 (units, buildings, economy, rules, balance-notes), PR #12
-        /// (<c>scenario.mapFile</c> → marsh), plus AI tables. FromDirectory
-        /// parses <c>ai/*.json</c> and <c>rules.json</c> <c>capture.timerTicksByTier</c>.
-        /// Re-pin when those files change.
+        /// (<c>scenario.mapFile</c> → marsh), plus AI tables with camelCase JSON
+        /// keys. FromDirectory parses <c>ai/*.json</c> and <c>rules.json</c>
+        /// <c>capture.timerTicksByTier</c>. Re-pin when those files change.
         /// </summary>
-        public const ulong ExpectedFolderBalanceKey = 0xF101ACA2ADF79E2CUL;
+        public const ulong ExpectedFolderBalanceKey = 0x3A4EC90B43E6FC90UL;
 
         [Fact]
         public void LoadsPersonalitiesAndDifficulties_FromBalanceFiles()
@@ -72,9 +72,19 @@ namespace Wasteland.Sim.Tests
         public void RejectsMissingDataVersion()
         {
             string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json");
-            string difficulty = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
+            string difficultyLf = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
+                .Replace("\r\n", "\n");
+            AssertMissingDataVersion(personalities, difficultyLf);
+            AssertMissingDataVersion(personalities, difficultyLf.Replace("\n", "\r\n"));
+        }
+
+        private static void AssertMissingDataVersion(string personalities, string difficulty)
+        {
+            string stripped = difficulty
+                .Replace("  \"dataVersion\": 1,\r\n", string.Empty)
                 .Replace("  \"dataVersion\": 1,\n", string.Empty);
-            FormatException ex = Assert.Throws<FormatException>(() => AiBalanceTables.Parse(personalities, difficulty));
+            Assert.NotEqual(difficulty, stripped);
+            FormatException ex = Assert.Throws<FormatException>(() => AiBalanceTables.Parse(personalities, stripped));
             Assert.Contains("dataVersion", ex.Message);
         }
 
@@ -106,7 +116,7 @@ namespace Wasteland.Sim.Tests
         {
             string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json");
             string difficulty = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
-                .Replace("\"FogCheat\": \"none\"", "\"FogCheat\": \"omniscient\"");
+                .Replace("\"fogCheat\": \"none\"", "\"fogCheat\": \"omniscient\"");
             Assert.Throws<FormatException>(() => AiBalanceTables.Parse(personalities, difficulty));
         }
 
@@ -115,8 +125,34 @@ namespace Wasteland.Sim.Tests
         {
             string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json");
             string difficulty = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
-                .Replace("\"EconomyBonusPpt\": 100", "\"EconomyBonusPpt\": 10.0");
+                .Replace("\"economyBonusPpt\": 100", "\"economyBonusPpt\": 10.0");
             Assert.Throws<FormatException>(() => AiBalanceTables.Parse(personalities, difficulty));
+        }
+
+        [Fact]
+        public void RejectsDuplicateDifficultyId()
+        {
+            string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json");
+            string difficulty = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
+                .Replace("\"id\": \"hard\"", "\"id\": \"easy\"", StringComparison.Ordinal);
+            FormatException ex = Assert.Throws<FormatException>(() => AiBalanceTables.Parse(personalities, difficulty));
+            Assert.Contains("Duplicate difficulty id", ex.Message);
+        }
+
+        [Fact]
+        public void RejectsNegativePptFields()
+        {
+            string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json");
+            string difficulty = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
+                .Replace("\"economyBonusPpt\": 100", "\"economyBonusPpt\": -1");
+            FormatException difficultyEx = Assert.Throws<FormatException>(
+                () => AiBalanceTables.Parse(personalities, difficulty));
+            Assert.Contains("economyBonusPpt", difficultyEx.Message);
+
+            FormatException personalityEx = Assert.Throws<FormatException>(() => AiBalanceTables.Parse(
+                personalities.Replace("\"reservePpt\": 80", "\"reservePpt\": -1", StringComparison.Ordinal),
+                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")));
+            Assert.Contains("reservePpt", personalityEx.Message);
         }
 
         internal static AiBalanceTables LoadBalance()

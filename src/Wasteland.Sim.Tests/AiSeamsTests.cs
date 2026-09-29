@@ -127,6 +127,65 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void Load_RejectsOutOfRangePosture_AndLeavesHashUnchanged()
+        {
+            AiMatchHost host = StartHost();
+            host.Run(80);
+            byte[] blob = host.Ai.Save();
+            host.Shutdown();
+
+            int postureOffset = FirstFactionIntOffset(blob) + (9 * sizeof(int));
+            byte[] mutated = (byte[])blob.Clone();
+            mutated[postureOffset] = (byte)((int)AiPosture.Counterattack + 1);
+
+            AiMatchHost other = StartHost();
+            ulong before = other.Ai.HashState();
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => other.Ai.Load(mutated));
+            Assert.Contains("posture", ex.Message);
+            Assert.Equal(before, other.Ai.HashState());
+            other.Shutdown();
+        }
+
+        [Fact]
+        public void Load_FailedCollectionCountLeavesHashUnchanged()
+        {
+            AiMatchHost host = StartHost();
+            host.Run(80);
+            byte[] blob = host.Ai.Save();
+            host.Shutdown();
+
+            int orderCountOffset = FirstFactionIntOffset(blob) + (9 * sizeof(int)) + 1 + sizeof(int);
+            byte[] mutated = (byte[])blob.Clone();
+            mutated[orderCountOffset] = 0xFF;
+            mutated[orderCountOffset + 1] = 0xFF;
+            mutated[orderCountOffset + 2] = 0xFF;
+            mutated[orderCountOffset + 3] = 0x7F;
+
+            AiMatchHost other = StartHost();
+            ulong before = other.Ai.HashState();
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => other.Ai.Load(mutated));
+            Assert.Contains("slot capacity", ex.Message);
+            Assert.Equal(before, other.Ai.HashState());
+            other.Shutdown();
+        }
+
+        private static int FirstFactionIntOffset(byte[] blob)
+        {
+            using (BinaryReader reader = new BinaryReader(new MemoryStream(blob)))
+            {
+                reader.ReadInt32();
+                reader.ReadUInt64();
+                reader.ReadUInt64();
+                reader.ReadUInt64();
+                reader.ReadInt32();
+                reader.ReadInt32();
+                reader.ReadString();
+                reader.ReadString();
+                return (int)reader.BaseStream.Position;
+            }
+        }
+
+        [Fact]
         public void StrategicSlice_RunsOnPhaseSixAfterCadence()
         {
             AiMatchHost host = StartHost();

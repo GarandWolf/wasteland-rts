@@ -64,7 +64,6 @@ namespace Wasteland.Sim.Tests
             rng.NextUInt();
             rng.NextUInt();
             Assert.Equal((54UL << 1) | 1UL, rng.Increment);
-            Assert.Equal(rng.Increment, rng.Stream);
 
             SimRandom restored = SimRandom.FromPersisted(rng.State, rng.Increment);
             Assert.Equal(rng.State, restored.State);

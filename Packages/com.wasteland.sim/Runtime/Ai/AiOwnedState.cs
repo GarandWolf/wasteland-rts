@@ -525,103 +525,10 @@ namespace Wasteland.Sim.Ai
                 throw new InvalidDataException("AI faction count changed across save/load.");
             }
 
+            LoadedFaction[] loaded = new LoadedFaction[count];
             for (int i = 0; i < count; i++)
             {
-                int factionId = reader.ReadInt32();
-                if (factionId != _factions[i].FactionId)
-                {
-                    throw new InvalidDataException("AI faction id order changed across save/load.");
-                }
-
-                string personalityId = reader.ReadString();
-                string difficultyId = reader.ReadString();
-                if (personalityId != _factions[i].PersonalityId || difficultyId != _factions[i].DifficultyId)
-                {
-                    throw new InvalidDataException("AI personality/difficulty changed across save/load.");
-                }
-
-                RequireInt32(reader, _factions[i].ReactionExtraTicks, "ReactionExtraTicks");
-                RequireInt32(reader, _factions[i].StrategicCadenceTicks, "StrategicCadenceTicks");
-                RequireInt32(reader, _factions[i].MaxActiveOrders, "MaxActiveOrders");
-                RequireInt32(reader, _factions[i].MinGarrisonPerTown, "MinGarrisonPerTown");
-                RequireInt32(reader, _factions[i].ManpowerReserveSeconds, "ManpowerReserveSeconds");
-                RequireInt32(reader, _factions[i].EconomyBonusPpt, "EconomyBonusPpt");
-                RequireInt32(reader, _factions[i].MaxCandidateGoals, "MaxCandidateGoals");
-                RequireInt32(reader, _factions[i].TaskForceTargetSize, "TaskForceTargetSize");
-                RequireInt32(reader, _factions[i].ReservePpt, "ReservePpt");
-                _factions[i].Posture = (AiPosture)reader.ReadByte();
-                _factions[i].NextOrderId = reader.ReadInt32();
-                _factions[i].OrderCount = reader.ReadInt32();
-                _factions[i].TaskForceCount = reader.ReadInt32();
-                _factions[i].WorkResumeId = reader.ReadInt32();
-                _factions[i].StrategicDeferred = reader.ReadBoolean();
-                _factions[i].OpeningForceIssued = reader.ReadBoolean();
-                _factions[i].HomeTerritoryId = reader.ReadInt32();
-                _factions[i].HomeTownId = reader.ReadInt32();
-                _factions[i].HqNodeId = reader.ReadInt32();
-                _factions[i].NextBattalionId = reader.ReadInt32();
-                _factions[i].Manpower = reader.ReadInt32();
-                _factions[i].ManpowerCarry = reader.ReadInt32();
-                _factions[i].DepotCount = reader.ReadInt32();
-                _factions[i].PickedPostCount = reader.ReadInt32();
-                _factions[i].PendingCount = reader.ReadInt32();
-                _factions[i].PendingDropped = reader.ReadInt32();
-                _factions[i].StrategyRng = ReadRng(reader);
-                _factions[i].TacticalRng = ReadRng(reader);
-                _factions[i].MistakeRng = ReadRng(reader);
-                _factions[i].ScoutRng = ReadRng(reader);
-                _factions[i].PathRequestsThisTick = 0;
-                _factions[i].WorkUnitsThisTick = 0;
-                if (_factions[i].OrderCount > _factions[i].Orders.Length
-                    || _factions[i].DepotCount > _factions[i].Depots.Length
-                    || _factions[i].PickedPostCount > _factions[i].PickedPostIds.Length
-                    || _factions[i].PendingCount > _factions[i].Pending.Length)
-                {
-                    throw new InvalidDataException("AI collection count exceeds slot capacity.");
-                }
-
-                for (int o = 0; o < _factions[i].OrderCount; o++)
-                {
-                    AiOrder order = default;
-                    order.Id = reader.ReadInt32();
-                    order.Type = (AiGoalType)reader.ReadByte();
-                    order.TargetTownId = reader.ReadInt32();
-                    order.TargetTerritoryId = reader.ReadInt32();
-                    order.TargetNodeId = reader.ReadInt32();
-                    order.BattalionId = reader.ReadInt32();
-                    order.Score = reader.ReadInt32();
-                    _factions[i].Orders[o] = order;
-                }
-
-                for (int d = 0; d < _factions[i].DepotCount; d++)
-                {
-                    AiDepot depot = default;
-                    depot.TerritoryId = reader.ReadInt32();
-                    depot.TerritoryStableKey = reader.ReadUInt64();
-                    depot.SeatTownId = reader.ReadInt32();
-                    depot.NodeId = reader.ReadInt32();
-                    depot.XCm = reader.ReadInt32();
-                    depot.YCm = reader.ReadInt32();
-                    _factions[i].Depots[d] = depot;
-                }
-
-                for (int p = 0; p < _factions[i].PickedPostCount; p++)
-                {
-                    _factions[i].PickedPostIds[p] = reader.ReadInt32();
-                    _factions[i].PickedGroupIds[p] = reader.ReadInt32();
-                }
-
-                for (int q = 0; q < _factions[i].PendingCount; q++)
-                {
-                    AiPendingCommand pending = default;
-                    pending.ReadyTick = reader.ReadInt32();
-                    pending.BattalionId = reader.ReadInt32();
-                    pending.Kind = (CommandKind)reader.ReadByte();
-                    pending.Arg0 = reader.ReadInt32();
-                    pending.Arg1 = reader.ReadInt32();
-                    pending.Arg2 = reader.ReadInt32();
-                    _factions[i].Pending[q] = pending;
-                }
+                loaded[i] = ReadLoadedFaction(reader, _factions[i]);
             }
 
             int towns = reader.ReadInt32();
@@ -630,12 +537,225 @@ namespace Wasteland.Sim.Ai
                 throw new InvalidDataException("AI town slot count changed across save/load.");
             }
 
+            int[] townOwners = new int[towns];
+            int[] captureFactions = new int[towns];
+            int[] captureHeld = new int[towns];
             for (int i = 0; i < towns; i++)
             {
-                _townOwnerIds[i] = reader.ReadInt32();
-                _captureFactionIds[i] = reader.ReadInt32();
-                _captureHeldTicks[i] = reader.ReadInt32();
+                townOwners[i] = reader.ReadInt32();
+                captureFactions[i] = reader.ReadInt32();
+                captureHeld[i] = reader.ReadInt32();
             }
+
+            for (int i = 0; i < count; i++)
+            {
+                CommitLoadedFaction(_factions[i], loaded[i]);
+            }
+
+            for (int i = 0; i < towns; i++)
+            {
+                _townOwnerIds[i] = townOwners[i];
+                _captureFactionIds[i] = captureFactions[i];
+                _captureHeldTicks[i] = captureHeld[i];
+            }
+        }
+
+        private static LoadedFaction ReadLoadedFaction(BinaryReader reader, AiFactionState current)
+        {
+            int factionId = reader.ReadInt32();
+            if (factionId != current.FactionId)
+            {
+                throw new InvalidDataException("AI faction id order changed across save/load.");
+            }
+
+            string personalityId = reader.ReadString();
+            string difficultyId = reader.ReadString();
+            if (personalityId != current.PersonalityId || difficultyId != current.DifficultyId)
+            {
+                throw new InvalidDataException("AI personality/difficulty changed across save/load.");
+            }
+
+            RequireInt32(reader, current.ReactionExtraTicks, "ReactionExtraTicks");
+            RequireInt32(reader, current.StrategicCadenceTicks, "StrategicCadenceTicks");
+            RequireInt32(reader, current.MaxActiveOrders, "MaxActiveOrders");
+            RequireInt32(reader, current.MinGarrisonPerTown, "MinGarrisonPerTown");
+            RequireInt32(reader, current.ManpowerReserveSeconds, "ManpowerReserveSeconds");
+            RequireInt32(reader, current.EconomyBonusPpt, "EconomyBonusPpt");
+            RequireInt32(reader, current.MaxCandidateGoals, "MaxCandidateGoals");
+            RequireInt32(reader, current.TaskForceTargetSize, "TaskForceTargetSize");
+            RequireInt32(reader, current.ReservePpt, "ReservePpt");
+
+            LoadedFaction loaded = new LoadedFaction();
+            loaded.Posture = ReadPosture(reader);
+            loaded.NextOrderId = reader.ReadInt32();
+            loaded.OrderCount = reader.ReadInt32();
+            loaded.TaskForceCount = reader.ReadInt32();
+            loaded.WorkResumeId = reader.ReadInt32();
+            loaded.StrategicDeferred = reader.ReadBoolean();
+            loaded.OpeningForceIssued = reader.ReadBoolean();
+            loaded.HomeTerritoryId = reader.ReadInt32();
+            loaded.HomeTownId = reader.ReadInt32();
+            loaded.HqNodeId = reader.ReadInt32();
+            loaded.NextBattalionId = reader.ReadInt32();
+            loaded.Manpower = reader.ReadInt32();
+            loaded.ManpowerCarry = reader.ReadInt32();
+            loaded.DepotCount = reader.ReadInt32();
+            loaded.PickedPostCount = reader.ReadInt32();
+            loaded.PendingCount = reader.ReadInt32();
+            loaded.PendingDropped = reader.ReadInt32();
+            loaded.StrategyRng = ReadRng(reader);
+            loaded.TacticalRng = ReadRng(reader);
+            loaded.MistakeRng = ReadRng(reader);
+            loaded.ScoutRng = ReadRng(reader);
+            if (loaded.OrderCount < 0
+                || loaded.DepotCount < 0
+                || loaded.PickedPostCount < 0
+                || loaded.PendingCount < 0
+                || loaded.OrderCount > current.Orders.Length
+                || loaded.DepotCount > current.Depots.Length
+                || loaded.PickedPostCount > current.PickedPostIds.Length
+                || loaded.PendingCount > current.Pending.Length)
+            {
+                throw new InvalidDataException("AI collection count exceeds slot capacity.");
+            }
+
+            loaded.Orders = new AiOrder[loaded.OrderCount];
+            for (int o = 0; o < loaded.OrderCount; o++)
+            {
+                AiOrder order = default;
+                order.Id = reader.ReadInt32();
+                order.Type = (AiGoalType)reader.ReadByte();
+                order.TargetTownId = reader.ReadInt32();
+                order.TargetTerritoryId = reader.ReadInt32();
+                order.TargetNodeId = reader.ReadInt32();
+                order.BattalionId = reader.ReadInt32();
+                order.Score = reader.ReadInt32();
+                loaded.Orders[o] = order;
+            }
+
+            loaded.Depots = new AiDepot[loaded.DepotCount];
+            for (int d = 0; d < loaded.DepotCount; d++)
+            {
+                AiDepot depot = default;
+                depot.TerritoryId = reader.ReadInt32();
+                depot.TerritoryStableKey = reader.ReadUInt64();
+                depot.SeatTownId = reader.ReadInt32();
+                depot.NodeId = reader.ReadInt32();
+                depot.XCm = reader.ReadInt32();
+                depot.YCm = reader.ReadInt32();
+                loaded.Depots[d] = depot;
+            }
+
+            loaded.PickedPostIds = new int[loaded.PickedPostCount];
+            loaded.PickedGroupIds = new int[loaded.PickedPostCount];
+            for (int p = 0; p < loaded.PickedPostCount; p++)
+            {
+                loaded.PickedPostIds[p] = reader.ReadInt32();
+                loaded.PickedGroupIds[p] = reader.ReadInt32();
+            }
+
+            loaded.Pending = new AiPendingCommand[loaded.PendingCount];
+            for (int q = 0; q < loaded.PendingCount; q++)
+            {
+                AiPendingCommand pending = default;
+                pending.ReadyTick = reader.ReadInt32();
+                pending.BattalionId = reader.ReadInt32();
+                pending.Kind = (CommandKind)reader.ReadByte();
+                pending.Arg0 = reader.ReadInt32();
+                pending.Arg1 = reader.ReadInt32();
+                pending.Arg2 = reader.ReadInt32();
+                loaded.Pending[q] = pending;
+            }
+
+            return loaded;
+        }
+
+        private static void CommitLoadedFaction(AiFactionState faction, LoadedFaction loaded)
+        {
+            faction.Posture = loaded.Posture;
+            faction.NextOrderId = loaded.NextOrderId;
+            faction.OrderCount = loaded.OrderCount;
+            faction.TaskForceCount = loaded.TaskForceCount;
+            faction.WorkResumeId = loaded.WorkResumeId;
+            faction.StrategicDeferred = loaded.StrategicDeferred;
+            faction.OpeningForceIssued = loaded.OpeningForceIssued;
+            faction.HomeTerritoryId = loaded.HomeTerritoryId;
+            faction.HomeTownId = loaded.HomeTownId;
+            faction.HqNodeId = loaded.HqNodeId;
+            faction.NextBattalionId = loaded.NextBattalionId;
+            faction.Manpower = loaded.Manpower;
+            faction.ManpowerCarry = loaded.ManpowerCarry;
+            faction.DepotCount = loaded.DepotCount;
+            faction.PickedPostCount = loaded.PickedPostCount;
+            faction.PendingCount = loaded.PendingCount;
+            faction.PendingDropped = loaded.PendingDropped;
+            faction.StrategyRng = loaded.StrategyRng;
+            faction.TacticalRng = loaded.TacticalRng;
+            faction.MistakeRng = loaded.MistakeRng;
+            faction.ScoutRng = loaded.ScoutRng;
+            faction.PathRequestsThisTick = 0;
+            faction.WorkUnitsThisTick = 0;
+            for (int o = 0; o < loaded.OrderCount; o++)
+            {
+                faction.Orders[o] = loaded.Orders[o];
+            }
+
+            for (int d = 0; d < loaded.DepotCount; d++)
+            {
+                faction.Depots[d] = loaded.Depots[d];
+            }
+
+            for (int p = 0; p < loaded.PickedPostCount; p++)
+            {
+                faction.PickedPostIds[p] = loaded.PickedPostIds[p];
+                faction.PickedGroupIds[p] = loaded.PickedGroupIds[p];
+            }
+
+            for (int q = 0; q < loaded.PendingCount; q++)
+            {
+                faction.Pending[q] = loaded.Pending[q];
+            }
+        }
+
+        private static AiPosture ReadPosture(BinaryReader reader)
+        {
+            byte postureByte = reader.ReadByte();
+            if (postureByte > (byte)AiPosture.Counterattack)
+            {
+                throw new InvalidDataException("AI posture byte is out of range.");
+            }
+
+            return (AiPosture)postureByte;
+        }
+
+        private sealed class LoadedFaction
+        {
+            public AiPosture Posture;
+            public int NextOrderId;
+            public int OrderCount;
+            public int TaskForceCount;
+            public int WorkResumeId;
+            public bool StrategicDeferred;
+            public bool OpeningForceIssued;
+            public int HomeTerritoryId;
+            public int HomeTownId;
+            public int HqNodeId;
+            public int NextBattalionId;
+            public int Manpower;
+            public int ManpowerCarry;
+            public int DepotCount;
+            public int PickedPostCount;
+            public int PendingCount;
+            public int PendingDropped;
+            public SimRandom StrategyRng;
+            public SimRandom TacticalRng;
+            public SimRandom MistakeRng;
+            public SimRandom ScoutRng;
+            public AiOrder[] Orders = Array.Empty<AiOrder>();
+            public AiDepot[] Depots = Array.Empty<AiDepot>();
+            public int[] PickedPostIds = Array.Empty<int>();
+            public int[] PickedGroupIds = Array.Empty<int>();
+            public AiPendingCommand[] Pending = Array.Empty<AiPendingCommand>();
         }
 
         private static void RequireInt32(BinaryReader reader, int expected, string name)

@@ -525,7 +525,8 @@ namespace Wasteland.Sim.Ai
                     townNeighborOffsets,
                     townNeighborCounts,
                     file.SectionBytes(redgEntry),
-                    redgEntry.Count);
+                    redgEntry.Count,
+                    roads);
             }
 
             return new AiMapSnapshot(
@@ -616,7 +617,8 @@ namespace Wasteland.Sim.Ai
             int[] townNeighborOffsets,
             int[] townNeighborCounts,
             byte[] redgBytes,
-            int edgeCount)
+            int edgeCount,
+            RoadGraph roads)
         {
             int[] territoryIds = new int[territories.Length];
             for (int i = 0; i < territories.Length; i++)
@@ -624,35 +626,23 @@ namespace Wasteland.Sim.Ai
                 territoryIds[i] = territories[i].Id;
             }
 
-            int maxNodeId = 0;
-            BlobReader pass1 = new BlobReader(redgBytes);
+            // Index by RNOD dense index so sparse/huge node ids cannot size this array.
+            List<int>[] nodeTerritories = new List<int>[roads.NodeCount];
+            BlobReader edges = new BlobReader(redgBytes);
             for (int i = 0; i < edgeCount; i++)
             {
-                pass1.Skip(4);
-                int a = pass1.I32();
-                int b = pass1.I32();
-                pass1.Skip(52);
-                if (a > maxNodeId)
+                edges.Skip(4);
+                int a = edges.I32();
+                int b = edges.I32();
+                edges.Skip(24);
+                int territoryId = edges.I32();
+                edges.Skip(24);
+                if (!roads.TryGetNodeIndex(a, out int aIndex) || !roads.TryGetNodeIndex(b, out int bIndex))
                 {
-                    maxNodeId = a;
+                    throw new InvalidDataException(
+                        "REDG edge node id is not in RNOD (a=" + a + ", b=" + b + ").");
                 }
 
-                if (b > maxNodeId)
-                {
-                    maxNodeId = b;
-                }
-            }
-
-            List<int>[] nodeTerritories = new List<int>[maxNodeId + 1];
-            BlobReader pass2 = new BlobReader(redgBytes);
-            for (int i = 0; i < edgeCount; i++)
-            {
-                pass2.Skip(4);
-                int a = pass2.I32();
-                int b = pass2.I32();
-                pass2.Skip(24);
-                int territoryId = pass2.I32();
-                pass2.Skip(24);
                 if (territoryId == 0)
                 {
                     continue;
@@ -663,8 +653,8 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                AddUniqueSorted(ref nodeTerritories[a], territoryId);
-                AddUniqueSorted(ref nodeTerritories[b], territoryId);
+                AddUniqueSorted(ref nodeTerritories[aIndex], territoryId);
+                AddUniqueSorted(ref nodeTerritories[bIndex], territoryId);
             }
 
             List<int>[] neighbors = new List<int>[territoryIds.Length];

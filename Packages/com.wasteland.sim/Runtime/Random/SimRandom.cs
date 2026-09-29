@@ -32,14 +32,9 @@ namespace Wasteland.Sim.Random
         /// <summary>
         /// PCG increment register. Always odd. This is <c>(streamId &lt;&lt; 1) | 1</c>
         /// from the constructor, not the constructor's <c>stream</c> argument.
+        /// Hashed and saved as-is; do not confuse with the constructor stream id.
         /// </summary>
         public ulong Increment
-        {
-            get { return _inc; }
-        }
-
-        /// <summary>Same value as <see cref="Increment"/>; persisted PCG increment.</summary>
-        public ulong Stream
         {
             get { return _inc; }
         }
