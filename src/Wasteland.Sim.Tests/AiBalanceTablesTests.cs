@@ -64,6 +64,19 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void RejectsNonIntegerDataVersion()
+        {
+            string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json");
+            string difficulty = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json");
+            Assert.Throws<FormatException>(() => AiBalanceTables.Parse(
+                personalities,
+                difficulty.Replace("\"dataVersion\": 1", "\"dataVersion\": 1.0")));
+            Assert.Throws<FormatException>(() => AiBalanceTables.Parse(
+                personalities,
+                difficulty.Replace("\"dataVersion\": 1", "\"dataVersion\": \"1\"")));
+        }
+
+        [Fact]
         public void RejectsDuplicatePersonalityId()
         {
             string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json")
