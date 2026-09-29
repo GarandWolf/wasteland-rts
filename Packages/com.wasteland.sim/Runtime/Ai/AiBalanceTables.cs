@@ -149,6 +149,11 @@ namespace Wasteland.Sim.Ai
     /// <summary>
     /// Strict integer JSON for personalities and difficulty. File hashes are
     /// match config (xxHash64 over UTF-8 bytes), not rebuilt per tick.
+    /// Both files carry the same integer pair as the designer balance JSON:
+    /// <c>schemaVersion</c> next to <c>dataVersion</c> (AI content is
+    /// dataVersion 1; designer pack files are currently dataVersion 6).
+    /// Parse requires <c>dataVersion</c> as an int32 — missing or non-integer
+    /// values are rejected.
     /// </summary>
     public sealed class AiBalanceTables
     {
@@ -253,20 +258,14 @@ namespace Wasteland.Sim.Ai
                 throw new FormatException("Unsupported ai_personalities.json schema.");
             }
 
-            if (JsonUtil.Int32(JsonUtil.Field(personalityRoot, "dataVersion"), "dataVersion") != AiConstants.DataVersion)
-            {
-                throw new FormatException("ai_personalities.json dataVersion is required and must be " + AiConstants.DataVersion + ".");
-            }
+            RequireDataVersion(personalityRoot, "ai_personalities.json");
 
             if (JsonUtil.Int32(JsonUtil.Field(difficultyRoot, "schemaVersion"), "schemaVersion") != AiConstants.SchemaVersion)
             {
                 throw new FormatException("Unsupported ai_difficulty.json schema.");
             }
 
-            if (JsonUtil.Int32(JsonUtil.Field(difficultyRoot, "dataVersion"), "dataVersion") != AiConstants.DataVersion)
-            {
-                throw new FormatException("ai_difficulty.json dataVersion is required and must be " + AiConstants.DataVersion + ".");
-            }
+            RequireDataVersion(difficultyRoot, "ai_difficulty.json");
 
             JsonValue personalityArray = JsonUtil.Field(personalityRoot, "personalities");
             if (personalityArray.Kind != JsonKind.Array || personalityArray.ArrayValue.Count < 1)
@@ -386,6 +385,15 @@ namespace Wasteland.Sim.Ai
             }
 
             throw new KeyNotFoundException("No personality binding for faction " + factionId + ".");
+        }
+
+        private static void RequireDataVersion(JsonValue root, string fileName)
+        {
+            int dataVersion = JsonUtil.Int32(JsonUtil.Field(root, "dataVersion"), "dataVersion");
+            if (dataVersion != AiConstants.DataVersion)
+            {
+                throw new FormatException(fileName + " dataVersion is required and must be " + AiConstants.DataVersion + ".");
+            }
         }
 
         private static AiPersonalityProfile ParsePersonality(JsonValue row)
