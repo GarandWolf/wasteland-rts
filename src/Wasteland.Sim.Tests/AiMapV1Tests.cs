@@ -9,8 +9,9 @@ namespace Wasteland.Sim.Tests
     public sealed class AiMapV1Tests
     {
         /// <summary>
-        /// Gorge v1 wheeled-blocked chokepoint count. The Map Pipeline marsh
-        /// PR should only need to edit this pin (26 → 29).
+        /// Gorge merged-v1 wheeled-blocked count. AI tests load the v1 pair
+        /// (<c>golden-ci-columbia-gorge-100.v1.wrmb</c>), not the marsh pair
+        /// (29; chokepoints 5, 13, 21). Switching AI tests to marsh is a later step.
         /// </summary>
         public const int ExpectedWheeledBlockedChokepoints = 26;
 
