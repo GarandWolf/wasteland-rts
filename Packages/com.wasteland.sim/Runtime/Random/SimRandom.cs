@@ -34,6 +34,18 @@ namespace Wasteland.Sim.Random
             get { return _inc; }
         }
 
+        /// <summary>
+        /// Restores a generator from persisted <see cref="State"/> / <see cref="Stream"/>.
+        /// Used by AI-owned save/load. Does not re-run the seed scramble.
+        /// </summary>
+        public static SimRandom FromPersisted(ulong state, ulong stream)
+        {
+            SimRandom rng = default;
+            rng._state = state;
+            rng._inc = stream;
+            return rng;
+        }
+
         public uint NextUInt()
         {
             ulong old = _state;

@@ -1,0 +1,163 @@
+using System;
+using System.Collections.Generic;
+using Wasteland.Sim.Hashing;
+using Wasteland.Sim.World;
+
+namespace Wasteland.Sim.Ai
+{
+    public readonly struct AiHashSample
+    {
+        public readonly int Tick;
+        public readonly ulong Hash;
+
+        public AiHashSample(int tick, ulong hash)
+        {
+            Tick = tick;
+            Hash = hash;
+        }
+    }
+
+    /// <summary>
+    /// Headless AI-vs-AI runner. Steps the foundation world, then the AI, and
+    /// folds AI-owned state into the periodic hash. Debug logs are not hashed.
+    /// </summary>
+    public sealed class AiMatchHost
+    {
+        private readonly SimWorld _world;
+        private readonly EnemyAi _ai;
+        private readonly List<string> _headlessLogs = new List<string>();
+        private readonly List<AiHashSample> _hashes = new List<AiHashSample>();
+        private readonly int[] _factionIds;
+
+        private AiMatchHost(SimWorld world, EnemyAi ai, int[] factionIds)
+        {
+            _world = world;
+            _ai = ai;
+            _factionIds = factionIds;
+            RecordHash();
+        }
+
+        public SimWorld World
+        {
+            get { return _world; }
+        }
+
+        public EnemyAi Ai
+        {
+            get { return _ai; }
+        }
+
+        public IReadOnlyList<string> HeadlessLogs
+        {
+            get { return _headlessLogs; }
+        }
+
+        public IReadOnlyList<AiHashSample> Hashes
+        {
+            get { return _hashes; }
+        }
+
+        public int Tick
+        {
+            get { return _world.Tick; }
+        }
+
+        public static AiMatchHost Start(
+            MatchConfig match,
+            byte[] mapBlob,
+            int[] factionIds,
+            string difficultyId,
+            AiBalanceTables balance)
+        {
+            if (factionIds == null)
+            {
+                throw new ArgumentNullException(nameof(factionIds));
+            }
+
+            int[] copy = (int[])factionIds.Clone();
+            SortIds(copy);
+            MatchConfig withHashes = match.WithBalanceHashes(balance.PersonalityJsonHash, balance.DifficultyJsonHash);
+            SimWorld world = new SimWorld(withHashes);
+            SimWorldCommandSink sink = new SimWorldCommandSink(world);
+            EnemyAi ai = EnemyAi.MatchInit(withHashes, mapBlob, copy, difficultyId, balance, sink, sink);
+            return new AiMatchHost(world, ai, copy);
+        }
+
+        public ulong Step()
+        {
+            _ai.OnTick(_world.Tick);
+            _world.Step();
+            ulong hash = HashWorld();
+            if (_world.Tick % AiConstants.HashPeriodTicks == 0)
+            {
+                _hashes.Add(new AiHashSample(_world.Tick, hash));
+            }
+
+            MaybeLog();
+            return hash;
+        }
+
+        public ulong HashWorld()
+        {
+            return XxHash64.Mix(_world.HashState(), _ai.HashState());
+        }
+
+        public void Run(int ticks)
+        {
+            if (ticks < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(ticks));
+            }
+
+            for (int i = 0; i < ticks; i++)
+            {
+                Step();
+            }
+        }
+
+        public void Shutdown()
+        {
+            _ai.MatchShutdown();
+        }
+
+        private void RecordHash()
+        {
+            _hashes.Add(new AiHashSample(_world.Tick, HashWorld()));
+        }
+
+        private void MaybeLog()
+        {
+            int tick = _world.Tick;
+            if (tick < AiConstants.HeadlessLogFromTick)
+            {
+                return;
+            }
+
+            if (tick % AiConstants.HeadlessLogPeriodTicks != 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < _factionIds.Length; i++)
+            {
+                _headlessLogs.Add(_ai.CaptureHeadlessSnapshot(tick, _factionIds[i]).FormatLine());
+            }
+        }
+
+        private static void SortIds(int[] ids)
+        {
+            for (int i = 1; i < ids.Length; i++)
+            {
+                int value = ids[i];
+                int j = i - 1;
+                while (j >= 0 && ids[j] > value)
+                {
+                    ids[j + 1] = ids[j];
+                    j--;
+                }
+
+                ids[j + 1] = value;
+            }
+        }
+    }
+}
