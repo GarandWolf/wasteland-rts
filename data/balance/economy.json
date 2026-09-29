@@ -1,0 +1,169 @@
+{
+  "schemaVersion": 1,
+  "dataVersion": 6,
+  "scenery": {
+    "populationBelow": 50,
+    "capturable": false
+  },
+  "holdingTiers": [
+    {
+      "id": "hamlet",
+      "populationMin": 50,
+      "populationMax": 499,
+      "incomePerMin": {
+        "manpower": 2,
+        "fuel": 0,
+        "materiel": 0
+      },
+      "buildSlots": 0,
+      "maxFortificationLevel": 0,
+      "neutralGarrison": {},
+      "popCapBonus": 1,
+      "unlocksTech": false,
+      "countsTowardTechRequirements": false
+    },
+    {
+      "id": "village",
+      "populationMin": 500,
+      "populationMax": 4999,
+      "incomePerMin": {
+        "manpower": 8,
+        "fuel": 0,
+        "materiel": 0
+      },
+      "buildSlots": 2,
+      "maxFortificationLevel": 2,
+      "neutralGarrison": {
+        "compact_militia": 1
+      },
+      "popCapBonus": 2,
+      "unlocksTech": false,
+      "countsTowardTechRequirements": false
+    },
+    {
+      "id": "town",
+      "populationMin": 5000,
+      "populationMax": 49999,
+      "incomePerMin": {
+        "manpower": 24,
+        "fuel": 0,
+        "materiel": 0
+      },
+      "buildSlots": 4,
+      "maxFortificationLevel": 2,
+      "neutralGarrison": {
+        "compact_militia": 2
+      },
+      "popCapBonus": 5,
+      "unlocksTech": true,
+      "countsTowardTechRequirements": true
+    },
+    {
+      "id": "city",
+      "populationMin": 50000,
+      "populationMax": 2147483647,
+      "incomePerMin": {
+        "manpower": 48,
+        "fuel": 0,
+        "materiel": 5
+      },
+      "buildSlots": 6,
+      "maxFortificationLevel": 2,
+      "neutralGarrison": {
+        "compact_militia": 3,
+        "compact_at_battalion": 1
+      },
+      "popCapBonus": 8,
+      "unlocksTech": true,
+      "countsTowardTechRequirements": true
+    }
+  ],
+  "resourceSites": [
+    {
+      "id": "fuel_station",
+      "resource": "fuel",
+      "incomePerMinPerSite": 1,
+      "maxCountedPerTerritory": 4,
+      "requiresBuilding": "none",
+      "buildingScope": "none"
+    },
+    {
+      "id": "fuel_storage_depot",
+      "resource": "fuel",
+      "incomePerMinPerSite": 30,
+      "maxCountedPerTerritory": 2,
+      "requiresBuilding": "fuel_pump",
+      "buildingScope": "per_site"
+    },
+    {
+      "id": "refinery",
+      "resource": "fuel",
+      "incomePerMinPerSite": 60,
+      "maxCountedPerTerritory": 1,
+      "requiresBuilding": "fuel_pump",
+      "buildingScope": "per_site"
+    },
+    {
+      "id": "industrial_area",
+      "resource": "materiel",
+      "incomePerMinPerSite": 15,
+      "maxCountedPerTerritory": 4,
+      "requiresBuilding": "salvage_yard",
+      "buildingScope": "per_territory"
+    }
+  ],
+  "siteIncomeRequiresOwnedTerritory": true,
+  "hqIncomePerMinByFaction": {
+    "remnant_command": {
+      "manpower": 10,
+      "fuel": 45,
+      "materiel": 50
+    },
+    "homestead_compact": {
+      "manpower": 10,
+      "fuel": 20,
+      "materiel": 50
+    },
+    "road_clans": {
+      "manpower": 10,
+      "fuel": 20,
+      "materiel": 50
+    }
+  },
+  "factionIncomeModifiersPpt": {
+    "remnant_command": {
+      "manpower": 1000,
+      "fuel": 1000,
+      "materiel": 1000
+    },
+    "homestead_compact": {
+      "manpower": 1150,
+      "fuel": 1000,
+      "materiel": 1000
+    },
+    "road_clans": {
+      "manpower": 1000,
+      "fuel": 1000,
+      "materiel": 1000
+    }
+  },
+  "incomeAccrual": {
+    "intervalTicks": 20,
+    "intervalsPerMinute": 60,
+    "method": "remainder_carry"
+  },
+  "startingResources": {
+    "manpower": 300,
+    "fuel": 400,
+    "materiel": 500
+  },
+  "popCap": {
+    "base": 0,
+    "hqBonus": 30,
+    "hardCap": 100
+  },
+  "ammoRefillMaterielPerAmmoPpt": 250,
+  "fuelRefillFuelPerFuelPpt": 1000,
+  "reinforcementCostPaidProRata": true,
+  "contestedHoldingPaysIncome": false
+}
