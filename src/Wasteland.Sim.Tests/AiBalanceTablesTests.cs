@@ -9,11 +9,11 @@ namespace Wasteland.Sim.Tests
     {
         /// <summary>
         /// Folder-wide <see cref="BalanceKey.For"/> of <c>data/balance</c> after
-        /// PR #10 (units, buildings, economy, rules, balance-notes) plus AI
-        /// tables. Re-pin when those files change. AI still only parses
-        /// <c>ai/*.json</c>.
+        /// PR #10 (units, buildings, economy, rules, balance-notes), PR #12
+        /// (<c>scenario.mapFile</c> → marsh), plus AI tables. Re-pin when those
+        /// files change. AI still only parses <c>ai/*.json</c>.
         /// </summary>
-        public const ulong ExpectedFolderBalanceKey = 0xAC2E112986329D18UL;
+        public const ulong ExpectedFolderBalanceKey = 0xF101ACA2ADF79E2CUL;
 
         [Fact]
         public void LoadsPersonalitiesAndDifficulties_FromBalanceFiles()
