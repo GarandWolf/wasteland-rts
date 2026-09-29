@@ -203,6 +203,43 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void Terrain_WriteRead_KeepsFordWheeledPassableAndMarshBlocked()
+        {
+            byte[] blob = new TerrainGridBuilder(3, 3, MovementConfig.SyntheticFixtureCellSizeCm)
+                .Fill(0, LandCover.Field)
+                .SetCell(1, 0, 0, LandCover.Marsh)
+                .SetCell(1, 1, 0, LandCover.Ford)
+                .SetCell(1, 2, 0, LandCover.Marsh)
+                .ToBlob();
+
+            TerrainGrid grid = Wrmb.ReadTerrain(blob);
+            Assert.Equal(LandCover.Marsh, grid.CoverAt(grid.Index(1, 0)));
+            Assert.Equal(LandCover.Ford, grid.CoverAt(grid.Index(1, 1)));
+            Assert.Equal(LandCover.Marsh, grid.CoverAt(grid.Index(1, 2)));
+
+            WrmbFile file = WrmbFile.Parse(blob);
+            byte[] mvlc = file.SectionBytes(file.RequireSection("MVLC"));
+            byte[] mvfd = file.SectionBytes(file.RequireSection("MVFD"));
+            Assert.Equal(Wrmb.WrmbCoverMarsh, mvlc[grid.Index(1, 0)]);
+            Assert.Equal(Wrmb.WrmbCoverMarsh, mvlc[grid.Index(1, 1)]);
+            Assert.Equal(Wrmb.WrmbCoverMarsh, mvlc[grid.Index(1, 2)]);
+            Assert.Equal(0, mvfd[0] & (1 << grid.Index(1, 0)));
+            Assert.NotEqual(0, mvfd[0] & (1 << grid.Index(1, 1)));
+            Assert.Equal(0, mvfd[0] & (1 << grid.Index(1, 2)));
+
+            MovementTables tables = MovementTables.Default();
+            Assert.Equal(0, tables.OffRoadSpeedCmPerTick(MovementClass.Wheeled, LandCover.Marsh, 0));
+            Assert.True(tables.OffRoadSpeedCmPerTick(MovementClass.Wheeled, LandCover.Ford, 0) > 0);
+
+            byte[] roads = new RoadGraphBuilder().AddNode(1, 5000, 15000).ToBlob();
+            MovementService svc = MovementService.Create(roads, blob, tables);
+            PathResult acrossFord = svc.PathOffRoad(5000, 15000, 25000, 15000, MovementClass.Wheeled);
+            PathResult fromMarsh = svc.PathOffRoad(15000, 5000, 25000, 5000, MovementClass.Wheeled);
+            Assert.True(acrossFord.Reachable);
+            Assert.False(fromMarsh.Reachable);
+        }
+
+        [Fact]
         public void Terrain_WrmbCoverCodes_MapToSimEnums()
         {
             Assert.Equal((byte)LandCover.Water, Wrmb.MapLandCover(0));
