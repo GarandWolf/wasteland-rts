@@ -182,9 +182,6 @@ namespace Wasteland.Sim.World
                     case CommandKind.Move:
                         ApplyMove(command);
                         break;
-                    case CommandKind.Build:
-                        ApplyBuildStub(command);
-                        break;
                     default:
                         Emit(SimEventKind.CommandRejected, command.BattalionId, (int)CommandRejectReason.UnknownKind);
                         break;
@@ -246,16 +243,6 @@ namespace Wasteland.Sim.World
             RebuildUnitIndex();
 
             Emit(SimEventKind.BattalionSpawned, command.BattalionId, command.IssuerId);
-        }
-
-        /// <summary>
-        /// M1 stub: accept depot/building commands so the AI can issue
-        /// <see cref="CommandKind.Build"/> through the same queue. No sim
-        /// building state yet — Lead Engineer sign-off to wire real supply.
-        /// </summary>
-        private void ApplyBuildStub(SimCommand command)
-        {
-            Emit(SimEventKind.BuildAccepted, command.IssuerId, command.Arg2);
         }
 
         private void ApplyMove(SimCommand command)

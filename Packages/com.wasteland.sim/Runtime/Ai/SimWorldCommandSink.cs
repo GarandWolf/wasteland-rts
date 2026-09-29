@@ -5,8 +5,11 @@ using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
 {
-    /// <summary>Adapter: AI orders go through <see cref="SimWorld.Submit"/> only.</summary>
-    public sealed class SimWorldCommandSink : ISimCommandSink, ISimWorldView
+    /// <summary>
+    /// Adapter: spawn/move go through <see cref="SimWorld.Submit"/>. Build is
+    /// accepted here so SimWorld does not stub buildings.
+    /// </summary>
+    public sealed class SimWorldCommandSink : ISimCommandSink, ISimWorldView, ICaptureOccupancyView
     {
         private readonly SimWorld _world;
 
@@ -32,6 +35,11 @@ namespace Wasteland.Sim.Ai
 
         public SimCommand Submit(SimCommand command)
         {
+            if (command.Kind == CommandKind.Build)
+            {
+                return command;
+            }
+
             return _world.Submit(command);
         }
 
@@ -64,7 +72,7 @@ namespace Wasteland.Sim.Ai
             into.Clear();
         }
 
-        public void CopyAllBattalions(List<SimBattalion> into)
+        public void CopyOccupancyBattalions(List<SimBattalion> into)
         {
             if (into == null)
             {

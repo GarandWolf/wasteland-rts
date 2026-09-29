@@ -17,6 +17,9 @@ namespace Wasteland.Sim.Ai
     {
         private readonly ISimCommandSink _commands;
         private readonly ISimWorldView _world;
+        private readonly ICaptureOccupancyView _occupancy;
+        private readonly IAiEconomy _economy;
+        private readonly IAiHomeSeeder _homes;
         private readonly AiBalanceTables _balance;
         private readonly AiMapSnapshot _map;
         private readonly AiOwnedState _owned;
@@ -46,6 +49,7 @@ namespace Wasteland.Sim.Ai
         private EnemyAi(
             ISimCommandSink commands,
             ISimWorldView world,
+            ICaptureOccupancyView occupancy,
             AiBalanceTables balance,
             AiMapSnapshot map,
             AiOwnedState owned,
@@ -54,16 +58,20 @@ namespace Wasteland.Sim.Ai
         {
             _commands = commands;
             _world = world;
+            _occupancy = occupancy;
             _balance = balance;
             _map = map;
             _owned = owned;
+            _economy = new AiEconomyStub(map, owned);
+            _homes = new AiHomeSeeder();
             _difficulty = difficulty;
             _matchSeed = matchSeed;
             _personalityJsonHash = balance.PersonalityJsonHash;
             _difficultyJsonHash = balance.DifficultyJsonHash;
             _commandDelayTicks = commands.CommandDelayTicks;
             _adjacencyHash = HashAdjacency(map.Adjacency);
-            SeedHomes();
+            _homes.Seed(_owned, _map);
+            _homesSeeded = true;
         }
 
         public ISimCommandSink Commands
@@ -145,6 +153,13 @@ namespace Wasteland.Sim.Ai
                 throw new ArgumentNullException(nameof(world));
             }
 
+            if (!(world is ICaptureOccupancyView occupancy))
+            {
+                throw new ArgumentException(
+                    "World view must implement ICaptureOccupancyView until the sim owns capture zones.",
+                    nameof(world));
+            }
+
             if (match.CommandDelayTicks < 0)
             {
                 throw new ArgumentOutOfRangeException(nameof(match), "commandDelayTicks must be >= 0.");
@@ -182,6 +197,7 @@ namespace Wasteland.Sim.Ai
             return new EnemyAi(
                 commands,
                 world,
+                occupancy,
                 balance,
                 map,
                 new AiOwnedState(factions, map.TownCount),
@@ -293,19 +309,7 @@ namespace Wasteland.Sim.Ai
 
         public int ManpowerIncomePerSecond(int factionId)
         {
-            int baseIncome = 0;
-            for (int i = 0; i < _map.TownCount; i++)
-            {
-                if (_owned.TownOwnerAt(i) != factionId)
-                {
-                    continue;
-                }
-
-                baseIncome += AiMapSnapshot.IncomePerSecondForClass(_map.TownAt(i).PopulationClass);
-            }
-
-            AiFactionState faction = _owned.GetFaction(factionId);
-            return ApplyEconomyBonus(baseIncome, faction.EconomyBonusPpt);
+            return _economy.IncomePerSecond(factionId);
         }
 
         public int ManpowerReserveOf(int factionId)
@@ -452,81 +456,14 @@ namespace Wasteland.Sim.Ai
             return false;
         }
 
-        private void SeedHomes()
-        {
-            if (_homesSeeded)
-            {
-                return;
-            }
-
-            for (int i = 0; i < _owned.FactionCount; i++)
-            {
-                AiFactionState faction = _owned.FactionAt(i);
-                int territoryId = HomeTerritoryFor(faction);
-                if (!_map.TryGetTerritory(territoryId, out AiTerritoryRecord territory))
-                {
-                    continue;
-                }
-
-                int seatIndex = _map.IndexOfTown(territory.SeatTownId);
-                if (seatIndex < 0)
-                {
-                    continue;
-                }
-
-                faction.HomeTerritoryId = territory.Id;
-                faction.HomeTownId = territory.SeatTownId;
-                faction.HqNodeId = _map.TownAt(seatIndex).RoadNodeId;
-                _owned.SetTownOwner(seatIndex, faction.FactionId);
-            }
-
-            _homesSeeded = true;
-        }
-
-        private int HomeTerritoryFor(AiFactionState faction)
-        {
-            if (faction.PersonalityId == AiConstants.PersonalityWarlord)
-            {
-                return AiConstants.RemnantHomeTerritoryId;
-            }
-
-            if (faction.PersonalityId == AiConstants.PersonalitySettler)
-            {
-                return AiConstants.CompactHomeTerritoryId;
-            }
-
-            return 0;
-        }
-
         private void AccrueIncome()
         {
-            for (int i = 0; i < _owned.FactionCount; i++)
-            {
-                AiFactionState faction = _owned.FactionAt(i);
-                int income = ManpowerIncomePerSecond(faction.FactionId);
-                faction.ManpowerCarry += income;
-                int gained = faction.ManpowerCarry / AiConstants.TickRateHz;
-                if (gained != 0)
-                {
-                    faction.Manpower += gained;
-                    faction.ManpowerCarry -= gained * AiConstants.TickRateHz;
-                }
-            }
-        }
-
-        private static int ApplyEconomyBonus(int baseIncome, int economyBonusPpt)
-        {
-            if (economyBonusPpt == 0)
-            {
-                return baseIncome;
-            }
-
-            return (int)(((long)baseIncome * (SimConfig.PptScale + economyBonusPpt)) / SimConfig.PptScale);
+            _economy.AccrueTick();
         }
 
         private void StepCaptureOccupancy()
         {
-            _world.CopyAllBattalions(_battalionScratch);
+            _occupancy.CopyOccupancyBattalions(_battalionScratch);
             for (int i = 0; i < _map.TownCount; i++)
             {
                 AiTownRecord town = _map.TownAt(i);
@@ -598,11 +535,10 @@ namespace Wasteland.Sim.Ai
         {
             int count = 0;
             long radiusSq = (long)AiConstants.CaptureZoneRadiusCm * AiConstants.CaptureZoneRadiusCm;
-            _world.CopyAllBattalions(_battalionScratch);
-            for (int i = 0; i < _battalionScratch.Count; i++)
+            _world.CopyOwnBattalionIds(factionId, _idScratch);
+            for (int i = 0; i < _idScratch.Count; i++)
             {
-                SimBattalion battalion = _battalionScratch[i];
-                if (battalion.OwnerId != factionId)
+                if (!_world.TryGetOwnBattalion(factionId, _idScratch[i], out SimBattalion battalion))
                 {
                     continue;
                 }

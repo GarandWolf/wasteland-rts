@@ -8,7 +8,7 @@ namespace Wasteland.Sim.Ai
     /// Forwards to <see cref="SimWorld.Submit"/> while recording issued
     /// commands so a headless save/load can rebuild the world by replay.
     /// </summary>
-    public sealed class LoggingCommandSink : ISimCommandSink, ISimWorldView
+    public sealed class LoggingCommandSink : ISimCommandSink, ISimWorldView, ICaptureOccupancyView
     {
         private readonly SimWorldCommandSink _inner;
         private readonly List<SimCommand> _log = new List<SimCommand>();
@@ -54,9 +54,9 @@ namespace Wasteland.Sim.Ai
             _inner.CopyVisibleEnemyBattalionIds(factionId, into);
         }
 
-        public void CopyAllBattalions(List<SimBattalion> into)
+        public void CopyOccupancyBattalions(List<SimBattalion> into)
         {
-            _inner.CopyAllBattalions(into);
+            _inner.CopyOccupancyBattalions(into);
         }
 
         public int CountOwnBattalions(int factionId)

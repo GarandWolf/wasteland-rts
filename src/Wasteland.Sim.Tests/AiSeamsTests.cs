@@ -209,6 +209,41 @@ namespace Wasteland.Sim.Tests
             host.Shutdown();
         }
 
+        [Fact]
+        public void SimWorld_RejectsBuildAsUnknownKind()
+        {
+            SimWorld world = new SimWorld(MatchConfig.Default(1UL));
+            world.Submit(SimCommand.Build(0, 1, 0, 0, AiConstants.BuildingTagDepot));
+            world.Step();
+            world.Step();
+            world.Step();
+            Assert.Single(world.Events);
+            Assert.Equal(SimEventKind.CommandRejected, world.Events[0].Kind);
+            Assert.Equal(CommandRejectReason.UnknownKind, world.Events[0].RejectReason);
+        }
+
+        [Fact]
+        public void AiCommandSink_AcceptsBuildWithoutForwardingToSimWorld()
+        {
+            SimWorld world = new SimWorld(MatchConfig.Default(1UL));
+            SimWorldCommandSink sink = new SimWorldCommandSink(world);
+            sink.Submit(SimCommand.Build(0, 1, 100, 200, AiConstants.BuildingTagDepot));
+            world.Step();
+            world.Step();
+            world.Step();
+            Assert.Empty(world.Events);
+            Assert.Equal(0, world.BattalionCount);
+        }
+
+        [Fact]
+        public void HomeSeeder_MapsLaunchPersonalities()
+        {
+            IAiHomeSeeder seeder = new AiHomeSeeder();
+            Assert.Equal(AiConstants.RemnantHomeTerritoryId, seeder.TerritoryIdFor(AiConstants.PersonalityWarlord));
+            Assert.Equal(AiConstants.CompactHomeTerritoryId, seeder.TerritoryIdFor(AiConstants.PersonalitySettler));
+            Assert.Equal(0, seeder.TerritoryIdFor(AiConstants.PersonalityRaider));
+        }
+
         private static AiMatchHost StartHost()
         {
             return AiMatchHost.Start(
