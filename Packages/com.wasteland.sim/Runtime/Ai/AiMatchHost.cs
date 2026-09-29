@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Wasteland.Sim.Commands;
-using Wasteland.Sim.Hashing;
+using Wasteland.Sim.Movement;
 using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
@@ -120,10 +120,10 @@ namespace Wasteland.Sim.Ai
 
             int[] copy = (int[])factionIds.Clone();
             SortIds(copy);
-            MatchConfig withHashes = match.WithBalanceHashes(balance.PersonalityJsonHash, balance.DifficultyJsonHash);
-            SimWorld world = new SimWorld(withHashes);
+            MatchConfig withKeys = BindKeys(match, mapBlob, balance);
+            SimWorld world = new SimWorld(withKeys);
             LoggingCommandSink sink = new LoggingCommandSink(world);
-            EnemyAi ai = EnemyAi.MatchInit(withHashes, mapBlob, copy, difficultyId, balance, sink, sink);
+            EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink);
             return new AiMatchHost(world, ai, sink, copy);
         }
 
@@ -149,10 +149,10 @@ namespace Wasteland.Sim.Ai
 
             int[] copy = (int[])factionIds.Clone();
             SortIds(copy);
-            MatchConfig withHashes = match.WithBalanceHashes(balance.PersonalityJsonHash, balance.DifficultyJsonHash);
-            SimWorld world = new SimWorld(withHashes);
+            MatchConfig withKeys = BindKeys(match, mapBlob, balance);
+            SimWorld world = new SimWorld(withKeys);
             LoggingCommandSink sink = new LoggingCommandSink(world);
-            EnemyAi ai = EnemyAi.MatchInit(withHashes, mapBlob, copy, difficultyId, balance, sink, sink);
+            EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink);
             int cursor = 0;
             while (world.Tick < tick)
             {
@@ -175,13 +175,38 @@ namespace Wasteland.Sim.Ai
             return new AiMatchHost(world, ai, sink, copy);
         }
 
+        private static MatchConfig BindKeys(MatchConfig match, byte[] mapBlob, AiBalanceTables balance)
+        {
+            if (balance.BalanceKey == 0UL)
+            {
+                throw new ArgumentException(
+                    "Balance tables must include a BalanceKey. Use AiBalanceTables.FromDirectory.",
+                    nameof(balance));
+            }
+
+            WrmbFile mapFile = WrmbFile.Parse(mapBlob);
+            ulong mapKey = MapKey.For(mapFile, AiConstants.MapKeySectionTags());
+            if (match.BalanceKey != 0UL && match.BalanceKey != balance.BalanceKey)
+            {
+                throw new ArgumentException("match.BalanceKey does not match the balance tables.", nameof(match));
+            }
+
+            if (match.MapKey != 0UL && match.MapKey != mapKey)
+            {
+                throw new ArgumentException("match.MapKey does not match the map blob.", nameof(match));
+            }
+
+            return match.WithKeys(balance.BalanceKey, mapKey);
+        }
+
         public ulong Step()
         {
             _ai.OnTick(_world.Tick);
             _world.Step();
-            ulong hash = HashWorld();
+            ulong hash = 0UL;
             if (_world.Tick % AiConstants.HashPeriodTicks == 0)
             {
+                hash = HashWorld();
                 _hashes.Add(new AiHashSample(_world.Tick, hash));
                 RecordHolds();
             }
@@ -192,7 +217,7 @@ namespace Wasteland.Sim.Ai
 
         public ulong HashWorld()
         {
-            return XxHash64.Mix(_world.HashState(), _ai.HashState());
+            return AiWorldHash.Mix(_world.HashState(), _ai.HashState());
         }
 
         public void Run(int ticks)

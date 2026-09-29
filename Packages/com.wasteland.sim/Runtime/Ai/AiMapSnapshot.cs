@@ -123,6 +123,8 @@ namespace Wasteland.Sim.Ai
     /// Map ingest for M1: towns, seats, neighbour lists, defense groups,
     /// wheeled-bypass flags, node territory ids, and stable u64 keys.
     /// v0 still builds <see cref="RoadConnectedTerritoryAdjacency"/>.
+    /// Territory and chokepoint sizes are validated through
+    /// <see cref="Wrmb.ReadTerritories"/> / <see cref="Wrmb.ReadChokepoints"/>.
     /// </summary>
     public sealed class AiMapSnapshot
     {
@@ -140,6 +142,7 @@ namespace Wasteland.Sim.Ai
         private AiMapSnapshot(
             ushort formatVersion,
             ulong contentHash,
+            ulong mapKey,
             int theDallesTownId,
             int theDallesTerritoryId,
             int goldendaleTownId,
@@ -155,6 +158,7 @@ namespace Wasteland.Sim.Ai
         {
             FormatVersion = formatVersion;
             ContentHash = contentHash;
+            MapKey = mapKey;
             TheDallesTownId = theDallesTownId;
             TheDallesTerritoryId = theDallesTerritoryId;
             GoldendaleTownId = goldendaleTownId;
@@ -172,6 +176,8 @@ namespace Wasteland.Sim.Ai
         public ushort FormatVersion { get; }
 
         public ulong ContentHash { get; }
+
+        public ulong MapKey { get; }
 
         public int TheDallesTownId { get; }
 
@@ -348,7 +354,10 @@ namespace Wasteland.Sim.Ai
 
             WrmbFile file = WrmbFile.Parse(mapBlob);
             ulong contentHash = HashBytes(file.ContentHash);
+            ulong mapKey = global::Wasteland.Sim.Movement.MapKey.For(file, AiConstants.MapKeySectionTags());
             RoadGraph roads = Wrmb.ReadRoadGraph(file);
+            Territory[] wrmbTerritories = Wrmb.ReadTerritories(file);
+            _ = Wrmb.ReadChokepoints(file);
 
             WrmbDirEntry townEntry = file.RequireSection("TOWN");
             WrmbDirEntry terrEntry = file.RequireSection("TERR");
@@ -365,6 +374,11 @@ namespace Wasteland.Sim.Ai
             if (terrEntry.ElementSize != expectedTerr)
             {
                 throw new InvalidDataException("TERR elementSize must be " + expectedTerr + ".");
+            }
+
+            if (wrmbTerritories.Length != terrEntry.Count)
+            {
+                throw new InvalidDataException("TERR record count does not match Wrmb.ReadTerritories.");
             }
 
             int[] i32p = ReadInt32Pool(file.SectionBytes(i32pEntry));
@@ -450,12 +464,19 @@ namespace Wasteland.Sim.Ai
             AiTerritoryRecord[] territories = new AiTerritoryRecord[terrEntry.Count];
             int[] territoryIds = new int[terrEntry.Count];
             int[][] neighborArrays = new int[terrEntry.Count][];
-            BlobReader terrReader = new BlobReader(file.SectionBytes(terrEntry));
+            byte[] terrBytes = file.SectionBytes(terrEntry);
+            BlobReader terrReader = new BlobReader(terrBytes);
             int previousTerrId = -1;
             for (int i = 0; i < terrEntry.Count; i++)
             {
+                terrReader.Seek(i * terrEntry.ElementSize);
                 int id = terrReader.I32();
                 int seatTownId = terrReader.I32();
+                if (id != wrmbTerritories[i].Id)
+                {
+                    throw new InvalidDataException("TERR id does not match Wrmb.ReadTerritories.");
+                }
+
                 terrReader.Skip(24);
                 int neighborOff = (int)terrReader.U32();
                 int neighborCount = (int)terrReader.U32();
@@ -515,6 +536,7 @@ namespace Wasteland.Sim.Ai
             return new AiMapSnapshot(
                 file.FileFormatVersion,
                 contentHash,
+                mapKey,
                 theDallesTownId,
                 theDallesTerritoryId,
                 goldendaleTownId,

@@ -25,8 +25,8 @@ namespace Wasteland.Sim.Ai
         private readonly AiOwnedState _owned;
         private readonly AiDifficultyProfile _difficulty;
         private readonly ulong _matchSeed;
-        private readonly ulong _personalityJsonHash;
-        private readonly ulong _difficultyJsonHash;
+        private readonly ulong _balanceKey;
+        private readonly ulong _mapKey;
         private readonly ulong _adjacencyHash;
         private readonly int _commandDelayTicks;
         private readonly List<SimBattalion> _battalionScratch = new List<SimBattalion>();
@@ -35,6 +35,7 @@ namespace Wasteland.Sim.Ai
         private readonly int[] _networkScratch = new int[32];
         private bool _shutdown;
         private bool _homesSeeded;
+        private int _strategicSliceRuns;
 
         private struct Candidate
         {
@@ -66,8 +67,8 @@ namespace Wasteland.Sim.Ai
             _homes = new AiHomeSeeder();
             _difficulty = difficulty;
             _matchSeed = matchSeed;
-            _personalityJsonHash = balance.PersonalityJsonHash;
-            _difficultyJsonHash = balance.DifficultyJsonHash;
+            _balanceKey = balance.BalanceKey;
+            _mapKey = map.MapKey;
             _commandDelayTicks = commands.CommandDelayTicks;
             _adjacencyHash = HashAdjacency(map.Adjacency);
             _homes.Seed(_owned, _map);
@@ -104,14 +105,19 @@ namespace Wasteland.Sim.Ai
             get { return _map.Adjacency; }
         }
 
-        public ulong PersonalityJsonHash
+        public ulong BalanceKey
         {
-            get { return _personalityJsonHash; }
+            get { return _balanceKey; }
         }
 
-        public ulong DifficultyJsonHash
+        public ulong MapKey
         {
-            get { return _difficultyJsonHash; }
+            get { return _mapKey; }
+        }
+
+        public int StrategicSliceRuns
+        {
+            get { return _strategicSliceRuns; }
         }
 
         public static EnemyAi MatchInit(
@@ -165,8 +171,22 @@ namespace Wasteland.Sim.Ai
                 throw new ArgumentOutOfRangeException(nameof(match), "commandDelayTicks must be >= 0.");
             }
 
+            if (commands.CommandDelayTicks != match.CommandDelayTicks)
+            {
+                throw new ArgumentException("AI command delay must equal match.CommandDelayTicks.", nameof(commands));
+            }
+
             AiDifficultyProfile difficulty = balance.GetDifficulty(difficultyId);
             AiMapSnapshot map = AiMapSnapshot.FromWrmb(mapBlob);
+            if (balance.BalanceKey != match.BalanceKey)
+            {
+                throw new ArgumentException("BalanceKey on the tables must equal match.BalanceKey.", nameof(balance));
+            }
+
+            if (map.MapKey != match.MapKey)
+            {
+                throw new ArgumentException("MapKey on the snapshot must equal match.MapKey.", nameof(mapBlob));
+            }
             AiFactionState[] factions = new AiFactionState[factionIds.Length];
             for (int i = 0; i < factionIds.Length; i++)
             {
@@ -278,8 +298,8 @@ namespace Wasteland.Sim.Ai
             XxHash64Builder hash = new XxHash64Builder();
             hash.AddULong(_matchSeed);
             hash.AddInt(_commandDelayTicks);
-            hash.AddULong(_personalityJsonHash);
-            hash.AddULong(_difficultyJsonHash);
+            hash.AddULong(_balanceKey);
+            hash.AddULong(_mapKey);
             hash.AddULong(_map.ContentHash);
             hash.AddInt(_map.TheDallesTownId);
             hash.AddInt(_map.TheDallesTerritoryId);
@@ -293,12 +313,12 @@ namespace Wasteland.Sim.Ai
 
         public byte[] Save()
         {
-            return _owned.Save();
+            return _owned.Save(_matchSeed, _balanceKey, _mapKey);
         }
 
         public void Load(byte[] blob)
         {
-            _owned.Load(blob);
+            _owned.Load(blob, _matchSeed, _balanceKey, _mapKey);
             _homesSeeded = true;
         }
 
@@ -561,6 +581,7 @@ namespace Wasteland.Sim.Ai
 
         private void RunStrategicSlice(AiFactionState faction)
         {
+            _strategicSliceRuns++;
             RebuildFrontlinePosts(faction);
             DropStaleOrders(faction);
             IssueOpeningForce(faction);
@@ -1303,7 +1324,7 @@ namespace Wasteland.Sim.Ai
         private static SimRandom SeedRng(ulong factionStream, ulong streamTag)
         {
             ulong seed = XxHash64.Mix(factionStream, streamTag);
-            return new SimRandom(seed);
+            return new SimRandom(seed, streamTag);
         }
 
         private static ulong HashAdjacency(ITerritoryAdjacency adjacency)

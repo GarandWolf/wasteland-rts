@@ -1,3 +1,4 @@
+using System;
 using Wasteland.Sim.Random;
 using Xunit;
 
@@ -54,6 +55,27 @@ namespace Wasteland.Sim.Tests
                 int value = rng.NextInt(-3, 7);
                 Assert.InRange(value, -3, 6);
             }
+        }
+
+        [Fact]
+        public void FromPersisted_RoundTripsStateAndIncrement()
+        {
+            SimRandom rng = new SimRandom(42UL, 54UL);
+            rng.NextUInt();
+            rng.NextUInt();
+            Assert.Equal((54UL << 1) | 1UL, rng.Increment);
+            Assert.Equal(rng.Increment, rng.Stream);
+
+            SimRandom restored = SimRandom.FromPersisted(rng.State, rng.Increment);
+            Assert.Equal(rng.State, restored.State);
+            Assert.Equal(rng.Increment, restored.Increment);
+            Assert.Equal(rng.NextUInt(), restored.NextUInt());
+        }
+
+        [Fact]
+        public void FromPersisted_RejectsEvenIncrement()
+        {
+            Assert.Throws<ArgumentException>(() => SimRandom.FromPersisted(1UL, 2UL));
         }
     }
 }

@@ -3,8 +3,10 @@ namespace Wasteland.Sim.Ai
     /// <summary>Enemy AI constants from the design (Appendix A / §4.2 / §7 / §8) plus M1 economy/claim pins.</summary>
     public static class AiConstants
     {
-        public const int SchemaVersion = 3;
+        public const int SchemaVersion = 1;
         public const int BalanceSchemaVersion = 1;
+        public const int DataVersion = 1;
+        public const int StateSchemaVersion = 3;
         public const int PendingCommandCapacity = 128;
         public const int TickRateHz = SimConfig.TickRateHz;
         public const int FactionPlanOffsetTicks = 3;
@@ -28,6 +30,12 @@ namespace Wasteland.Sim.Ai
         public const string KlickitatTownName = "Klickitat";
         public const string RoadConnectedAdjacencySource = "RoadConnectedV0";
         public const string MapNeighborListAdjacencySource = "MapNeighborListV1";
+        public const string MapKeyTagChok = "CHOK";
+        public const string MapKeyTagTerr = "TERR";
+        public const string MapKeyTagRnod = "RNOD";
+        public const string MapKeyTagRedg = "REDG";
+        public const string MapKeyTagBrdg = "BRDG";
+        public const string MapKeyTagTown = "TOWN";
 
         public const int RemnantHomeTerritoryId = 11;
         public const int CompactHomeTerritoryId = 6;
@@ -95,7 +103,21 @@ namespace Wasteland.Sim.Ai
         public const int OpeningClaimBattalions = 1;
         public const int UnreachableCm = int.MaxValue / 4;
 
-        public const ulong StreamAiRoot = 1UL;
+        public static string[] MapKeySectionTags()
+        {
+            return new[]
+            {
+                MapKeyTagChok,
+                MapKeyTagTerr,
+                MapKeyTagRnod,
+                MapKeyTagRedg,
+                MapKeyTagBrdg,
+                MapKeyTagTown
+            };
+        }
+
+        public const ulong StreamSimWorld = 1UL;
+        public const ulong StreamAiRoot = 6UL;
         public const ulong StreamStrategy = 2UL;
         public const ulong StreamTactical = 3UL;
         public const ulong StreamMistake = 4UL;

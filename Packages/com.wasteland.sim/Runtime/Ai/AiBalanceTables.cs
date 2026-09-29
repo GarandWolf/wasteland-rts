@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using Wasteland.Sim.Hashing;
 using Wasteland.Sim.Movement;
@@ -156,7 +157,10 @@ namespace Wasteland.Sim.Ai
         private readonly int[] _bindingFactionIds;
         private readonly string[] _bindingPersonalityIds;
 
+        private readonly ulong _balanceKey;
+
         private AiBalanceTables(
+            ulong balanceKey,
             ulong personalityJsonHash,
             ulong difficultyJsonHash,
             AiPersonalityProfile[] personalities,
@@ -164,12 +168,18 @@ namespace Wasteland.Sim.Ai
             int[] bindingFactionIds,
             string[] bindingPersonalityIds)
         {
+            _balanceKey = balanceKey;
             PersonalityJsonHash = personalityJsonHash;
             DifficultyJsonHash = difficultyJsonHash;
             _personalities = personalities;
             _difficulties = difficulties;
             _bindingFactionIds = bindingFactionIds;
             _bindingPersonalityIds = bindingPersonalityIds;
+        }
+
+        public ulong BalanceKey
+        {
+            get { return _balanceKey; }
         }
 
         public ulong PersonalityJsonHash { get; }
@@ -184,6 +194,33 @@ namespace Wasteland.Sim.Ai
         public int DifficultyCount
         {
             get { return _difficulties.Length; }
+        }
+
+        public static AiBalanceTables FromDirectory(string balanceDirectory)
+        {
+            if (balanceDirectory == null)
+            {
+                throw new ArgumentNullException(nameof(balanceDirectory));
+            }
+
+            string personalitiesPath = Path.Combine(balanceDirectory, "ai", "ai_personalities.json");
+            string difficultyPath = Path.Combine(balanceDirectory, "ai", "ai_difficulty.json");
+            AiBalanceTables tables = Parse(
+                File.ReadAllText(personalitiesPath),
+                File.ReadAllText(difficultyPath));
+            return tables.WithBalanceKey(global::Wasteland.Sim.Movement.BalanceKey.For(balanceDirectory));
+        }
+
+        public AiBalanceTables WithBalanceKey(ulong balanceKey)
+        {
+            return new AiBalanceTables(
+                balanceKey,
+                PersonalityJsonHash,
+                DifficultyJsonHash,
+                _personalities,
+                _difficulties,
+                _bindingFactionIds,
+                _bindingPersonalityIds);
         }
 
         public static ulong HashUtf8(string text)
@@ -216,9 +253,19 @@ namespace Wasteland.Sim.Ai
                 throw new FormatException("Unsupported ai_personalities.json schema.");
             }
 
+            if (JsonUtil.Int32(JsonUtil.Field(personalityRoot, "dataVersion"), "dataVersion") != AiConstants.DataVersion)
+            {
+                throw new FormatException("ai_personalities.json dataVersion is required and must be " + AiConstants.DataVersion + ".");
+            }
+
             if (JsonUtil.Int32(JsonUtil.Field(difficultyRoot, "schemaVersion"), "schemaVersion") != AiConstants.BalanceSchemaVersion)
             {
                 throw new FormatException("Unsupported ai_difficulty.json schema.");
+            }
+
+            if (JsonUtil.Int32(JsonUtil.Field(difficultyRoot, "dataVersion"), "dataVersion") != AiConstants.DataVersion)
+            {
+                throw new FormatException("ai_difficulty.json dataVersion is required and must be " + AiConstants.DataVersion + ".");
             }
 
             JsonValue personalityArray = JsonUtil.Field(personalityRoot, "personalities");
@@ -234,6 +281,7 @@ namespace Wasteland.Sim.Ai
             }
 
             SortPersonalities(personalities);
+            RequireUniquePersonalityIds(personalities);
 
             JsonValue difficultyArray = JsonUtil.Field(difficultyRoot, "difficulties");
             if (difficultyArray.Kind != JsonKind.Array || difficultyArray.ArrayValue.Count < 1)
@@ -248,6 +296,7 @@ namespace Wasteland.Sim.Ai
             }
 
             SortDifficulties(difficulties);
+            RequireUniqueDifficultyIds(difficulties);
 
             JsonValue bindings = JsonUtil.Field(personalityRoot, "factionBindings");
             if (bindings.Kind != JsonKind.Array)
@@ -265,8 +314,11 @@ namespace Wasteland.Sim.Ai
             }
 
             SortBindings(bindingFactionIds, bindingPersonalityIds);
+            RequireUniqueBindingFactionIds(bindingFactionIds);
+            RequireBindingsReferencePersonalities(bindingPersonalityIds, personalities);
 
             return new AiBalanceTables(
+                0UL,
                 HashUtf8(personalitiesJson),
                 HashUtf8(difficultyJson),
                 personalities,
@@ -346,6 +398,12 @@ namespace Wasteland.Sim.Ai
                 throw new FormatException("defaultPosture must be 0..3.");
             }
 
+            int minGarrison = JsonUtil.Int32(JsonUtil.Field(row, "minGarrisonPerTown"), "minGarrisonPerTown");
+            if (minGarrison < 0)
+            {
+                throw new FormatException("minGarrisonPerTown must be >= 0.");
+            }
+
             return new AiPersonalityProfile(
                 id,
                 stub,
@@ -369,7 +427,7 @@ namespace Wasteland.Sim.Ai
                 JsonUtil.Int32(JsonUtil.Field(row, "SiegeAssaultRatioPpt"), "SiegeAssaultRatioPpt"),
                 JsonUtil.Int32(JsonUtil.Field(row, "RetreatThresholdPpt"), "RetreatThresholdPpt"),
                 JsonUtil.Int32(JsonUtil.Field(row, "PostureSwitchMarginPpt"), "PostureSwitchMarginPpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "minGarrisonPerTown"), "minGarrisonPerTown"),
+                minGarrison,
                 JsonUtil.Int32(JsonUtil.Field(row, "taskForceTargetSize"), "taskForceTargetSize"),
                 (AiPosture)defaultPosture);
         }
@@ -388,23 +446,95 @@ namespace Wasteland.Sim.Ai
                 throw new FormatException("StrategicCadenceTicks must be >= 1.");
             }
 
+            int reaction = JsonUtil.Int32(JsonUtil.Field(row, "ReactionExtraTicks"), "ReactionExtraTicks");
+            if (reaction < 0)
+            {
+                throw new FormatException("ReactionExtraTicks must be >= 0.");
+            }
+
+            int economyBonus = JsonUtil.Int32(JsonUtil.Field(row, "EconomyBonusPpt"), "EconomyBonusPpt");
+            if (economyBonus < 0)
+            {
+                throw new FormatException("EconomyBonusPpt must be >= 0.");
+            }
+
+            int maxActiveOrders = JsonUtil.Int32(JsonUtil.Field(row, "MaxActiveOrders"), "MaxActiveOrders");
+            if (maxActiveOrders < 1)
+            {
+                throw new FormatException("MaxActiveOrders must be >= 1.");
+            }
+
             return new AiDifficultyProfile(
                 JsonUtil.String(JsonUtil.Field(row, "id"), "id"),
-                JsonUtil.Int32(JsonUtil.Field(row, "ReactionExtraTicks"), "ReactionExtraTicks"),
+                reaction,
                 cadence,
                 JsonUtil.Int32(JsonUtil.Field(row, "AggressionMulPpt"), "AggressionMulPpt"),
                 JsonUtil.Int32(JsonUtil.Field(row, "ScoutCadenceTicks"), "ScoutCadenceTicks"),
                 fogCheat,
                 JsonUtil.Int32(JsonUtil.Field(row, "MemoryDecayPerCadencePpt"), "MemoryDecayPerCadencePpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "EconomyBonusPpt"), "EconomyBonusPpt"),
+                economyBonus,
                 JsonUtil.Int32(JsonUtil.Field(row, "BuildSpeedBonusPpt"), "BuildSpeedBonusPpt"),
                 JsonUtil.Int32(JsonUtil.Field(row, "VisionRadiusBonusCm"), "VisionRadiusBonusCm"),
                 JsonUtil.Int32(JsonUtil.Field(row, "MicroQuality"), "MicroQuality"),
                 JsonUtil.Int32(JsonUtil.Field(row, "MistakeRatePpt"), "MistakeRatePpt"),
                 JsonUtil.Int32(JsonUtil.Field(row, "RetreatThresholdMulPpt"), "RetreatThresholdMulPpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "MaxActiveOrders"), "MaxActiveOrders"),
+                maxActiveOrders,
                 JsonUtil.Int32(JsonUtil.Field(row, "MaxCandidateGoals"), "MaxCandidateGoals"),
                 JsonUtil.Int32(JsonUtil.Field(row, "manpowerReserveSeconds"), "manpowerReserveSeconds"));
+        }
+
+        private static void RequireUniquePersonalityIds(AiPersonalityProfile[] rows)
+        {
+            for (int i = 1; i < rows.Length; i++)
+            {
+                if (rows[i].Id == rows[i - 1].Id)
+                {
+                    throw new FormatException("Duplicate personality id '" + rows[i].Id + "'.");
+                }
+            }
+        }
+
+        private static void RequireUniqueDifficultyIds(AiDifficultyProfile[] rows)
+        {
+            for (int i = 1; i < rows.Length; i++)
+            {
+                if (rows[i].Id == rows[i - 1].Id)
+                {
+                    throw new FormatException("Duplicate difficulty id '" + rows[i].Id + "'.");
+                }
+            }
+        }
+
+        private static void RequireUniqueBindingFactionIds(int[] factionIds)
+        {
+            for (int i = 1; i < factionIds.Length; i++)
+            {
+                if (factionIds[i] == factionIds[i - 1])
+                {
+                    throw new FormatException("Duplicate factionBindings factionId " + factionIds[i] + ".");
+                }
+            }
+        }
+
+        private static void RequireBindingsReferencePersonalities(string[] personalityIds, AiPersonalityProfile[] personalities)
+        {
+            for (int i = 0; i < personalityIds.Length; i++)
+            {
+                bool found = false;
+                for (int p = 0; p < personalities.Length; p++)
+                {
+                    if (personalities[p].Id == personalityIds[i])
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    throw new FormatException("factionBindings personalityId '" + personalityIds[i] + "' is unknown.");
+                }
+            }
         }
 
         private static void SortPersonalities(AiPersonalityProfile[] rows)

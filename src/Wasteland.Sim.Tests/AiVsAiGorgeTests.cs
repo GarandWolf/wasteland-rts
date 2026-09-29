@@ -76,7 +76,7 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void DifferentDifficultyFileHash_ChangesWorldHash()
+        public void DifferentDifficultyId_ChangesWorldHash()
         {
             AiBalanceTables baseline = AiBalanceTablesTests.LoadBalance();
             AiMatchHost normal = Start(MatchSeed, AiConstants.DifficultyNormal, baseline);
@@ -89,6 +89,16 @@ namespace Wasteland.Sim.Tests
             Assert.NotEqual(normalHash, brutal.HashWorld());
             Assert.Equal(100, brutal.Ai.Difficulty.EconomyBonusPpt);
             brutal.Shutdown();
+        }
+
+        [Fact]
+        public void DifferentSeed_ProducesDifferentHashStream()
+        {
+            List<ulong> first = Run(MatchSeed, out _, out _, out AiMatchHost hostA);
+            List<ulong> other = Run(MatchSeed ^ 1UL, out _, out _, out AiMatchHost hostB);
+            Assert.NotEqual(first, other);
+            hostA.Shutdown();
+            hostB.Shutdown();
         }
 
         private static List<ulong> Run(ulong seed, out List<string> logs, out int theDallesTownId, out AiMatchHost host)

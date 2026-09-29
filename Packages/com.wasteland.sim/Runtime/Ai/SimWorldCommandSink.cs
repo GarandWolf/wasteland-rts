@@ -35,6 +35,11 @@ namespace Wasteland.Sim.Ai
 
         public SimCommand Submit(SimCommand command)
         {
+            if (command.IssuedTick != Tick)
+            {
+                command = command.WithIssuedTick(Tick);
+            }
+
             if (command.Kind == CommandKind.Build)
             {
                 return command;

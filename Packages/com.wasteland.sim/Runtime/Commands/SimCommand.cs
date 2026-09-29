@@ -65,6 +65,11 @@ namespace Wasteland.Sim.Commands
             return new SimCommand(issuedTick, issuerId, 0, CommandKind.Build, xCm, yCm, buildingTag);
         }
 
+        public SimCommand WithIssuedTick(int issuedTick)
+        {
+            return new SimCommand(issuedTick, IssuerId, BattalionId, Kind, Arg0, Arg1, Arg2, ExecuteTick, Sequence);
+        }
+
         public SimCommand WithSchedule(int executeTick, int sequence)
         {
             return new SimCommand(IssuedTick, IssuerId, BattalionId, Kind, Arg0, Arg1, Arg2, executeTick, sequence);
