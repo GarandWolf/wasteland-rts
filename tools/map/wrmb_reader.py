@@ -94,8 +94,8 @@ RAW = {"MVSL": ("uint16 LE per-mille slope, 1800x1800, row 0 = south, index y*w+
        "MVLC": ("uint8 land-cover code (see META provenance / docs/map/wrmb-layout-v0.md), 1800x1800", 1),
        "MVFD": ("OSM ford flag bitset (bit i = byte i>>3, bit i&7), 1800x1800", 1),
        "MVEL": ("uint16 LE elevation: elevationCm = META.elevOffsetCm + value * META.elevUnitCm (10 = decimetres), 1800x1800", 2),
-       "WTRA": ("art-only water marks (v1.2, NOT a sim/path input): u32 version=1, u32 width, u32 height, u32 fordCount, u8[w*h] codes "
-                "(0 land, 1 blocking water == MVLC 6, 2 fordable water, 3 ford), zero pad to 8, fordCount x {u32 cellIndex, u8 osmType "
+       "WTRA": ("art-only water marks (v1.2, NOT a sim/path input): u32 version (1 or 2), u32 width, u32 height, u32 fordCount, u8[w*h] codes "
+                "(0 land, 1 blocking water == MVLC 6, 2 fordable water, 3 ford, v2: 4 wetland), zero pad to 8, fordCount x {u32 cellIndex, u8 osmType "
                 "(0 none, 1 node, 2 way, 3 relation), pad3, u64 osmId}", 1)}
 ORDER = ["META", "SRCS", "GRID", "TOWN", "TDBG", "TERR", "RNOD", "REDG", "CHOK", "RIVR", "BRDG", "WATR", "WRNG", "MSET", "RSRC", "CELL",
          "CELX", "MVSL", "MVLC", "MVFD", "MVEL", "WTRA", "I32P", "PTSP", "STRP"]
@@ -104,13 +104,15 @@ MAIN_SECTIONS = ["META", "SRCS", "GRID", "TOWN", "TERR", "RNOD", "REDG", "CHOK",
 TERRAIN_SECTIONS = ["META", "SRCS", "GRID"] + TERRAIN_PAYLOAD
 # v1.2 optional terrain section WTRA (art-only water marks + ford list): self-describing, no GRID descriptor, NOT part of
 # terrainPayloadSha256; sims skip it (unknown tag). Absent in v0 / v1.0 / v1.1 files.
-WTRA_VERSION = 1
-WTRA_CODES = {0: "land", 1: "blocking_water", 2: "fordable_water", 3: "ford"}
+WTRA_VERSION = 2           # written by default. 1 = merged final v1 files (codes 0..3); 2 = v1.4 marsh follow-up (adds code 4 wetland + the MVLC match check). Both decode.
+WTRA_VERSIONS = (1, 2)
+WTRA_CODES = {0: "land", 1: "blocking_water", 2: "fordable_water", 3: "ford", 4: "wetland"}
+WTRA_MAX_CODE = {1: 3, 2: 4}
 WTRA_OSM_TYPE = {0: "", 1: "n", 2: "w", 3: "r"}
-def encode_wtra(width, height, codes, fords):
+def encode_wtra(width, height, codes, fords, version=WTRA_VERSION):
     """codes: bytes (w*h, row 0 = south); fords: [{"cellIndex", "osmType" ('n'/'w'/'r'/''), "osmId"}] sorted by cellIndex."""
     inv = {v: k for k, v in WTRA_OSM_TYPE.items()}
-    out = bytearray(struct.pack("<IIII", WTRA_VERSION, width, height, len(fords))) + bytes(codes)
+    out = bytearray(struct.pack("<IIII", version, width, height, len(fords))) + bytes(codes)
     out += b"\0" * ((-len(out)) % 8)
     for f in fords: out += struct.pack("<IB3xQ", f["cellIndex"], inv[f["osmType"]], f["osmId"])
     return bytes(out)
@@ -118,7 +120,7 @@ def decode_wtra(buf):
     """-> {"version", "width", "height", "codes": bytes, "fords": [{"cellIndex", "osmType", "osmId"}]}; raises BlobError."""
     if len(buf) < 16: raise BlobError("WTRA shorter than its header")
     ver, w, h, n = struct.unpack_from("<IIII", buf, 0)
-    if ver != WTRA_VERSION: raise BlobError(f"WTRA version {ver}")
+    if ver not in WTRA_VERSIONS: raise BlobError(f"WTRA version {ver}")
     o = 16 + w * h; o += (-o) % 8
     if len(buf) != o + 16 * n: raise BlobError(f"WTRA length {len(buf)} != {o + 16 * n}")
     fords = []
@@ -223,6 +225,57 @@ def cliff_check_model(main, terrain):
     ct = [c["territoryId"] for c in main["sections"]["CELX"]]
     return cliff_crossing_check(w, h, S["MVSL"], S["MVLC"], fords, heads, ct, main["sections"]["META"][0]["gridWidth"],
                                 g["cellSizeNumCm"], g["cellSizeDen"])
+_M64 = 0xFFFFFFFFFFFFFFFF
+_P1, _P2, _P3, _P4, _P5 = 0x9E3779B185EBCA87, 0xC2B2AE3D27D4EB4F, 0x165667B19E3779F9, 0x85EBCA77C2B2AE63, 0x27D4EB2F165667C5
+def xxh64(data, seed=0):
+    """Official xxHash64 (little-endian, pure Python, same result as Wasteland.Sim.Hashing.XxHash64.Hash(data, seed))."""
+    rotl = lambda v, r: ((v << r) | (v >> (64 - r))) & _M64
+    rnd = lambda a, l: (rotl((a + l * _P2) & _M64, 31) * _P1) & _M64
+    mrg = lambda a, v: ((a ^ rnd(0, v)) * _P1 + _P4) & _M64
+    n = len(data); p = 0
+    if n >= 32:
+        a1, a2, a3, a4 = (seed + _P1 + _P2) & _M64, (seed + _P2) & _M64, seed, (seed - _P1) & _M64
+        u = struct.Struct("<4Q").unpack_from
+        while p + 32 <= n:
+            l1, l2, l3, l4 = u(data, p); a1, a2, a3, a4 = rnd(a1, l1), rnd(a2, l2), rnd(a3, l3), rnd(a4, l4); p += 32
+        h = (rotl(a1, 1) + rotl(a2, 7) + rotl(a3, 12) + rotl(a4, 18)) & _M64
+        for a in (a1, a2, a3, a4): h = mrg(h, a)
+    else: h = (seed + _P5) & _M64
+    h = (h + n) & _M64
+    while p + 8 <= n:
+        h = (rotl(h ^ rnd(0, struct.unpack_from("<Q", data, p)[0]), 27) * _P1 + _P4) & _M64; p += 8
+    if p + 4 <= n:
+        h = (rotl(h ^ ((struct.unpack_from("<I", data, p)[0] * _P1) & _M64), 23) * _P2 + _P3) & _M64; p += 4
+    while p < n:
+        h = (rotl(h ^ ((data[p] * _P5) & _M64), 11) * _P1) & _M64; p += 1
+    h ^= h >> 33; h = (h * _P2) & _M64; h ^= h >> 29; h = (h * _P3) & _M64; h ^= h >> 32
+    return h
+def section_xxh64(tag, count, payload):
+    """Per-section hash for the MapKey.For cross-check (v1.4): xxHash64, seed 0, over  tag (4 ASCII bytes) | count (u32 LE, the directory
+    element count) | the section's bytes exactly as stored (no padding). Same value in C#: XxHash64.Hash(tagBytes + LE(count) + payload, 0)."""
+    return xxh64(tag.encode("ascii") + struct.pack("<I", count) + bytes(payload))
+def section_hashes(buf):
+    """{tag: {"count", "bytes", "xxh64": 16 hex digits}} for every section of a WRMB file, in directory order."""
+    out = {}
+    for i in range(struct.unpack_from("<I", buf, 16)[0]):
+        tag, _, off, ln, cnt, es, crc, _ = struct.unpack_from(DIR_FMT, buf, HEADER_SIZE + i * DIR_SIZE); tag = tag.decode()
+        out[tag] = {"count": cnt, "bytes": ln, "xxh64": f"{section_xxh64(tag, cnt, buf[off:off + ln]):016x}"}
+    return out
+def wtra_marsh_match(mvlc, wtra, mvfd):
+    """WTRA v2 match check between the art marks and the movement land cover (all cells; mvfd = ford bitset bytes):
+      fordableWaterNotMarsh      WTRA 2 (fordable water) with MVLC != 5     (ford cells, WTRA 3, are exempt from being code 5)
+      marshNotWaterFordOrWetland MVLC 5 with WTRA not in (2, 3, 4)          (every code-5 cell that is not river water or a ford must be wetland 4)
+      wetlandNotMarsh            WTRA 4 with MVLC != 5
+      wetlandOnFord              WTRA 4 on a ford cell (MVFD bit set)
+    Returns {name: count, "sample": {name: [first cell indexes]}}."""
+    n = len(mvlc); out = {k: [] for k in ("fordableWaterNotMarsh", "marshNotWaterFordOrWetland", "wetlandNotMarsh", "wetlandOnFord")}
+    for i in range(n):
+        w, c = wtra[i], mvlc[i]
+        if w == 2 and c != 5: out["fordableWaterNotMarsh"].append(i)
+        if c == 5 and w not in (2, 3, 4): out["marshNotWaterFordOrWetland"].append(i)
+        if w == 4 and c != 5: out["wetlandNotMarsh"].append(i)
+        if w == 4 and (mvfd[i >> 3] >> (i & 7)) & 1: out["wetlandOnFord"].append(i)
+    return {**{k: len(v) for k, v in out.items()}, "sample": {k: v[:20] for k, v in out.items()}}
 def water_art(model):
     """Expose the terrain file's WTRA section (None if absent, e.g. v0)."""
     b = model["sections"].get("WTRA")
@@ -458,7 +511,7 @@ def validate(model):
                 if (A["width"], A["height"]) != (M["moveWidth"], M["moveHeight"]): err("WTRA dims != META move grid")
                 elif len(lcv) == n:
                     fbit = lambda i: (fdv[i >> 3] >> (i & 7)) & 1
-                    if max(cod) > 3: err("WTRA code > 3")
+                    if max(cod) > WTRA_MAX_CODE[A["version"]]: err(f"WTRA code > {WTRA_MAX_CODE[A['version']]} (WTRA version {A['version']})")
                     blk_bad = sum(1 for i in range(n) if (cod[i] == 1) != (lcv[i] == 6))
                     if blk_bad: err(f"WTRA blocking-water cells != MVLC impassable water (code 6) at {blk_bad} cells")
                     ford_bad = sum(1 for i in range(n) if (cod[i] == 3) != bool(fbit(i)))
@@ -469,8 +522,16 @@ def validate(model):
                     if fc != sorted(set(fc)): err("WTRA ford list not strictly sorted by cellIndex")
                     if fc != [i for i in range(n) if fbit(i)]: err("WTRA ford list cells != MVFD cells")
                     if any(f["osmType"] and f["osmId"] <= 0 for f in A["fords"]): err("WTRA ford with osmType but no osmId")
-                    info["wtra"] = {"codeCounts": {WTRA_CODES[k]: cod.count(k) for k in range(4)}, "fords": len(fc),
+                    info["wtra"] = {"version": A["version"], "codeCounts": {WTRA_CODES[k]: cod.count(k) for k in range(WTRA_MAX_CODE[A["version"]] + 1)}, "fords": len(fc),
                                     "blockingEqualsMvlcWater": blk_bad == 0}
+                    if A["version"] >= 2:
+                        mm = wtra_marsh_match(lcv, cod, fdv)
+                        info["wtra"]["marshMatch"] = {k: v for k, v in mm.items() if k != "sample"}
+                        for k_, msg in (("fordableWaterNotMarsh", "WTRA fordable water (2) cells that are not MVLC code 5 (marsh)"),
+                                        ("marshNotWaterFordOrWetland", "MVLC code-5 cells that are neither WTRA fordable water (2), ford (3) nor wetland (4)"),
+                                        ("wetlandNotMarsh", "WTRA wetland (4) cells that are not MVLC code 5"),
+                                        ("wetlandOnFord", "WTRA wetland (4) cells on ford cells")):
+                            if mm[k_]: err(f"{msg}: {mm[k_]} cells, first {mm['sample'][k_][:5]}")
     info["counts"] = {t: len(v) for t, v in S.items()}
     return errs, info
 def validate_pair(main, terrain, main_name, terrain_name):
@@ -681,6 +742,7 @@ def _check_file(path, debug_json, movement_dir):
     rep["fileKind"] = ["main", "terrain"][model["sections"]["META"][0]["fileKind"]] if model["sections"]["META"][0]["fileKind"] in (0, 1) else "?"
     rt = encode({"sections": model["sections"]}, h["flags"], h["formatVersion"])
     rep["checks"]["roundTripBinaryIdentical"] = "PASS" if rt == buf else "FAIL"
+    rep["sectionXxh64"] = section_hashes(buf)      # v1.4: per-section xxHash64 (tag + count mixed in), for the Lead's MapKey.For cross-check
     dv = debug_view(model)
     if debug_json:
         dj = json.load(open(debug_json))
