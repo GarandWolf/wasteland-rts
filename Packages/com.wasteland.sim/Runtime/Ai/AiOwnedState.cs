@@ -42,6 +42,13 @@ namespace Wasteland.Sim.Ai
         public int Arg2;
     }
 
+    public enum PendingEnqueueResult : byte
+    {
+        Enqueued = 0,
+        DroppedIncoming = 1,
+        Replaced = 2
+    }
+
     /// <summary>
     /// Per-faction AI memory. Other sim systems must not read this. Stored in
     /// faction-id order, hashed, and save/loadable.
@@ -142,13 +149,14 @@ namespace Wasteland.Sim.Ai
         /// sooner <see cref="AiPendingCommand.ReadyTick"/>, then lower
         /// battalion id. Deterministic; increments <see cref="PendingDropped"/>.
         /// </summary>
-        public bool EnqueuePending(AiPendingCommand pending)
+        public PendingEnqueueResult EnqueuePending(AiPendingCommand pending, out AiPendingCommand evicted)
         {
+            evicted = default;
             if (PendingCount < Pending.Length)
             {
                 Pending[PendingCount] = pending;
                 PendingCount++;
-                return true;
+                return PendingEnqueueResult.Enqueued;
             }
 
             int worst = 0;
@@ -163,12 +171,18 @@ namespace Wasteland.Sim.Ai
             if (ComparePriority(pending, Pending[worst]) <= 0)
             {
                 PendingDropped++;
-                return false;
+                return PendingEnqueueResult.DroppedIncoming;
             }
 
+            evicted = Pending[worst];
             Pending[worst] = pending;
             PendingDropped++;
-            return true;
+            return PendingEnqueueResult.Replaced;
+        }
+
+        public bool EnqueuePending(AiPendingCommand pending)
+        {
+            return EnqueuePending(pending, out _) != PendingEnqueueResult.DroppedIncoming;
         }
 
         public static int ComparePriority(AiPendingCommand a, AiPendingCommand b)
@@ -222,6 +236,9 @@ namespace Wasteland.Sim.Ai
         private readonly int[] _townOwnerIds;
         private readonly int[] _captureFactionIds;
         private readonly int[] _captureHeldTicks;
+        private readonly int[] _captureAbsentTicks;
+
+        public int DroppedFromLog;
 
         public AiOwnedState(AiFactionState[] factions, int townCount)
         {
@@ -248,6 +265,7 @@ namespace Wasteland.Sim.Ai
             _townOwnerIds = new int[townCount];
             _captureFactionIds = new int[townCount];
             _captureHeldTicks = new int[townCount];
+            _captureAbsentTicks = new int[townCount];
         }
 
         public int FactionCount
@@ -288,6 +306,7 @@ namespace Wasteland.Sim.Ai
             _townOwnerIds[townIndex] = ownerId;
             _captureFactionIds[townIndex] = 0;
             _captureHeldTicks[townIndex] = 0;
+            _captureAbsentTicks[townIndex] = 0;
         }
 
         public int CaptureFactionAt(int townIndex)
@@ -300,10 +319,16 @@ namespace Wasteland.Sim.Ai
             return _captureHeldTicks[townIndex];
         }
 
-        public void SetCapture(int townIndex, int factionId, int heldTicks)
+        public int CaptureAbsentTicksAt(int townIndex)
+        {
+            return _captureAbsentTicks[townIndex];
+        }
+
+        public void SetCapture(int townIndex, int factionId, int heldTicks, int absentTicks)
         {
             _captureFactionIds[townIndex] = factionId;
             _captureHeldTicks[townIndex] = heldTicks;
+            _captureAbsentTicks[townIndex] = absentTicks;
         }
 
         public void HashInto(XxHash64Builder hash)
@@ -396,6 +421,7 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(_townOwnerIds[i]);
                 hash.AddInt(_captureFactionIds[i]);
                 hash.AddInt(_captureHeldTicks[i]);
+                hash.AddInt(_captureAbsentTicks[i]);
             }
         }
 
@@ -407,6 +433,7 @@ namespace Wasteland.Sim.Ai
             writer.Write(matchSeed);
             writer.Write(balanceKey);
             writer.Write(mapKey);
+            writer.Write(DroppedFromLog);
             writer.Write(_factions.Length);
             for (int i = 0; i < _factions.Length; i++)
             {
@@ -491,6 +518,7 @@ namespace Wasteland.Sim.Ai
                 writer.Write(_townOwnerIds[i]);
                 writer.Write(_captureFactionIds[i]);
                 writer.Write(_captureHeldTicks[i]);
+                writer.Write(_captureAbsentTicks[i]);
             }
 
             writer.Flush();
@@ -519,6 +547,12 @@ namespace Wasteland.Sim.Ai
                 throw new InvalidDataException("AI save header does not match current match seed/balance/map.");
             }
 
+            int droppedFromLog = reader.ReadInt32();
+            if (droppedFromLog < 0)
+            {
+                throw new InvalidDataException("AI DroppedFromLog is negative.");
+            }
+
             int count = reader.ReadInt32();
             if (count != _factions.Length)
             {
@@ -540,11 +574,22 @@ namespace Wasteland.Sim.Ai
             int[] townOwners = new int[towns];
             int[] captureFactions = new int[towns];
             int[] captureHeld = new int[towns];
+            int[] captureAbsent = new int[towns];
             for (int i = 0; i < towns; i++)
             {
                 townOwners[i] = reader.ReadInt32();
                 captureFactions[i] = reader.ReadInt32();
                 captureHeld[i] = reader.ReadInt32();
+                captureAbsent[i] = reader.ReadInt32();
+                if (captureHeld[i] < 0 || captureAbsent[i] < 0)
+                {
+                    throw new InvalidDataException("AI capture tick counts must be >= 0.");
+                }
+            }
+
+            if (reader.BaseStream.Position != reader.BaseStream.Length)
+            {
+                throw new InvalidDataException("AI save has trailing bytes.");
             }
 
             for (int i = 0; i < count; i++)
@@ -552,11 +597,13 @@ namespace Wasteland.Sim.Ai
                 CommitLoadedFaction(_factions[i], loaded[i]);
             }
 
+            DroppedFromLog = droppedFromLog;
             for (int i = 0; i < towns; i++)
             {
                 _townOwnerIds[i] = townOwners[i];
                 _captureFactionIds[i] = captureFactions[i];
                 _captureHeldTicks[i] = captureHeld[i];
+                _captureAbsentTicks[i] = captureAbsent[i];
             }
         }
 
@@ -603,6 +650,11 @@ namespace Wasteland.Sim.Ai
             loaded.PickedPostCount = reader.ReadInt32();
             loaded.PendingCount = reader.ReadInt32();
             loaded.PendingDropped = reader.ReadInt32();
+            if (loaded.PendingDropped < 0)
+            {
+                throw new InvalidDataException("AI PendingDropped is negative.");
+            }
+
             loaded.StrategyRng = ReadRng(reader);
             loaded.TacticalRng = ReadRng(reader);
             loaded.MistakeRng = ReadRng(reader);
@@ -624,7 +676,7 @@ namespace Wasteland.Sim.Ai
             {
                 AiOrder order = default;
                 order.Id = reader.ReadInt32();
-                order.Type = (AiGoalType)reader.ReadByte();
+                order.Type = ReadGoalType(reader);
                 order.TargetTownId = reader.ReadInt32();
                 order.TargetTerritoryId = reader.ReadInt32();
                 order.TargetNodeId = reader.ReadInt32();
@@ -660,7 +712,7 @@ namespace Wasteland.Sim.Ai
                 AiPendingCommand pending = default;
                 pending.ReadyTick = reader.ReadInt32();
                 pending.BattalionId = reader.ReadInt32();
-                pending.Kind = (CommandKind)reader.ReadByte();
+                pending.Kind = ReadCommandKind(reader);
                 pending.Arg0 = reader.ReadInt32();
                 pending.Arg1 = reader.ReadInt32();
                 pending.Arg2 = reader.ReadInt32();
@@ -726,6 +778,28 @@ namespace Wasteland.Sim.Ai
             }
 
             return (AiPosture)postureByte;
+        }
+
+        private static AiGoalType ReadGoalType(BinaryReader reader)
+        {
+            byte value = reader.ReadByte();
+            if (value > (byte)AiGoalType.ExpandEconomy)
+            {
+                throw new InvalidDataException("AI order type byte is out of range.");
+            }
+
+            return (AiGoalType)value;
+        }
+
+        private static CommandKind ReadCommandKind(BinaryReader reader)
+        {
+            byte value = reader.ReadByte();
+            if (value < (byte)CommandKind.SpawnBattalion || value > (byte)CommandKind.Build)
+            {
+                throw new InvalidDataException("AI pending command kind byte is out of range.");
+            }
+
+            return (CommandKind)value;
         }
 
         private sealed class LoadedFaction

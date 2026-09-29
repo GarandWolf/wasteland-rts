@@ -5,12 +5,16 @@ namespace Wasteland.Sim.Ai
 {
     /// <summary>
     /// Along-graph distances for depot pre-check and HQ/depot range.
-    /// Uses the loaded <see cref="RoadGraph"/>; does not persist node ids as
-    /// map identity.
+    /// Reuses scratch buffers; they are neither hashed nor saved.
+    /// Each search charges <see cref="AiFactionState.WorkUnitsThisTick"/>.
     /// </summary>
-    internal static class AiRoadSupply
+    internal sealed class AiRoadSupply
     {
-        public static int DistanceCm(RoadGraph graph, int fromNodeId, int toNodeId)
+        private long[] _dist = Array.Empty<long>();
+        private bool[] _seen = Array.Empty<bool>();
+        private readonly MinHeap _heap = new MinHeap(8);
+
+        public int DistanceCm(RoadGraph graph, int fromNodeId, int toNodeId, AiFactionState faction)
         {
             if (graph == null)
             {
@@ -28,10 +32,15 @@ namespace Wasteland.Sim.Ai
                 return AiConstants.UnreachableCm;
             }
 
-            return DistanceFromIndex(graph, fromIndex, toIndex);
+            return DistanceFromIndex(graph, fromIndex, toIndex, faction);
         }
 
-        public static int DistanceToNearestCm(RoadGraph graph, int fromNodeId, int[] networkNodeIds, int networkCount)
+        public int DistanceToNearestCm(
+            RoadGraph graph,
+            int fromNodeId,
+            int[] networkNodeIds,
+            int networkCount,
+            AiFactionState faction)
         {
             if (graph == null)
             {
@@ -46,7 +55,7 @@ namespace Wasteland.Sim.Ai
             int best = AiConstants.UnreachableCm;
             for (int i = 0; i < networkCount; i++)
             {
-                int d = DistanceCm(graph, fromNodeId, networkNodeIds[i]);
+                int d = DistanceCm(graph, fromNodeId, networkNodeIds[i], faction);
                 if (d < best)
                 {
                     best = d;
@@ -56,38 +65,45 @@ namespace Wasteland.Sim.Ai
             return best;
         }
 
-        public static bool ConnectedToNetwork(RoadGraph graph, int nodeId, int[] networkNodeIds, int networkCount)
+        public bool ConnectedToNetwork(
+            RoadGraph graph,
+            int fromNodeId,
+            int[] networkNodeIds,
+            int networkCount,
+            AiFactionState faction)
         {
-            return DistanceToNearestCm(graph, nodeId, networkNodeIds, networkCount) < AiConstants.UnreachableCm;
+            return DistanceToNearestCm(graph, fromNodeId, networkNodeIds, networkCount, faction)
+                < AiConstants.UnreachableCm;
         }
 
-        private static int DistanceFromIndex(RoadGraph graph, int fromIndex, int toIndex)
+        private int DistanceFromIndex(RoadGraph graph, int fromIndex, int toIndex, AiFactionState faction)
         {
             int nodeCount = graph.NodeCount;
-            long[] dist = new long[nodeCount];
-            bool[] seen = new bool[nodeCount];
+            Ensure(nodeCount);
+            faction.WorkUnitsThisTick++;
             for (int i = 0; i < nodeCount; i++)
             {
-                dist[i] = long.MaxValue / 4;
+                _dist[i] = long.MaxValue / 4;
+                _seen[i] = false;
             }
 
-            dist[fromIndex] = 0;
-            MinHeap heap = new MinHeap(nodeCount);
-            heap.Push(0, graph.GetNodeId(fromIndex), fromIndex);
-            while (heap.TryPop(out int index, out long f))
+            _heap.Clear();
+            _dist[fromIndex] = 0;
+            _heap.Push(0, graph.GetNodeId(fromIndex), fromIndex);
+            while (_heap.TryPop(out int index, out long f))
             {
-                if (seen[index])
+                if (_seen[index])
                 {
                     continue;
                 }
 
-                seen[index] = true;
+                _seen[index] = true;
                 if (index == toIndex)
                 {
-                    return dist[index] > int.MaxValue ? AiConstants.UnreachableCm : (int)dist[index];
+                    return _dist[index] > int.MaxValue ? AiConstants.UnreachableCm : (int)_dist[index];
                 }
 
-                if (f != dist[index])
+                if (f != _dist[index])
                 {
                     continue;
                 }
@@ -103,16 +119,27 @@ namespace Wasteland.Sim.Ai
                     }
 
                     int neighbor = graph.AdjNeighborIndex[e];
-                    long next = dist[index] + graph.EdgeLengthCm[edgeIndex];
-                    if (next < dist[neighbor])
+                    long next = _dist[index] + graph.EdgeLengthCm[edgeIndex];
+                    if (next < _dist[neighbor])
                     {
-                        dist[neighbor] = next;
-                        heap.Push(next, graph.GetNodeId(neighbor), neighbor);
+                        _dist[neighbor] = next;
+                        _heap.Push(next, graph.GetNodeId(neighbor), neighbor);
                     }
                 }
             }
 
             return AiConstants.UnreachableCm;
+        }
+
+        private void Ensure(int nodeCount)
+        {
+            if (_dist.Length >= nodeCount)
+            {
+                return;
+            }
+
+            _dist = new long[nodeCount];
+            _seen = new bool[nodeCount];
         }
     }
 }

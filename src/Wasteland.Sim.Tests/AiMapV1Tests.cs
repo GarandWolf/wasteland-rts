@@ -146,10 +146,12 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(100, brutal.Ai.Difficulty.EconomyBonusPpt);
             Assert.Equal(AiConstants.FogCheatNone, brutal.Ai.Difficulty.FogCheat);
 
-            int normalIncome = normal.Ai.ManpowerIncomePerSecond(AiConstants.DefaultAiFactionA);
-            int brutalIncome = brutal.Ai.ManpowerIncomePerSecond(AiConstants.DefaultAiFactionA);
+            int normalIncome = normal.Ai.ManpowerIncomePerMinute(AiConstants.DefaultAiFactionA);
+            int brutalIncome = brutal.Ai.ManpowerIncomePerMinute(AiConstants.DefaultAiFactionA);
             Assert.Equal((normalIncome * 1100) / 1000, brutalIncome);
             Assert.True(brutalIncome > normalIncome);
+            Assert.Equal(18, normalIncome);
+            Assert.Equal(20, normal.Ai.ManpowerIncomePerMinute(AiConstants.DefaultAiFactionB));
 
             normal.Shutdown();
             brutal.Shutdown();
@@ -167,7 +169,7 @@ namespace Wasteland.Sim.Tests
             host.Run(120);
 
             AiFactionState remnant = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA);
-            Assert.True(host.Ai.OwnsTerritory(remnant.FactionId, AiConstants.RemnantHomeTerritoryId));
+            Assert.True(host.Ai.OwnsTerritory(remnant.FactionId, AiHomeSeeder.RemnantHomeTerritoryId));
             Assert.False(host.Ai.OwnsTerritory(remnant.FactionId, AiConstants.WhiteSalmonTerritoryId));
             for (int i = 0; i < remnant.DepotCount; i++)
             {

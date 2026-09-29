@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Commands;
@@ -26,9 +27,40 @@ namespace Wasteland.Sim.Tests
             Assert.Contains("theDallesTown=14", logsA[0]);
             Assert.True(hostA.Ai.Map.UsesMapNeighborLists);
             Assert.Equal(AiMapV1Tests.ExpectedWheeledBlockedChokepoints, hostA.Ai.Map.WheeledBlockedCount);
+            AssertDallesUnownedBecauseContested(hostA);
 
             hostA.Shutdown();
             hostB.Shutdown();
+        }
+
+        [Fact]
+        public void MarshHoldTable_AtTwoThousandTickMarks()
+        {
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
+            host.Run(AiConstants.M1DeterminismTicks);
+            int[] marks = { 0, 2000, 4000, 6000, 8000, 10000 };
+            for (int m = 0; m < marks.Length; m++)
+            {
+                int tick = marks[m];
+                AiTownHoldSample remnant = FindHold(host.HoldSamples, tick, AiConstants.DefaultAiFactionA);
+                AiTownHoldSample compact = FindHold(host.HoldSamples, tick, AiConstants.DefaultAiFactionB);
+                Assert.Equal(tick, remnant.Tick);
+                Assert.Equal(tick, compact.Tick);
+                Assert.Equal(remnant.TheDallesOwnerId, compact.TheDallesOwnerId);
+                Console.WriteLine(
+                    "t=" + tick
+                    + " remnant towns=" + remnant.TownsHeld
+                    + " battalions=" + remnant.Battalions
+                    + " manpower=" + remnant.Manpower
+                    + " depots=" + remnant.Depots
+                    + " | compact towns=" + compact.TownsHeld
+                    + " battalions=" + compact.Battalions
+                    + " manpower=" + compact.Manpower
+                    + " depots=" + compact.Depots
+                    + " | dallesOwner=" + remnant.TheDallesOwnerId);
+            }
+
+            host.Shutdown();
         }
 
         [Fact]
@@ -172,6 +204,36 @@ namespace Wasteland.Sim.Tests
             {
                 Assert.True(ticks.Contains(tick), "missing headless log at tick " + tick);
             }
+        }
+
+        private static void AssertDallesUnownedBecauseContested(AiMatchHost host)
+        {
+            Assert.Equal(0, host.Ai.TheDallesOwnerId());
+            int index = host.Ai.Map.IndexOfTown(host.Ai.Map.TheDallesTownId);
+            AiTownRecord dalles = host.Ai.Map.TownAt(index);
+            int radius = host.Ai.Balance.CaptureRadiusCmForClass(dalles.PopulationClass);
+            CaptureZoneOccupancyResult zone = ((LoggingCommandSink)host.Ai.Commands).OccupancyOf(
+                dalles.XCm,
+                dalles.YCm,
+                radius);
+            Assert.True(host.Ai.Map.Adjacency.AreNeighbors(AiHomeSeeder.RemnantHomeTerritoryId, host.Ai.Map.TheDallesTerritoryId));
+            Assert.True(host.Ai.Map.Adjacency.AreNeighbors(AiHomeSeeder.CompactHomeTerritoryId, host.Ai.Map.TheDallesTerritoryId));
+            Assert.Equal(CaptureOccupancyKind.Contested, zone.Kind);
+            Assert.Equal(0, zone.FactionId);
+            Assert.Equal(0, host.Ai.Owned.TownOwnerAt(index));
+        }
+
+        private static AiTownHoldSample FindHold(IReadOnlyList<AiTownHoldSample> samples, int tick, int factionId)
+        {
+            for (int i = 0; i < samples.Count; i++)
+            {
+                if (samples[i].Tick == tick && samples[i].FactionId == factionId)
+                {
+                    return samples[i];
+                }
+            }
+
+            throw new InvalidOperationException("missing hold sample tick=" + tick + " faction=" + factionId);
         }
     }
 }

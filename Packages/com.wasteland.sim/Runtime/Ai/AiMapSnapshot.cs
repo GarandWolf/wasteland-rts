@@ -325,21 +325,6 @@ namespace Wasteland.Sim.Ai
             return false;
         }
 
-        public static int IncomePerSecondForClass(int populationClass)
-        {
-            if (populationClass <= 0)
-            {
-                return AiConstants.IncomeVillagePerSecond;
-            }
-
-            if (populationClass == 1)
-            {
-                return AiConstants.IncomeTownPerSecond;
-            }
-
-            return AiConstants.IncomeCityPerSecond;
-        }
-
         public static AiMapSnapshot FromWrmb(byte[] mapBlob)
         {
             if (mapBlob == null)

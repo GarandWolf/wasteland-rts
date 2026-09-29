@@ -6,7 +6,7 @@ namespace Wasteland.Sim.Ai
         public const int SchemaVersion = 1;
         public const int BalanceSchemaVersion = 1;
         public const int DataVersion = 1;
-        public const int StateSchemaVersion = 4;
+        public const int StateSchemaVersion = 5;
         public const int PendingCommandCapacity = 128;
         public const int CommandLogCapacity = 4096;
         public const int TickRateHz = SimConfig.TickRateHz;
@@ -38,9 +38,6 @@ namespace Wasteland.Sim.Ai
         public const string MapKeyTagBrdg = "BRDG";
         public const string MapKeyTagTown = "TOWN";
 
-        public const int RemnantHomeTerritoryId = 11;
-        public const int CompactHomeTerritoryId = 6;
-        public const int TheDallesTerritoryId = 4;
         public const int WhiteSalmonTerritoryId = 9;
 
         public const int MileCm = 160934;
@@ -50,16 +47,10 @@ namespace Wasteland.Sim.Ai
         public const int MaxDepotsPerNode = 1;
         public const int BuildingTagDepot = 1;
 
-        public const int CaptureZoneRadiusCm = 80000;
         public const string TierIITickNone = "none";
         public const int ClaimMarchSpeedCmPerSecond = 25000;
-        public const int BattalionManpowerCost = 20;
-        public const int IncomeVillagePerSecond = 2;
-        public const int IncomeTownPerSecond = 10;
-        public const int IncomeCityPerSecond = 20;
         public const int MinAcceptScore = 1000;
         public const int SeatAnchorBonusPpt = 1000;
-        public const int NonSeatBonusPpt = 200;
         public const int BattalionIdStride = 100000;
         public const int OpeningClaimBattalions = 1;
         public const int UnreachableCm = int.MaxValue / 4;

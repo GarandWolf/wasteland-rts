@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.Movement;
 using Wasteland.Sim.World;
@@ -172,6 +173,12 @@ namespace Wasteland.Sim.Ai
             }
 
             ai.Load(aiBlob);
+            if (ai.AnyOverflowDropped())
+            {
+                throw new InvalidDataException(
+                    "AI overflowed the command log or reaction queue; replay cannot continue.");
+            }
+
             return new AiMatchHost(world, ai, sink, copy);
         }
 

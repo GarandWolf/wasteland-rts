@@ -1,23 +1,31 @@
+using System;
+
 namespace Wasteland.Sim.Ai
 {
     /// <summary>
-    /// AI-owned manpower until the sim owns economy. Brutal bonus is
-    /// <c>base * (1000 + EconomyBonusPpt) / 1000</c>.
+    /// AI-owned manpower until the sim owns economy. Rates come from
+    /// <c>economy.json</c> as per-minute integers. Accrual is remainder-carry
+    /// on <c>incomeAccrual.intervalTicks</c>. Brutal applies
+    /// <c>EconomyBonusPpt</c> on top of the faction manpower modifier.
     /// </summary>
     public sealed class AiEconomyStub : IAiEconomy
     {
         private readonly AiMapSnapshot _map;
         private readonly AiOwnedState _owned;
+        private readonly AiBalanceTables _balance;
 
-        public AiEconomyStub(AiMapSnapshot map, AiOwnedState owned)
+        public AiEconomyStub(AiMapSnapshot map, AiOwnedState owned, AiBalanceTables balance)
         {
             _map = map;
             _owned = owned;
+            _balance = balance ?? throw new ArgumentNullException(nameof(balance));
         }
 
-        public int IncomePerSecond(int factionId)
+        public int IncomePerMinute(int factionId)
         {
-            int baseIncome = 0;
+            AiFactionState faction = _owned.GetFaction(factionId);
+            AiPersonalityProfile personality = _balance.GetPersonality(faction.PersonalityId);
+            int baseIncome = _balance.HqManpowerPerMin(personality.EconomyFactionId);
             for (int i = 0; i < _map.TownCount; i++)
             {
                 if (_owned.TownOwnerAt(i) != factionId)
@@ -25,37 +33,44 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                baseIncome += AiMapSnapshot.IncomePerSecondForClass(_map.TownAt(i).PopulationClass);
+                baseIncome += _balance.IncomePerMinForClass(_map.TownAt(i).PopulationClass);
             }
 
-            AiFactionState faction = _owned.GetFaction(factionId);
-            return ApplyEconomyBonus(baseIncome, faction.EconomyBonusPpt);
+            int modified = ApplyPpt(baseIncome, _balance.ManpowerModifierPpt(personality.EconomyFactionId));
+            return ApplyPpt(modified, SimConfig.PptScale + faction.EconomyBonusPpt);
         }
 
-        public void AccrueTick()
+        public void AccrueTick(int tick)
         {
+            int interval = _balance.AccrualIntervalTicks;
+            if (tick < 1 || interval < 1 || (tick % interval) != 0)
+            {
+                return;
+            }
+
+            int perMinute = _balance.AccrualIntervalsPerMinute;
             for (int i = 0; i < _owned.FactionCount; i++)
             {
                 AiFactionState faction = _owned.FactionAt(i);
-                int income = IncomePerSecond(faction.FactionId);
+                int income = IncomePerMinute(faction.FactionId);
                 faction.ManpowerCarry += income;
-                int gained = faction.ManpowerCarry / AiConstants.TickRateHz;
+                int gained = faction.ManpowerCarry / perMinute;
                 if (gained != 0)
                 {
                     faction.Manpower += gained;
-                    faction.ManpowerCarry -= gained * AiConstants.TickRateHz;
+                    faction.ManpowerCarry -= gained * perMinute;
                 }
             }
         }
 
-        private static int ApplyEconomyBonus(int baseIncome, int economyBonusPpt)
+        private static int ApplyPpt(int value, int ppt)
         {
-            if (economyBonusPpt == 0)
+            if (ppt == SimConfig.PptScale)
             {
-                return baseIncome;
+                return value;
             }
 
-            return (int)(((long)baseIncome * (SimConfig.PptScale + economyBonusPpt)) / SimConfig.PptScale);
+            return (int)(((long)value * ppt) / SimConfig.PptScale);
         }
     }
 }

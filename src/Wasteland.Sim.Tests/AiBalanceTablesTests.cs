@@ -11,10 +11,11 @@ namespace Wasteland.Sim.Tests
         /// Folder-wide <see cref="BalanceKey.For"/> of <c>data/balance</c> after
         /// PR #10 (units, buildings, economy, rules, balance-notes), PR #12
         /// (<c>scenario.mapFile</c> → marsh), plus AI tables with camelCase JSON
-        /// keys. FromDirectory parses <c>ai/*.json</c> and <c>rules.json</c>
-        /// <c>capture.timerTicksByTier</c>. Re-pin when those files change.
+        /// keys, score/cost fields, and economyFactionId. FromDirectory parses
+        /// <c>ai/*.json</c>, <c>rules.json</c> capture, and <c>economy.json</c>.
+        /// Re-pin when those files change.
         /// </summary>
-        public const ulong ExpectedFolderBalanceKey = 0x3A4EC90B43E6FC90UL;
+        public const ulong ExpectedFolderBalanceKey = 0x4320A897E2CECBD9UL;
 
         [Fact]
         public void LoadsPersonalitiesAndDifficulties_FromBalanceFiles()
@@ -52,6 +53,24 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(0, normal.EconomyBonusPpt);
             Assert.Equal(40, normal.StrategicCadenceTicks);
             Assert.Equal(60, normal.ManpowerReserveSeconds);
+            Assert.Equal(20, normal.BattalionManpowerCost);
+            Assert.Equal(20, brutal.BattalionManpowerCost);
+
+            AiPersonalityProfile warlordScores = tables.GetPersonality(AiConstants.PersonalityWarlord);
+            Assert.Equal(200, warlordScores.NonSeatBonusPpt);
+            Assert.Equal(200, warlordScores.BuildUpScoreBonus);
+            Assert.Equal(1800, warlordScores.DepotBaseScore);
+            Assert.Equal(400, warlordScores.AwayDepotScoreBonus);
+            Assert.Equal("remnant_command", warlordScores.EconomyFactionId);
+            Assert.Equal("homestead_compact", settler.EconomyFactionId);
+
+            Assert.True(tables.HasEconomyTable);
+            Assert.Equal(2, tables.IncomePerMinForClass(0));
+            Assert.Equal(8, tables.IncomePerMinForClass(1));
+            Assert.Equal(24, tables.IncomePerMinForClass(2));
+            Assert.Equal(48, tables.IncomePerMinForClass(3));
+            Assert.Equal(10, tables.HqManpowerPerMin("homestead_compact"));
+            Assert.Equal(1150, tables.ManpowerModifierPpt("homestead_compact"));
         }
 
         [Fact]
@@ -153,6 +172,27 @@ namespace Wasteland.Sim.Tests
                 personalities.Replace("\"reservePpt\": 80", "\"reservePpt\": -1", StringComparison.Ordinal),
                 GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")));
             Assert.Contains("reservePpt", personalityEx.Message);
+        }
+
+        [Fact]
+        public void EconomyLoader_FailsWithKeyIdWhenHqMissing()
+        {
+            AiBalanceTables tables = AiBalanceTables.Parse(
+                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json"),
+                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json"));
+            AiPersonalityProfile[] rows = new[]
+            {
+                tables.GetPersonality(AiConstants.PersonalityWarlord),
+                tables.GetPersonality(AiConstants.PersonalitySettler),
+                tables.GetPersonality(AiConstants.PersonalityRaider)
+            };
+            string economy = GoldenMapFiles.ReadRepoText("data/balance/economy.json")
+                .Replace("\"remnant_command\": {", "\"not_remnant_command\": {", StringComparison.Ordinal);
+            FormatException ex = Assert.Throws<FormatException>(() =>
+            {
+                AiBalanceTables.ParseEconomy(economy, rows, new AiBalanceTables.RulesState());
+            });
+            Assert.Contains("remnant_command", ex.Message);
         }
 
         internal static AiBalanceTables LoadBalance()

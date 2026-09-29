@@ -18,7 +18,8 @@
       "retreatThresholdMulPpt": 1200,
       "maxActiveOrders": 6,
       "maxCandidateGoals": 32,
-      "manpowerReserveSeconds": 60
+      "manpowerReserveSeconds": 60,
+      "battalionManpowerCost": 20
     },
     {
       "id": "normal",
@@ -36,7 +37,8 @@
       "retreatThresholdMulPpt": 1000,
       "maxActiveOrders": 12,
       "maxCandidateGoals": 64,
-      "manpowerReserveSeconds": 60
+      "manpowerReserveSeconds": 60,
+      "battalionManpowerCost": 20
     },
     {
       "id": "hard",
@@ -54,7 +56,8 @@
       "retreatThresholdMulPpt": 850,
       "maxActiveOrders": 12,
       "maxCandidateGoals": 64,
-      "manpowerReserveSeconds": 60
+      "manpowerReserveSeconds": 60,
+      "battalionManpowerCost": 20
     },
     {
       "id": "brutal",
@@ -72,7 +75,8 @@
       "retreatThresholdMulPpt": 750,
       "maxActiveOrders": 16,
       "maxCandidateGoals": 64,
-      "manpowerReserveSeconds": 60
+      "manpowerReserveSeconds": 60,
+      "battalionManpowerCost": 20
     }
   ]
 }

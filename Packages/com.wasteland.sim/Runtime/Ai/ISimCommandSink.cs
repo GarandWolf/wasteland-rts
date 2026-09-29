@@ -67,18 +67,19 @@ namespace Wasteland.Sim.Ai
     }
 
     /// <summary>
-    /// Manpower / income until sim economy exists.
+    /// Manpower / income until sim economy exists. Designer rates are per minute.
     /// </summary>
     public interface IAiEconomy
     {
-        int IncomePerSecond(int factionId);
+        int IncomePerMinute(int factionId);
 
-        void AccrueTick();
+        void AccrueTick(int tick);
     }
 
     /// <summary>
-    /// Starting homes are not map-authored. Personality → territory until the
-    /// sim owns spawn/HQ placement.
+    /// Starting homes are not map-authored. Personality → territory and
+    /// starting manpower until the sim owns spawn/HQ placement. Do not read
+    /// <c>rules.json</c> scenario here.
     /// </summary>
     public interface IAiHomeSeeder
     {

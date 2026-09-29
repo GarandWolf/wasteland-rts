@@ -31,6 +31,11 @@ namespace Wasteland.Sim.Ai
         public readonly int SiegeAssaultRatioPpt;
         public readonly int RetreatThresholdPpt;
         public readonly int PostureSwitchMarginPpt;
+        public readonly int NonSeatBonusPpt;
+        public readonly int BuildUpScoreBonus;
+        public readonly int DepotBaseScore;
+        public readonly int AwayDepotScoreBonus;
+        public readonly string EconomyFactionId;
         public readonly int MinGarrisonPerTown;
         public readonly int TaskForceTargetSize;
         public readonly AiPosture DefaultPosture;
@@ -58,6 +63,11 @@ namespace Wasteland.Sim.Ai
             int siegeAssaultRatioPpt,
             int retreatThresholdPpt,
             int postureSwitchMarginPpt,
+            int nonSeatBonusPpt,
+            int buildUpScoreBonus,
+            int depotBaseScore,
+            int awayDepotScoreBonus,
+            string economyFactionId,
             int minGarrisonPerTown,
             int taskForceTargetSize,
             AiPosture defaultPosture)
@@ -84,6 +94,11 @@ namespace Wasteland.Sim.Ai
             SiegeAssaultRatioPpt = siegeAssaultRatioPpt;
             RetreatThresholdPpt = retreatThresholdPpt;
             PostureSwitchMarginPpt = postureSwitchMarginPpt;
+            NonSeatBonusPpt = nonSeatBonusPpt;
+            BuildUpScoreBonus = buildUpScoreBonus;
+            DepotBaseScore = depotBaseScore;
+            AwayDepotScoreBonus = awayDepotScoreBonus;
+            EconomyFactionId = economyFactionId ?? throw new ArgumentNullException(nameof(economyFactionId));
             MinGarrisonPerTown = minGarrisonPerTown;
             TaskForceTargetSize = taskForceTargetSize;
             DefaultPosture = defaultPosture;
@@ -108,6 +123,7 @@ namespace Wasteland.Sim.Ai
         public readonly int MaxActiveOrders;
         public readonly int MaxCandidateGoals;
         public readonly int ManpowerReserveSeconds;
+        public readonly int BattalionManpowerCost;
 
         internal AiDifficultyProfile(
             string id,
@@ -125,7 +141,8 @@ namespace Wasteland.Sim.Ai
             int retreatThresholdMulPpt,
             int maxActiveOrders,
             int maxCandidateGoals,
-            int manpowerReserveSeconds)
+            int manpowerReserveSeconds,
+            int battalionManpowerCost)
         {
             Id = id;
             ReactionExtraTicks = reactionExtraTicks;
@@ -143,6 +160,7 @@ namespace Wasteland.Sim.Ai
             MaxActiveOrders = maxActiveOrders;
             MaxCandidateGoals = maxCandidateGoals;
             ManpowerReserveSeconds = manpowerReserveSeconds;
+            BattalionManpowerCost = battalionManpowerCost;
         }
     }
 
@@ -153,11 +171,12 @@ namespace Wasteland.Sim.Ai
     /// <c>schemaVersion</c> next to <c>dataVersion</c> (AI content is
     /// dataVersion 1; designer pack files are currently dataVersion 6).
     /// Parse requires <c>dataVersion</c> as an int32 — missing or non-integer
-    /// values are rejected. <see cref="FromDirectory"/> also loads
-    /// <c>rules.json</c> <c>capture.timerTicksByTier</c> (hamlet / village /
-    /// town / city). The rest of <c>rules.json</c> is not read.
-    /// </summary>
-    public sealed class AiBalanceTables
+    ///         values are rejected. <see cref="FromDirectory"/> also loads
+        /// <c>rules.json</c> <c>capture</c> (timers, zone radii, fortification,
+        /// decay) and <c>economy.json</c> holding-tier / HQ / faction manpower.
+        /// The rest of <c>rules.json</c> is not read.
+        /// </summary>
+    public sealed partial class AiBalanceTables
     {
         public const string CaptureRuleHamlet = "hamlet";
         public const string CaptureRuleVillage = "village";
@@ -170,11 +189,7 @@ namespace Wasteland.Sim.Ai
         private readonly string[] _bindingPersonalityIds;
 
         private readonly ulong _balanceKey;
-        private readonly bool _hasCaptureTable;
-        private readonly int _captureHamletTicks;
-        private readonly int _captureVillageTicks;
-        private readonly int _captureTownTicks;
-        private readonly int _captureCityTicks;
+        private readonly RulesState _rules;
 
         private AiBalanceTables(
             ulong balanceKey,
@@ -184,11 +199,7 @@ namespace Wasteland.Sim.Ai
             AiDifficultyProfile[] difficulties,
             int[] bindingFactionIds,
             string[] bindingPersonalityIds,
-            bool hasCaptureTable,
-            int captureHamletTicks,
-            int captureVillageTicks,
-            int captureTownTicks,
-            int captureCityTicks)
+            RulesState rules)
         {
             _balanceKey = balanceKey;
             PersonalityJsonHash = personalityJsonHash;
@@ -197,11 +208,7 @@ namespace Wasteland.Sim.Ai
             _difficulties = difficulties;
             _bindingFactionIds = bindingFactionIds;
             _bindingPersonalityIds = bindingPersonalityIds;
-            _hasCaptureTable = hasCaptureTable;
-            _captureHamletTicks = captureHamletTicks;
-            _captureVillageTicks = captureVillageTicks;
-            _captureTownTicks = captureTownTicks;
-            _captureCityTicks = captureCityTicks;
+            _rules = rules ?? new RulesState();
         }
 
         public ulong BalanceKey
@@ -225,7 +232,48 @@ namespace Wasteland.Sim.Ai
 
         public bool HasCaptureTable
         {
-            get { return _hasCaptureTable; }
+            get { return _rules.HasCapture; }
+        }
+
+        public bool HasEconomyTable
+        {
+            get { return _rules.HasEconomy; }
+        }
+
+        public int DecayStartsAfterTicks
+        {
+            get
+            {
+                RequireCapture();
+                return _rules.DecayStartsAfterTicks;
+            }
+        }
+
+        public int DecayTicksPerTick
+        {
+            get
+            {
+                RequireCapture();
+                return _rules.DecayTicksPerTick;
+            }
+        }
+
+        public int AccrualIntervalTicks
+        {
+            get
+            {
+                RequireEconomy();
+                return _rules.AccrualIntervalTicks;
+            }
+        }
+
+        public int AccrualIntervalsPerMinute
+        {
+            get
+            {
+                RequireEconomy();
+                return _rules.AccrualIntervalsPerMinute;
+            }
         }
 
         public static AiBalanceTables FromDirectory(string balanceDirectory)
@@ -238,29 +286,19 @@ namespace Wasteland.Sim.Ai
             string personalitiesPath = Path.Combine(balanceDirectory, "ai", "ai_personalities.json");
             string difficultyPath = Path.Combine(balanceDirectory, "ai", "ai_difficulty.json");
             string rulesPath = Path.Combine(balanceDirectory, "rules.json");
+            string economyPath = Path.Combine(balanceDirectory, "economy.json");
             AiBalanceTables tables = Parse(
                 File.ReadAllText(personalitiesPath),
                 File.ReadAllText(difficultyPath));
-            ParseCaptureRules(
-                File.ReadAllText(rulesPath),
-                out int hamletTicks,
-                out int villageTicks,
-                out int townTicks,
-                out int cityTicks);
-            return tables
-                .WithCapture(hamletTicks, villageTicks, townTicks, cityTicks)
-                .WithBalanceKey(global::Wasteland.Sim.Movement.BalanceKey.For(balanceDirectory));
+            RulesState rules = ParseCapture(File.ReadAllText(rulesPath));
+            ParseEconomy(File.ReadAllText(economyPath), tables._personalities, rules);
+            return tables.WithRules(rules).WithBalanceKey(
+                global::Wasteland.Sim.Movement.BalanceKey.For(balanceDirectory));
         }
 
         public AiBalanceTables WithBalanceKey(ulong balanceKey)
         {
-            return Clone(
-                balanceKey,
-                _hasCaptureTable,
-                _captureHamletTicks,
-                _captureVillageTicks,
-                _captureTownTicks,
-                _captureCityTicks);
+            return Clone(balanceKey, _rules);
         }
 
         public AiBalanceTables WithCapture(
@@ -274,53 +312,104 @@ namespace Wasteland.Sim.Ai
                 throw new FormatException("capture.timerTicksByTier values must be >= 1.");
             }
 
-            return Clone(
-                _balanceKey,
-                true,
-                hamletTicks,
-                villageTicks,
-                townTicks,
-                cityTicks);
+            RulesState rules = _rules.Clone();
+            rules.HasCapture = true;
+            rules.CaptureTicks[AiHoldingClass.Hamlet] = hamletTicks;
+            rules.CaptureTicks[AiHoldingClass.Village] = villageTicks;
+            rules.CaptureTicks[AiHoldingClass.Town] = townTicks;
+            rules.CaptureTicks[AiHoldingClass.City] = cityTicks;
+            return Clone(_balanceKey, rules);
+        }
+
+        internal AiBalanceTables WithRules(RulesState rules)
+        {
+            return Clone(_balanceKey, rules);
         }
 
         public int CaptureTicksForClass(int populationClass)
         {
-            if (!_hasCaptureTable)
-            {
-                throw new InvalidOperationException("Balance tables have no capture.timerTicksByTier.");
-            }
-
-            if (populationClass == 0)
-            {
-                return _captureHamletTicks;
-            }
-
-            if (populationClass == 1)
-            {
-                return _captureVillageTicks;
-            }
-
-            if (populationClass == 2)
-            {
-                return _captureTownTicks;
-            }
-
-            if (populationClass == 3)
-            {
-                return _captureCityTicks;
-            }
-
-            throw new FormatException(
-                "No capture.timerTicksByTier rule for populationClass " + populationClass + ".");
+            return CaptureTicksForClass(populationClass, 0);
         }
 
-        private AiBalanceTables Clone(
-            ulong balanceKey,
-            bool hasCaptureTable,
-            int captureHamletTicks,
-            int captureVillageTicks,
-            int captureTownTicks,
-            int captureCityTicks)
+        public int CaptureTicksForClass(int populationClass, int fortificationLevel)
+        {
+            RequireCapture();
+            string ruleId = AiHoldingClass.RuleId(populationClass);
+            int ticks = _rules.CaptureTicks[AiHoldingClass.IndexOfRuleId(ruleId)];
+            if (fortificationLevel < 0)
+            {
+                throw new FormatException("fortification level must be >= 0.");
+            }
+
+            int bonusPpt = fortificationLevel * _rules.FortPerLevelPpt;
+            if (bonusPpt > _rules.FortMaxPpt)
+            {
+                bonusPpt = _rules.FortMaxPpt;
+            }
+
+            return (int)(((long)ticks * (SimConfig.PptScale + bonusPpt)) / SimConfig.PptScale);
+        }
+
+        public int CaptureRadiusCmForClass(int populationClass)
+        {
+            RequireCapture();
+            string ruleId = AiHoldingClass.RuleId(populationClass);
+            return _rules.ZoneRadiusCm[AiHoldingClass.IndexOfRuleId(ruleId)];
+        }
+
+        public int IncomePerMinForClass(int populationClass)
+        {
+            RequireEconomy();
+            string ruleId = AiHoldingClass.RuleId(populationClass);
+            return _rules.IncomePerMin[AiHoldingClass.IndexOfRuleId(ruleId)];
+        }
+
+        public int HqManpowerPerMin(string economyFactionId)
+        {
+            return LookupEconomy(economyFactionId, _rules.HqManpowerPerMin);
+        }
+
+        public int ManpowerModifierPpt(string economyFactionId)
+        {
+            return LookupEconomy(economyFactionId, _rules.ManpowerModifierPpt);
+        }
+
+        private int LookupEconomy(string economyFactionId, int[] values)
+        {
+            RequireEconomy();
+            if (economyFactionId == null)
+            {
+                throw new ArgumentNullException(nameof(economyFactionId));
+            }
+
+            for (int i = 0; i < _rules.EconomyFactionIds.Length; i++)
+            {
+                if (_rules.EconomyFactionIds[i] == economyFactionId)
+                {
+                    return values[i];
+                }
+            }
+
+            throw new FormatException("Missing economy faction key '" + economyFactionId + "'.");
+        }
+
+        private void RequireCapture()
+        {
+            if (!_rules.HasCapture)
+            {
+                throw new InvalidOperationException("Balance tables have no rules.json capture table.");
+            }
+        }
+
+        private void RequireEconomy()
+        {
+            if (!_rules.HasEconomy)
+            {
+                throw new InvalidOperationException("Balance tables have no economy.json table.");
+            }
+        }
+
+        private AiBalanceTables Clone(ulong balanceKey, RulesState rules)
         {
             return new AiBalanceTables(
                 balanceKey,
@@ -330,11 +419,7 @@ namespace Wasteland.Sim.Ai
                 _difficulties,
                 _bindingFactionIds,
                 _bindingPersonalityIds,
-                hasCaptureTable,
-                captureHamletTicks,
-                captureVillageTicks,
-                captureTownTicks,
-                captureCityTicks);
+                rules);
         }
 
         public static ulong HashUtf8(string text)
@@ -433,11 +518,7 @@ namespace Wasteland.Sim.Ai
                 difficulties,
                 bindingFactionIds,
                 bindingPersonalityIds,
-                false,
-                0,
-                0,
-                0,
-                0);
+                new RulesState());
         }
 
         public static void ParseCaptureRules(
@@ -446,6 +527,15 @@ namespace Wasteland.Sim.Ai
             out int villageTicks,
             out int townTicks,
             out int cityTicks)
+        {
+            RulesState rules = ParseCapture(rulesJson);
+            hamletTicks = rules.CaptureTicks[AiHoldingClass.Hamlet];
+            villageTicks = rules.CaptureTicks[AiHoldingClass.Village];
+            townTicks = rules.CaptureTicks[AiHoldingClass.Town];
+            cityTicks = rules.CaptureTicks[AiHoldingClass.City];
+        }
+
+        internal static RulesState ParseCapture(string rulesJson)
         {
             if (rulesJson == null)
             {
@@ -460,11 +550,181 @@ namespace Wasteland.Sim.Ai
 
             JsonUtil.Int32(JsonUtil.Field(root, "dataVersion"), "dataVersion");
             JsonValue capture = JsonUtil.Field(root, "capture");
-            JsonValue table = JsonUtil.Field(capture, "timerTicksByTier");
-            hamletTicks = RequireTierTicks(table, CaptureRuleHamlet);
-            villageTicks = RequireTierTicks(table, CaptureRuleVillage);
-            townTicks = RequireTierTicks(table, CaptureRuleTown);
-            cityTicks = RequireTierTicks(table, CaptureRuleCity);
+            RulesState rules = new RulesState();
+            rules.HasCapture = true;
+            JsonValue timer = JsonUtil.Field(capture, "timerTicksByTier");
+            JsonValue radius = JsonUtil.Field(capture, "zoneRadiusCmByTier");
+            for (int i = 0; i < AiHoldingClass.Count; i++)
+            {
+                string ruleId = AiHoldingClass.RuleId(i);
+                rules.CaptureTicks[i] = RequireTierTicks(timer, ruleId);
+                int cm = JsonUtil.Int32(JsonUtil.Field(radius, ruleId), "zoneRadiusCmByTier." + ruleId);
+                if (cm < 1)
+                {
+                    throw new FormatException("zoneRadiusCmByTier rule '" + ruleId + "' must be >= 1.");
+                }
+
+                rules.ZoneRadiusCm[i] = cm;
+            }
+
+            rules.FortPerLevelPpt = RequireNamedPpt(capture, "fortificationTimerPerLevelPpt");
+            rules.FortMaxPpt = RequireNamedPpt(capture, "fortificationTimerMaxPpt");
+            string onContest = JsonUtil.String(JsonUtil.Field(capture, "onContest"), "onContest");
+            if (onContest != "pause")
+            {
+                throw new FormatException("onContest must be 'pause'.");
+            }
+
+            bool reset = JsonUtil.Bool(JsonUtil.Field(capture, "resetOnContest"), "resetOnContest");
+            if (reset)
+            {
+                throw new FormatException("resetOnContest must be false.");
+            }
+
+            string absent = JsonUtil.String(JsonUtil.Field(capture, "onCapturerAbsent"), "onCapturerAbsent");
+            if (absent != "pause_then_decay")
+            {
+                throw new FormatException("onCapturerAbsent must be 'pause_then_decay'.");
+            }
+
+            rules.DecayStartsAfterTicks = JsonUtil.Int32(
+                JsonUtil.Field(capture, "decayStartsAfterTicks"),
+                "decayStartsAfterTicks");
+            if (rules.DecayStartsAfterTicks < 0)
+            {
+                throw new FormatException("decayStartsAfterTicks must be >= 0.");
+            }
+
+            rules.DecayTicksPerTick = JsonUtil.Int32(
+                JsonUtil.Field(capture, "decayTicksPerTick"),
+                "decayTicksPerTick");
+            if (rules.DecayTicksPerTick < 1)
+            {
+                throw new FormatException("decayTicksPerTick must be >= 1.");
+            }
+
+            return rules;
+        }
+
+        internal static void ParseEconomy(string economyJson, AiPersonalityProfile[] personalities, RulesState rules)
+        {
+            if (economyJson == null)
+            {
+                throw new ArgumentNullException(nameof(economyJson));
+            }
+
+            JsonValue root = IntegerJsonParser.Parse(economyJson);
+            if (JsonUtil.Int32(JsonUtil.Field(root, "schemaVersion"), "schemaVersion") != AiConstants.BalanceSchemaVersion)
+            {
+                throw new FormatException("Unsupported economy.json schema.");
+            }
+
+            JsonUtil.Int32(JsonUtil.Field(root, "dataVersion"), "dataVersion");
+            JsonValue tiers = JsonUtil.Field(root, "holdingTiers");
+            if (tiers.Kind != JsonKind.Array)
+            {
+                throw new FormatException("holdingTiers must be an array.");
+            }
+
+            bool[] seen = new bool[AiHoldingClass.Count];
+            for (int i = 0; i < tiers.ArrayValue.Count; i++)
+            {
+                JsonValue row = tiers.ArrayValue[i];
+                string id = JsonUtil.String(JsonUtil.Field(row, "id"), "id");
+                int index;
+                try
+                {
+                    index = AiHoldingClass.IndexOfRuleId(id);
+                }
+                catch (FormatException)
+                {
+                    continue;
+                }
+
+                JsonValue income = JsonUtil.Field(row, "incomePerMin");
+                int manpower = JsonUtil.Int32(JsonUtil.Field(income, "manpower"), "holdingTiers." + id + ".incomePerMin.manpower");
+                if (manpower < 0)
+                {
+                    throw new FormatException("holdingTiers." + id + ".incomePerMin.manpower must be >= 0.");
+                }
+
+                rules.IncomePerMin[index] = manpower;
+                seen[index] = true;
+            }
+
+            for (int i = 0; i < seen.Length; i++)
+            {
+                if (!seen[i])
+                {
+                    throw new FormatException(
+                        "Missing holdingTiers id '" + AiHoldingClass.RuleId(i) + "'.");
+                }
+            }
+
+            JsonValue accrual = JsonUtil.Field(root, "incomeAccrual");
+            rules.AccrualIntervalTicks = JsonUtil.Int32(
+                JsonUtil.Field(accrual, "intervalTicks"),
+                "incomeAccrual.intervalTicks");
+            rules.AccrualIntervalsPerMinute = JsonUtil.Int32(
+                JsonUtil.Field(accrual, "intervalsPerMinute"),
+                "incomeAccrual.intervalsPerMinute");
+            if (rules.AccrualIntervalTicks < 1)
+            {
+                throw new FormatException("incomeAccrual.intervalTicks must be >= 1.");
+            }
+
+            if (rules.AccrualIntervalsPerMinute < 1)
+            {
+                throw new FormatException("incomeAccrual.intervalsPerMinute must be >= 1.");
+            }
+
+            JsonValue hq = JsonUtil.Field(root, "hqIncomePerMinByFaction");
+            JsonValue mods = JsonUtil.Field(root, "factionIncomeModifiersPpt");
+            string[] ids = new string[personalities.Length];
+            int[] hqManpower = new int[personalities.Length];
+            int[] modifier = new int[personalities.Length];
+            for (int i = 0; i < personalities.Length; i++)
+            {
+                string key = personalities[i].EconomyFactionId;
+                ids[i] = key;
+                JsonValue hqRow;
+                if (!JsonUtil.TryField(hq, key, out hqRow))
+                {
+                    throw new FormatException("Missing hqIncomePerMinByFaction key '" + key + "'.");
+                }
+
+                hqManpower[i] = JsonUtil.Int32(
+                    JsonUtil.Field(hqRow, "manpower"),
+                    "hqIncomePerMinByFaction." + key + ".manpower");
+                if (hqManpower[i] < 0)
+                {
+                    throw new FormatException("hqIncomePerMinByFaction." + key + ".manpower must be >= 0.");
+                }
+
+                JsonValue modRow;
+                if (!JsonUtil.TryField(mods, key, out modRow))
+                {
+                    throw new FormatException("Missing factionIncomeModifiersPpt key '" + key + "'.");
+                }
+
+                modifier[i] = RequireNamedPpt(modRow, "manpower");
+            }
+
+            rules.HasEconomy = true;
+            rules.EconomyFactionIds = ids;
+            rules.HqManpowerPerMin = hqManpower;
+            rules.ManpowerModifierPpt = modifier;
+        }
+
+        private static int RequireNamedPpt(JsonValue row, string key)
+        {
+            int value = JsonUtil.Int32(JsonUtil.Field(row, key), key);
+            if (value < 0)
+            {
+                throw new FormatException(key + " must be >= 0.");
+            }
+
+            return value;
         }
 
         public AiPersonalityProfile GetPersonality(string id)
@@ -597,6 +857,11 @@ namespace Wasteland.Sim.Ai
                 RequirePpt(row, "siegeAssaultRatioPpt"),
                 RequirePpt(row, "retreatThresholdPpt"),
                 RequirePpt(row, "postureSwitchMarginPpt"),
+                RequirePpt(row, "nonSeatBonusPpt"),
+                RequireNonNegative(row, "buildUpScoreBonus"),
+                RequireNonNegative(row, "depotBaseScore"),
+                RequireNonNegative(row, "awayDepotScoreBonus"),
+                RequireEconomyFactionId(row),
                 minGarrison,
                 JsonUtil.Int32(JsonUtil.Field(row, "taskForceTargetSize"), "taskForceTargetSize"),
                 (AiPosture)defaultPosture);
@@ -644,7 +909,41 @@ namespace Wasteland.Sim.Ai
                 RequirePpt(row, "retreatThresholdMulPpt"),
                 maxActiveOrders,
                 JsonUtil.Int32(JsonUtil.Field(row, "maxCandidateGoals"), "maxCandidateGoals"),
-                JsonUtil.Int32(JsonUtil.Field(row, "manpowerReserveSeconds"), "manpowerReserveSeconds"));
+                JsonUtil.Int32(JsonUtil.Field(row, "manpowerReserveSeconds"), "manpowerReserveSeconds"),
+                RequireManpowerCost(row));
+        }
+
+        private static int RequireManpowerCost(JsonValue row)
+        {
+            int value = JsonUtil.Int32(JsonUtil.Field(row, "battalionManpowerCost"), "battalionManpowerCost");
+            if (value < 1)
+            {
+                throw new FormatException("battalionManpowerCost must be >= 1.");
+            }
+
+            return value;
+        }
+
+        private static string RequireEconomyFactionId(JsonValue row)
+        {
+            string id = JsonUtil.String(JsonUtil.Field(row, "economyFactionId"), "economyFactionId");
+            if (id.Length < 1)
+            {
+                throw new FormatException("economyFactionId must be a non-empty string.");
+            }
+
+            return id;
+        }
+
+        private static int RequireNonNegative(JsonValue row, string key)
+        {
+            int value = JsonUtil.Int32(JsonUtil.Field(row, key), key);
+            if (value < 0)
+            {
+                throw new FormatException(key + " must be >= 0.");
+            }
+
+            return value;
         }
 
         private static int RequirePpt(JsonValue row, string key)
@@ -760,6 +1059,44 @@ namespace Wasteland.Sim.Ai
 
                 factionIds[j + 1] = factionId;
                 personalityIds[j + 1] = personalityId;
+            }
+        }
+
+        internal sealed class RulesState
+        {
+            public bool HasCapture;
+            public readonly int[] CaptureTicks = new int[AiHoldingClass.Count];
+            public readonly int[] ZoneRadiusCm = new int[AiHoldingClass.Count];
+            public int FortPerLevelPpt;
+            public int FortMaxPpt;
+            public int DecayStartsAfterTicks;
+            public int DecayTicksPerTick;
+            public bool HasEconomy;
+            public readonly int[] IncomePerMin = new int[AiHoldingClass.Count];
+            public int AccrualIntervalTicks;
+            public int AccrualIntervalsPerMinute;
+            public string[] EconomyFactionIds = Array.Empty<string>();
+            public int[] HqManpowerPerMin = Array.Empty<int>();
+            public int[] ManpowerModifierPpt = Array.Empty<int>();
+
+            public RulesState Clone()
+            {
+                RulesState copy = new RulesState();
+                copy.HasCapture = HasCapture;
+                Array.Copy(CaptureTicks, copy.CaptureTicks, CaptureTicks.Length);
+                Array.Copy(ZoneRadiusCm, copy.ZoneRadiusCm, ZoneRadiusCm.Length);
+                copy.FortPerLevelPpt = FortPerLevelPpt;
+                copy.FortMaxPpt = FortMaxPpt;
+                copy.DecayStartsAfterTicks = DecayStartsAfterTicks;
+                copy.DecayTicksPerTick = DecayTicksPerTick;
+                copy.HasEconomy = HasEconomy;
+                Array.Copy(IncomePerMin, copy.IncomePerMin, IncomePerMin.Length);
+                copy.AccrualIntervalTicks = AccrualIntervalTicks;
+                copy.AccrualIntervalsPerMinute = AccrualIntervalsPerMinute;
+                copy.EconomyFactionIds = (string[])EconomyFactionIds.Clone();
+                copy.HqManpowerPerMin = (int[])HqManpowerPerMin.Clone();
+                copy.ManpowerModifierPpt = (int[])ManpowerModifierPpt.Clone();
+                return copy;
             }
         }
     }
