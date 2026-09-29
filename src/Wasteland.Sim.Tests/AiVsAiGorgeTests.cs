@@ -147,6 +147,8 @@ namespace Wasteland.Sim.Tests
             for (int i = 0; i < logs.Count; i++)
             {
                 string line = logs[i];
+                Assert.Contains("manpower=", line);
+                Assert.Contains("tierIITick=" + AiConstants.TierIITickNone, line);
                 int eq = line.IndexOf('=');
                 int space = line.IndexOf(' ');
                 Assert.True(eq > 0 && space > eq);

@@ -41,10 +41,48 @@ namespace Wasteland.Sim.Ai
         public const int MaxDepotsPerNode = 1;
         public const int BuildingTagDepot = 1;
 
-        public const int CaptureVillageTicks = 1200;
-        public const int CaptureTownTicks = 2400;
-        public const int CaptureCityTicks = 3600;
+        /// <summary>
+        /// Neutral capture hold times in ticks (20 Hz). <c>data/balance/</c> has
+        /// no capture table; WRMB <c>populationClass</c> is 0..4. Designer
+        /// four-tier times are 30/60/120/180 s. Class 4 shares class 3.
+        /// </summary>
+        public static class CaptureHoldTicksByPopulationClass
+        {
+            public const int ClassCount = 5;
+            public const int Class0 = 30 * TickRateHz;
+            public const int Class1 = 60 * TickRateHz;
+            public const int Class2 = 120 * TickRateHz;
+            public const int Class3 = 180 * TickRateHz;
+            public const int Class4 = 180 * TickRateHz;
+
+            public static int ForClass(int populationClass)
+            {
+                if (populationClass <= 0)
+                {
+                    return Class0;
+                }
+
+                if (populationClass == 1)
+                {
+                    return Class1;
+                }
+
+                if (populationClass == 2)
+                {
+                    return Class2;
+                }
+
+                if (populationClass == 3)
+                {
+                    return Class3;
+                }
+
+                return Class4;
+            }
+        }
+
         public const int CaptureZoneRadiusCm = 80000;
+        public const string TierIITickNone = "none";
         public const int ClaimMarchSpeedCmPerSecond = 25000;
         public const int BattalionManpowerCost = 20;
         public const int IncomeVillagePerSecond = 2;

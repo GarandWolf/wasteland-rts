@@ -407,7 +407,8 @@ namespace Wasteland.Sim.Ai
                 faction.DepotCount,
                 faction.PickedPostCount,
                 _map.TheDallesTownId,
-                TheDallesOwnerId());
+                TheDallesOwnerId(),
+                AiConstants.TierIITickNone);
         }
 
         public bool TryConsumePathRequest(AiFactionState faction)
@@ -530,8 +531,8 @@ namespace Wasteland.Sim.Ai
             {
                 AiTownRecord town = _map.TownAt(i);
                 int owner = _owned.TownOwnerAt(i);
-                int occupant = OccupyingFaction(town);
-                if (occupant == 0)
+                CaptureZoneOccupancy occupancy = ClassifyTownOccupancy(town, out int occupant);
+                if (occupancy != CaptureZoneOccupancy.Unique)
                 {
                     continue;
                 }
@@ -567,9 +568,9 @@ namespace Wasteland.Sim.Ai
             }
         }
 
-        private int OccupyingFaction(AiTownRecord town)
+        private CaptureZoneOccupancy ClassifyTownOccupancy(AiTownRecord town, out int occupant)
         {
-            int found = 0;
+            occupant = 0;
             long radiusSq = (long)AiConstants.CaptureZoneRadiusCm * AiConstants.CaptureZoneRadiusCm;
             for (int i = 0; i < _battalionScratch.Count; i++)
             {
@@ -579,17 +580,18 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                if (found == 0)
+                if (occupant == 0)
                 {
-                    found = battalion.OwnerId;
+                    occupant = battalion.OwnerId;
                 }
-                else if (found != battalion.OwnerId)
+                else if (occupant != battalion.OwnerId)
                 {
-                    return 0;
+                    occupant = 0;
+                    return CaptureZoneOccupancy.Contested;
                 }
             }
 
-            return found;
+            return occupant == 0 ? CaptureZoneOccupancy.Empty : CaptureZoneOccupancy.Unique;
         }
 
         private int CountOwnBattalionsInTown(int factionId, AiTownRecord town)
@@ -1403,6 +1405,7 @@ namespace Wasteland.Sim.Ai
         public readonly int PickedPostCount;
         public readonly int TheDallesTownId;
         public readonly int TheDallesOwnerId;
+        public readonly string TierIITick;
 
         public AiHeadlessSnapshot(
             int tick,
@@ -1415,7 +1418,8 @@ namespace Wasteland.Sim.Ai
             int depotCount,
             int pickedPostCount,
             int theDallesTownId,
-            int theDallesOwnerId)
+            int theDallesOwnerId,
+            string tierIITick)
         {
             Tick = tick;
             FactionId = factionId;
@@ -1428,6 +1432,7 @@ namespace Wasteland.Sim.Ai
             PickedPostCount = pickedPostCount;
             TheDallesTownId = theDallesTownId;
             TheDallesOwnerId = theDallesOwnerId;
+            TierIITick = tierIITick ?? AiConstants.TierIITickNone;
         }
 
         public string FormatLine()
@@ -1442,7 +1447,15 @@ namespace Wasteland.Sim.Ai
                 + " depots=" + DepotCount
                 + " posts=" + PickedPostCount
                 + " theDallesTown=" + TheDallesTownId
-                + " theDallesOwner=" + TheDallesOwnerId;
+                + " theDallesOwner=" + TheDallesOwnerId
+                + " tierIITick=" + TierIITick;
         }
+    }
+
+    internal enum CaptureZoneOccupancy : byte
+    {
+        Empty = 0,
+        Unique = 1,
+        Contested = 2
     }
 }
