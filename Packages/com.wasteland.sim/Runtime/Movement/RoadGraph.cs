@@ -15,6 +15,7 @@ namespace Wasteland.Sim.Movement
         internal readonly int[] NodeXCm;
         internal readonly int[] NodeYCm;
         internal readonly ushort[] NodeFlags;
+        internal readonly ushort[] NodeTerritoryId;
         internal readonly int[] EdgeId;
         internal readonly int[] EdgeFromIndex;
         internal readonly int[] EdgeToIndex;
@@ -34,6 +35,7 @@ namespace Wasteland.Sim.Movement
             int[] nodeXCm,
             int[] nodeYCm,
             ushort[] nodeFlags,
+            ushort[] nodeTerritoryId,
             int[] edgeId,
             int[] edgeFromIndex,
             int[] edgeToIndex,
@@ -51,6 +53,7 @@ namespace Wasteland.Sim.Movement
             NodeXCm = nodeXCm;
             NodeYCm = nodeYCm;
             NodeFlags = nodeFlags;
+            NodeTerritoryId = nodeTerritoryId ?? Array.Empty<ushort>();
             EdgeId = edgeId;
             EdgeFromIndex = edgeFromIndex;
             EdgeToIndex = edgeToIndex;
@@ -109,6 +112,11 @@ namespace Wasteland.Sim.Movement
         public RoadNodeFlags GetNodeFlags(int index)
         {
             return (RoadNodeFlags)NodeFlags[index];
+        }
+
+        public ushort GetNodeTerritoryId(int index)
+        {
+            return NodeTerritoryId[index];
         }
 
         public int GetEdgeId(int index)

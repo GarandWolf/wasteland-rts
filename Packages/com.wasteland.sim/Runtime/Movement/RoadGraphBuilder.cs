@@ -69,6 +69,7 @@ namespace Wasteland.Sim.Movement
             int[] nodeX = new int[_nodes.Count];
             int[] nodeY = new int[_nodes.Count];
             ushort[] nodeFlags = new ushort[_nodes.Count];
+            ushort[] nodeTerritory = new ushort[_nodes.Count];
             for (int i = 0; i < _nodes.Count; i++)
             {
                 nodeId[i] = _nodes[i].Id;
@@ -118,6 +119,7 @@ namespace Wasteland.Sim.Movement
                 nodeX,
                 nodeY,
                 nodeFlags,
+                nodeTerritory,
                 edgeId,
                 edgeFrom,
                 edgeTo,

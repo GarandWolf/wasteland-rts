@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Text;
 using Wasteland.Sim.Movement;
 using Xunit;
 
@@ -25,9 +24,9 @@ namespace Wasteland.Sim.Tests
         [Fact]
         public void ColumbiaGorge_LoadsAndPinsPathHashes()
         {
-            string dir = FindGoldenDirectory();
-            byte[] map = ReadWrmb(Path.Combine(dir, MapFileName), MapBytes);
-            byte[] terrain = ReadWrmb(Path.Combine(dir, TerrainFileName), TerrainBytes);
+            string dir = GoldenMapFiles.FindDirectory(MapFileName);
+            byte[] map = GoldenMapFiles.ReadWrmb(Path.Combine(dir, MapFileName), MapBytes);
+            byte[] terrain = GoldenMapFiles.ReadWrmb(Path.Combine(dir, TerrainFileName), TerrainBytes);
 
             MovementService svc = MovementService.Create(map, terrain, MovementTables.Default());
             Assert.Equal(ExpectedWidth, svc.Terrain.Width);
@@ -62,69 +61,6 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(RoadFootHash, roadFoot.Hash);
             Assert.Equal(OffRoadFootHash, offFoot.Hash);
             Assert.Equal(OffRoadWheeledHash, offWheeled.Hash);
-        }
-
-        static string FindGoldenDirectory()
-        {
-            DirectoryInfo? dir = new DirectoryInfo(AppContext.BaseDirectory);
-            for (int i = 0; i < 10 && dir != null; i++)
-            {
-                string candidate = Path.Combine(dir.FullName, "data", "golden");
-                if (File.Exists(Path.Combine(candidate, MapFileName)))
-                {
-                    return candidate;
-                }
-
-                dir = dir.Parent;
-            }
-
-            string cwd = Path.Combine(Directory.GetCurrentDirectory(), "data", "golden");
-            if (File.Exists(Path.Combine(cwd, MapFileName)))
-            {
-                return cwd;
-            }
-
-            throw new InvalidOperationException(
-                "Could not find data/golden/" + MapFileName + " by walking up from the test output directory.");
-        }
-
-        static byte[] ReadWrmb(string path, int expectedLength)
-        {
-            if (!File.Exists(path))
-            {
-                throw new FileNotFoundException("Missing WRMB golden (run git lfs pull --include=\"data/golden/*.wrmb\").", path);
-            }
-
-            byte[] bytes = File.ReadAllBytes(path);
-            if (bytes.Length != expectedLength || IsLfsPointer(bytes) || !HasWrmbMagic(bytes))
-            {
-                throw new InvalidDataException(
-                    path + " is not a materialized WRMB (" + bytes.Length
-                    + " bytes). Run git lfs pull --include=\"data/golden/*.wrmb\".");
-            }
-
-            return bytes;
-        }
-
-        static bool HasWrmbMagic(byte[] bytes)
-        {
-            return bytes.Length >= 4
-                && bytes[0] == (byte)'W'
-                && bytes[1] == (byte)'R'
-                && bytes[2] == (byte)'M'
-                && bytes[3] == (byte)'B';
-        }
-
-        static bool IsLfsPointer(byte[] bytes)
-        {
-            const string prefix = "version https://git-lfs.github.com/spec/v1";
-            if (bytes.Length < prefix.Length || bytes.Length >= 1024)
-            {
-                return false;
-            }
-
-            string head = Encoding.ASCII.GetString(bytes, 0, prefix.Length);
-            return head == prefix;
         }
 
         static void FindWheeledRun(TerrainGrid terrain, int minSpan, out int x0, out int y0, out int x1, out int y1)
