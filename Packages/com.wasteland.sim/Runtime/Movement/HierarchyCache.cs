@@ -6,9 +6,11 @@ using System.Text;
 namespace Wasteland.Sim.Movement
 {
     /// <summary>
-    /// Optional on-disk cache of per-class HPA* graphs. Keyed by terrain
-    /// content hash, movement-table hash, algorithm version, cluster size,
-    /// and grid shape. Payload SHA-256 is verified on load.
+    /// Optional on-disk cache of per-class HPA* graphs. Keyed by
+    /// <c>terrainPayloadSha256</c> (MVSL|MVLC|MVFD|MVEL, not the file
+    /// <c>contentHash</c>, so config/provenance-only rebuilds stay valid),
+    /// movement-table hash, algorithm version, cluster size, and grid shape.
+    /// Payload SHA-256 is verified on load.
     /// </summary>
     internal static class HierarchyCache
     {

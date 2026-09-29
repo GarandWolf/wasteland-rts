@@ -108,7 +108,7 @@
 *.flt filter=lfs diff=lfs merge=lfs -text
 *.dem filter=lfs diff=lfs merge=lfs -text
 *.terrainlayer filter=lfs diff=lfs merge=lfs -text
-# Compiled map blobs (WRMB v0: main/AI + terrain pair)
+# Compiled map blobs (WRMB v0/v1: main/AI + terrain pair)
 *.wrmb filter=lfs diff=lfs merge=lfs -text
 
 # Compiled / native

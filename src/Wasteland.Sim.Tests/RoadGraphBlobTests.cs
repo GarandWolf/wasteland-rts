@@ -197,7 +197,7 @@ namespace Wasteland.Sim.Tests
             byte[] mvlc = file.SectionBytes(file.RequireSection("MVLC"));
             byte[] mvfd = file.SectionBytes(file.RequireSection("MVFD"));
             Assert.Equal(Wrmb.WrmbCoverWater, mvlc[0]);
-            Assert.Equal(Wrmb.WrmbCoverWater, mvlc[1]);
+            Assert.Equal(Wrmb.WrmbCoverMarsh, mvlc[1]);
             Assert.Equal(0, mvfd[0] & 1);
             Assert.Equal(2, mvfd[0] & 2);
         }
@@ -283,6 +283,101 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void FormatVersion1_WithoutV1Final_IsRejected()
+        {
+            byte[] blob = new RoadGraphBuilder().AddNode(1, 0, 0).ToBlob();
+            blob[4] = 1;
+            blob[5] = 0;
+            RecomputeContentHash(blob);
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => WrmbFile.Parse(blob));
+            Assert.Contains("V1_FINAL", ex.Message);
+        }
+
+        [Fact]
+        public void FormatVersion1_RequiresPipelineMetaSize()
+        {
+            byte[] blob = new RoadGraphBuilder().AddNode(1, 0, 0).ToBlob();
+            blob[4] = 1;
+            blob[5] = 0;
+            uint flags = ReadU32(blob, 12) | WrmbFile.FlagV1Final;
+            blob[12] = (byte)flags;
+            blob[13] = (byte)(flags >> 8);
+            blob[14] = (byte)(flags >> 16);
+            blob[15] = (byte)(flags >> 24);
+            RecomputeContentHash(blob);
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => WrmbFile.Parse(blob));
+            Assert.Contains("META", ex.Message);
+        }
+
+        [Fact]
+        public void FormatVersion1_TerrainWithoutWtra_IsRejected()
+        {
+            WrmbMetaFields meta = new WrmbMetaFields
+            {
+                MapWidthCm = 1,
+                MapHeightCm = 1,
+                CellSizeCm = 1,
+                GridWidth = 1,
+                GridHeight = 1,
+                MoveWidth = 1,
+                MoveHeight = 1,
+                MoveCellsPerCell = 1
+            };
+            byte[] blob = WrmbFile.Encode(
+                WrmbFile.FormatVersionV1,
+                WrmbFile.FlagV1Final,
+                new[]
+                {
+                    new WrmbSectionPayload("META", Wrmb.WritePipelineMeta(meta, 1), Wrmb.PipelineMetaElementSize),
+                    new WrmbSectionPayload("MVSL", new byte[2], 2),
+                    new WrmbSectionPayload("MVLC", new byte[] { Wrmb.WrmbCoverField }, 1),
+                    new WrmbSectionPayload("MVFD", new byte[1], 1)
+                });
+
+            WrmbFile file = WrmbFile.Parse(blob);
+            Assert.Equal(WrmbFile.FormatVersionV1, file.FileFormatVersion);
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => Wrmb.ReadTerrain(file));
+            Assert.Contains("WTRA", ex.Message);
+        }
+
+        [Fact]
+        public void FormatVersion1_SkipsWtraContent_AndHashesPayloadWithoutIt()
+        {
+            WrmbMetaFields meta = new WrmbMetaFields
+            {
+                MapWidthCm = 1,
+                MapHeightCm = 1,
+                CellSizeCm = 1,
+                GridWidth = 1,
+                GridHeight = 1,
+                MoveWidth = 1,
+                MoveHeight = 1,
+                MoveCellsPerCell = 1
+            };
+            byte[] slope = { 0, 0 };
+            byte[] cover = { Wrmb.WrmbCoverMarsh };
+            byte[] ford = { 0 };
+            byte[] elev = { 0, 0 };
+            byte[] wtraA = { 1, 2, 3, 4 };
+            byte[] wtraB = { 9, 9, 9, 9 };
+            byte[] a = WrmbFile.Encode(
+                WrmbFile.FormatVersionV1,
+                WrmbFile.FlagV1Final,
+                TerrainV1Sections(meta, slope, cover, ford, elev, wtraA));
+            byte[] b = WrmbFile.Encode(
+                WrmbFile.FormatVersionV1,
+                WrmbFile.FlagV1Final,
+                TerrainV1Sections(meta, slope, cover, ford, elev, wtraB));
+
+            TerrainGrid grid = Wrmb.ReadTerrain(a);
+            Assert.Equal(LandCover.Marsh, grid.CoverAt(0));
+            WrmbFile fa = WrmbFile.Parse(a);
+            WrmbFile fb = WrmbFile.Parse(b);
+            Assert.Equal(fa.TerrainPayloadSha256(), fb.TerrainPayloadSha256());
+            Assert.False(BytesEqual(fa.ContentHash, fb.ContentHash));
+        }
+
+        [Fact]
         public void TwoFiles_LoadIndependently()
         {
             byte[] map = new RoadGraphBuilder()
@@ -295,6 +390,43 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(2, svc.Graph.NodeCount);
             Assert.Equal(8941, svc.Terrain.CellSizeCm);
             Assert.Equal(RoadTier.Highway, svc.Graph.GetEdgeTier(0));
+        }
+
+        private static WrmbSectionPayload[] TerrainV1Sections(
+            WrmbMetaFields meta,
+            byte[] slope,
+            byte[] cover,
+            byte[] ford,
+            byte[] elev,
+            byte[] wtra)
+        {
+            return new[]
+            {
+                new WrmbSectionPayload("META", Wrmb.WritePipelineMeta(meta, 1), Wrmb.PipelineMetaElementSize),
+                new WrmbSectionPayload("MVSL", slope, 2),
+                new WrmbSectionPayload("MVLC", cover, 1),
+                new WrmbSectionPayload("MVFD", ford, 1),
+                new WrmbSectionPayload("MVEL", elev, 2),
+                new WrmbSectionPayload("WTRA", wtra, 1)
+            };
+        }
+
+        private static bool BytesEqual(byte[] a, byte[] b)
+        {
+            if (a.Length != b.Length)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < a.Length; i++)
+            {
+                if (a[i] != b[i])
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static WrmbMetaFields RoadMeta(int nodes, int edges)

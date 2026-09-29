@@ -8,7 +8,10 @@ namespace Wasteland.Sim.Movement
     /// <summary>
     /// Sim-facing WRMB reader/writer. Roads come from the map/AI file (RNOD/REDG);
     /// terrain comes from a separate WRMB file (META + MVSL/MVLC/MVFD). Unknown
-    /// directory tags are skipped. Layout constants live in <see cref="WrmbFile"/>.
+    /// directory tags are skipped. formatVersion 0 and 1 are accepted; v1 requires
+    /// <see cref="WrmbFile.FlagV1Final"/> and a WTRA section on terrain files
+    /// (art-only — the sim does not read its bytes). Layout constants live in
+    /// <see cref="WrmbFile"/>.
     /// </summary>
     public static class Wrmb
     {
@@ -20,6 +23,11 @@ namespace Wasteland.Sim.Movement
 
         public const int RnodElementSize = 24;
         public const int RedgElementSize = 64;
+        public const int ChokElementSizeV0 = 80;
+        public const int ChokElementSizeV1 = 88;
+        public const int TerrElementSizeV0 = 40;
+        public const int TerrElementSizeV1 = 48;
+        public const byte NoDefenseGroup = 255;
 
         public const byte WrmbCoverNodata = 0;
         public const byte WrmbCoverField = 1;
@@ -35,7 +43,16 @@ namespace Wasteland.Sim.Movement
 
         public static RoadGraph ReadRoadGraph(byte[] mapBlob)
         {
-            WrmbFile file = WrmbFile.Parse(mapBlob);
+            return ReadRoadGraph(WrmbFile.Parse(mapBlob));
+        }
+
+        public static RoadGraph ReadRoadGraph(WrmbFile file)
+        {
+            if (file == null)
+            {
+                throw new ArgumentNullException(nameof(file));
+            }
+
             WrmbDirEntry metaEntry = file.RequireSection("META");
             CheckMetaElementSize(metaEntry.ElementSize);
             if (metaEntry.Count < 1)
@@ -74,6 +91,7 @@ namespace Wasteland.Sim.Movement
             int[] nodeX = new int[nodeCount];
             int[] nodeY = new int[nodeCount];
             ushort[] nodeFlags = new ushort[nodeCount];
+            ushort[] nodeTerritory = new ushort[nodeCount];
             BlobReader nodes = new BlobReader(file.SectionBytes(rnod));
             int previousId = -1;
             bool havePrevious = false;
@@ -85,7 +103,7 @@ namespace Wasteland.Sim.Movement
                 nodes.I32();
                 byte flags = nodes.U8();
                 nodes.I8();
-                nodes.Skip(2);
+                nodeTerritory[i] = nodes.U16();
                 nodes.I32();
                 if (havePrevious && id <= previousId)
                 {
@@ -204,6 +222,7 @@ namespace Wasteland.Sim.Movement
                 nodeX,
                 nodeY,
                 nodeFlags,
+                nodeTerritory,
                 edgeId,
                 edgeFrom,
                 edgeTo,
@@ -220,7 +239,16 @@ namespace Wasteland.Sim.Movement
 
         public static TerrainGrid ReadTerrain(byte[] terrainBlob)
         {
-            WrmbFile file = WrmbFile.Parse(terrainBlob);
+            return ReadTerrain(WrmbFile.Parse(terrainBlob));
+        }
+
+        public static TerrainGrid ReadTerrain(WrmbFile file)
+        {
+            if (file == null)
+            {
+                throw new ArgumentNullException(nameof(file));
+            }
+
             WrmbDirEntry metaEntry = file.RequireSection("META");
             CheckMetaElementSize(metaEntry.ElementSize);
             if (metaEntry.Count < 1)
@@ -240,6 +268,11 @@ namespace Wasteland.Sim.Movement
             CheckElementSize("MVLC", cover.ElementSize, 1);
             WrmbDirEntry ford = file.RequireSection("MVFD");
             CheckElementSize("MVFD", ford.ElementSize, 1);
+            if (file.FileFormatVersion >= WrmbFile.FormatVersionV1)
+            {
+                WrmbDirEntry wtra = file.RequireSection("WTRA");
+                CheckElementSize("WTRA", wtra.ElementSize, 1);
+            }
 
             int width = meta.MoveWidth;
             int height = meta.MoveHeight;
@@ -423,7 +456,7 @@ namespace Wasteland.Sim.Movement
                 LandCover land = (LandCover)grid.Cover[i];
                 if (land == LandCover.Ford)
                 {
-                    cover[i] = WrmbCoverWater;
+                    cover[i] = WrmbCoverMarsh;
                     ford[i >> 3] |= (byte)(1 << (i & 7));
                 }
                 else
@@ -512,7 +545,7 @@ namespace Wasteland.Sim.Movement
                 case LandCover.Water:
                     return WrmbCoverWater;
                 case LandCover.Ford:
-                    return WrmbCoverWater;
+                    return WrmbCoverMarsh;
                 default:
                     throw new InvalidDataException("Unknown land-cover class.");
             }
@@ -644,6 +677,16 @@ namespace Wasteland.Sim.Movement
             m.MoveWidth = r.I32();
             m.MoveHeight = r.I32();
             m.MoveCellsPerCell = r.I32();
+            if (record.Length >= PipelineMetaElementSize)
+            {
+                r.Seek(340);
+                m.TerrainPayloadSha256 = r.Bytes(32);
+            }
+            else
+            {
+                m.TerrainPayloadSha256 = new byte[32];
+            }
+
             if (m.SchemaVersion != WrmbFile.SchemaVersion)
             {
                 throw new InvalidDataException("META.schemaVersion " + m.SchemaVersion + " is unsupported.");
@@ -707,6 +750,163 @@ namespace Wasteland.Sim.Movement
 
             return w.ToArray();
         }
+
+        public static Chokepoint[] ReadChokepoints(WrmbFile file)
+        {
+            if (file == null)
+            {
+                throw new ArgumentNullException(nameof(file));
+            }
+
+            if (!file.TryGetSection("CHOK", out WrmbDirEntry chok))
+            {
+                return Array.Empty<Chokepoint>();
+            }
+
+            int expected = file.FileFormatVersion >= WrmbFile.FormatVersionV1
+                ? ChokElementSizeV1
+                : ChokElementSizeV0;
+            CheckElementSize("CHOK", chok.ElementSize, expected);
+            byte[] data = file.SectionBytes(chok);
+            Chokepoint[] records = new Chokepoint[chok.Count];
+            BlobReader r = new BlobReader(data);
+            for (int i = 0; i < chok.Count; i++)
+            {
+                r.Seek(i * chok.ElementSize);
+                int id = r.I32();
+                byte kind = r.U8();
+                r.U8();
+                r.U8();
+                byte defenseGroupId = r.U8();
+                int x = r.I32();
+                int y = r.I32();
+                r.I32();
+                int roadNodeId = r.I32();
+                int roadEdgeId = r.I32();
+                r.Skip(16);
+                int sideA = r.I32();
+                int sideB = r.I32();
+                r.Skip(24);
+                r.U16();
+                byte bypassWheeled = 0;
+                ulong stableKey = 0;
+                if (chok.ElementSize >= 80)
+                {
+                    r.U8();
+                    bypassWheeled = r.U8();
+                }
+
+                if (chok.ElementSize >= ChokElementSizeV1)
+                {
+                    stableKey = r.U64();
+                }
+
+                records[i] = new Chokepoint(
+                    id,
+                    kind,
+                    defenseGroupId,
+                    bypassWheeled,
+                    x,
+                    y,
+                    roadNodeId,
+                    roadEdgeId,
+                    sideA,
+                    sideB,
+                    stableKey);
+            }
+
+            return records;
+        }
+
+        public static Territory[] ReadTerritories(WrmbFile file)
+        {
+            if (file == null)
+            {
+                throw new ArgumentNullException(nameof(file));
+            }
+
+            if (!file.TryGetSection("TERR", out WrmbDirEntry terr))
+            {
+                return Array.Empty<Territory>();
+            }
+
+            int expected = file.FileFormatVersion >= WrmbFile.FormatVersionV1
+                ? TerrElementSizeV1
+                : TerrElementSizeV0;
+            CheckElementSize("TERR", terr.ElementSize, expected);
+            byte[] data = file.SectionBytes(terr);
+            Territory[] records = new Territory[terr.Count];
+            BlobReader r = new BlobReader(data);
+            for (int i = 0; i < terr.Count; i++)
+            {
+                r.Seek(i * terr.ElementSize);
+                int id = r.I32();
+                ulong stableKey = 0;
+                if (terr.ElementSize >= TerrElementSizeV1)
+                {
+                    r.Skip(36);
+                    stableKey = r.U64();
+                }
+
+                records[i] = new Territory(id, stableKey);
+            }
+
+            return records;
+        }
+
+        internal static byte[] WritePipelineMeta(WrmbMetaFields f, int fileKind)
+        {
+            BlobWriter w = new BlobWriter(PipelineMetaElementSize);
+            w.I32(WrmbFile.SchemaVersion);
+            w.I32(fileKind);
+            w.I32(f.MapWidthCm);
+            w.I32(f.MapHeightCm);
+            w.I32(f.CellSizeCm);
+            w.I32(f.GridWidth);
+            w.I32(f.GridHeight);
+            w.I32(0);
+            w.I32(0);
+            w.I32(f.RoadNodeCount);
+            w.I32(f.RoadEdgeCount);
+            for (int i = 0; i < 15; i++)
+            {
+                w.I32(0);
+            }
+
+            w.I32(f.MoveWidth);
+            w.I32(f.MoveHeight);
+            w.I32(f.MoveCellsPerCell);
+            w.U64(0);
+            for (int i = 0; i < 5; i++)
+            {
+                w.U32(0);
+                w.U32(0);
+            }
+
+            byte[] emptyHash;
+            using (SHA256 sha = SHA256.Create())
+            {
+                emptyHash = sha.ComputeHash(Encoding.UTF8.GetBytes(string.Empty));
+            }
+
+            w.Bytes(emptyHash);
+            w.Zeroes(32);
+            w.Zeroes(32);
+            w.Zeroes(32);
+            w.I32(0);
+            w.I32(0);
+            w.U32(0);
+            w.U32(0);
+            w.Zeroes(32);
+            w.Zeroes(32);
+            w.Zeroes(4);
+            if (w.Length != PipelineMetaElementSize)
+            {
+                throw new InvalidOperationException("Pipeline META writer produced " + w.Length + " bytes.");
+            }
+
+            return w.ToArray();
+        }
     }
 
     internal struct WrmbMeta
@@ -724,6 +924,7 @@ namespace Wasteland.Sim.Movement
         public int MoveWidth;
         public int MoveHeight;
         public int MoveCellsPerCell;
+        public byte[] TerrainPayloadSha256;
     }
 
     internal struct WrmbMetaFields

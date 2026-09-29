@@ -1,11 +1,23 @@
-Attribution notice - golden-ci-columbia-gorge-100 (WRMB v0 file pair)
+Attribution notice - golden-ci-columbia-gorge-100 (WRMB v0 and v1 file pairs)
 
 Map data (c) OpenStreetMap contributors, available under the ODbL (openstreetmap.org/copyright)
 Elevation: produced using Copernicus WorldDEM-30 (c) DLR e.V. 2010-2014 and (c) Airbus Defence and Space GmbH 2014-2018 provided under COPERNICUS by the European Union and ESA; all rights reserved. Modified product: resampled/reprojected to the map grid, integer cm, derived slope/hillshade.
 The organisations in charge of the Copernicus programme by law or by delegation do not incur any liability for any use of the Copernicus WorldDEM-30.
 Elevation difference check only (not shipped): U.S. Geological Survey 3D Elevation Program (public domain)
 (c) ESA WorldCover project 2021 / Contains modified Copernicus Sentinel data (2021) processed by ESA WorldCover consortium (CC BY 4.0)
+Terrain movement data: MVLC land cover = ESA WorldCover classes with OSM-derived blocking rivers/lakes baked in (the OSM/ODbL part is exactly the cells that differ from the WorldCover-only mode); the ford bitset (MVFD) and the art water marks + ford list (WTRA) are OSM-derived (ODbL)
 Population: GeoNames (geonames.org), CC BY 4.0
+Population (fallback where GeoNames has none): U.S. Census Bureau, 2020 Census Redistricting Data (P.L. 94-171) (public domain)
 
-This notice is also embedded verbatim in META.attribution of both .wrmb files (META.attributionSha256 = SHA-256 of that text).
+The v1 .wrmb files embed the v1 notice (this file's body without the v0/v1 heading line) verbatim in META.attribution
+(META.attributionSha256 = SHA-256 of that text). The kept v0 pair embeds the v0 notice (the same ODbL/OSM, Copernicus,
+WorldCover and GeoNames lines, without the US Census line and without the v1 terrain-movement sentence; v0 uses no Census
+data and does not bake OSM water into MVLC).
+
+NOT SOURCED DATA: the population of Welches (OSM node 150971463) is 250, a manual design override (manual design override requested by the Game Designer 2026-09-28; not a census or any sourced figure (no Census 2020 place named Welches; GeoNames population 0)). It is marked by Town.sourceFlags bit5 and is not attributable to any data source above.
+
+LICENCE SEPARATION (v1 terrain file): MVLC mixes ESA WorldCover (CC BY 4.0) with OSM-derived blocking rivers/lakes (ODbL 1.0).
+The OSM-derived cells are exactly those where the baked movement land cover differs from the WorldCover-only array
+(pipeline outputs movement/landcover.u8 vs movement/landcover_worldcover.u8; list: movement/osm_water_mask.u8).
+MVFD (ford bitset) and WTRA (water marks + ford list) are wholly OSM-derived (ODbL 1.0).
 It must be shown wherever the map data is displayed or distributed (in-game credits and any published derived database).
