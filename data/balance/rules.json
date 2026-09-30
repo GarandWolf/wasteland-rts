@@ -37,6 +37,8 @@
     "hqRangeCm": 6437376,
     "depotRangeCm": 4828032,
     "maxDepotsPerNode": 1,
+    "maxDepotsPerFaction": 16,
+    "connectivityScratchSize": 32,
     "depotMinSpacingCm": 804670,
     "depotSpacingMeasure": "road_graph_shortest_path",
     "depotSpacingCountsAllFactions": true,
@@ -208,5 +210,8 @@
       "fortificationBuildTicksPpt": 1000,
       "fortificationBuildings": []
     }
+  },
+  "ai": {
+    "maxCandidateGoals": 64
   }
 }
