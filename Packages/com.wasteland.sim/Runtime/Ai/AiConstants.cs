@@ -6,12 +6,11 @@ namespace Wasteland.Sim.Ai
         public const int SchemaVersion = 1;
         public const int BalanceSchemaVersion = 1;
         public const int DataVersion = 1;
-        public const int StateSchemaVersion = 5;
+        public const int StateSchemaVersion = 6;
         public const int PendingCommandCapacity = 128;
         public const int CommandLogCapacity = 4096;
         public const int TickRateHz = SimConfig.TickRateHz;
         public const int FactionPlanOffsetTicks = 3;
-        public const int AiWorkUnitsPerTick = 50000;
         public const int PathRequestsPerTick = 8;
         public const int HashPeriodTicks = 200;
         public const int HeadlessLogPeriodTicks = 200;

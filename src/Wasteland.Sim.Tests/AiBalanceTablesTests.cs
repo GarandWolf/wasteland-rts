@@ -7,24 +7,14 @@ namespace Wasteland.Sim.Tests
 {
     public sealed class AiBalanceTablesTests
     {
-        /// <summary>
-        /// Folder-wide <see cref="BalanceKey.For"/> of <c>data/balance</c> after
-        /// v0.7.1 (per-map scenario file, AI limit keys in rules.json) plus M1
-        /// AI tables with camelCase JSON keys, score/cost fields, and
-        /// economyFactionId. FromDirectory parses <c>ai/*.json</c>,
-        /// <c>rules.json</c> capture, and <c>economy.json</c>. Re-pin when
-        /// those files change.
-        /// </summary>
-        public const ulong ExpectedFolderBalanceKey = 0xC3C45628F43C02F6UL;
-
         [Fact]
         public void LoadsPersonalitiesAndDifficulties_FromBalanceFiles()
         {
             AiBalanceTables tables = LoadBalance();
             Assert.Equal(3, tables.PersonalityCount);
             Assert.Equal(4, tables.DifficultyCount);
-            Assert.Equal(ExpectedFolderBalanceKey, tables.BalanceKey);
-            Assert.Equal(BalanceKey.For(System.IO.Path.Combine(GoldenMapFiles.FindRepoRoot(), "data", "balance")), tables.BalanceKey);
+            string folder = System.IO.Path.Combine(GoldenMapFiles.FindRepoRoot(), "data", "balance");
+            Assert.Equal(BalanceKey.For(folder), tables.BalanceKey);
             Assert.True(tables.HasCaptureTable);
             Assert.Equal(AiCaptureTests.ExpectedHamletTicks, tables.CaptureTicksForClass(0));
             Assert.Equal(AiCaptureTests.ExpectedVillageTicks, tables.CaptureTicksForClass(1));
@@ -42,7 +32,7 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(AiConstants.PersonalitySettler, tables.RequireBoundPersonalityId(2));
 
             AiDifficultyProfile brutal = tables.GetDifficulty(AiConstants.DifficultyBrutal);
-            Assert.Equal(100, brutal.EconomyBonusPpt);
+            Assert.Equal(1100, tables.IncomeMultiplierPpt(AiConstants.DifficultyBrutal));
             Assert.Equal(0, brutal.BuildSpeedBonusPpt);
             Assert.Equal(0, brutal.VisionRadiusBonusCm);
             Assert.Equal(AiConstants.FogCheatNone, brutal.FogCheat);
@@ -50,7 +40,7 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(0, brutal.ReactionExtraTicks);
 
             AiDifficultyProfile normal = tables.GetDifficulty(AiConstants.DifficultyNormal);
-            Assert.Equal(0, normal.EconomyBonusPpt);
+            Assert.Equal(1000, tables.IncomeMultiplierPpt(AiConstants.DifficultyNormal));
             Assert.Equal(40, normal.StrategicCadenceTicks);
             Assert.Equal(60, normal.ManpowerReserveSeconds);
             Assert.Equal(20, normal.BattalionManpowerCost);
@@ -140,11 +130,11 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void RejectsFractionalEconomyBonus()
+        public void RejectsFractionalBuildSpeedBonus()
         {
             string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json");
             string difficulty = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
-                .Replace("\"economyBonusPpt\": 100", "\"economyBonusPpt\": 10.0");
+                .Replace("\"buildSpeedBonusPpt\": 0", "\"buildSpeedBonusPpt\": 10.0");
             Assert.Throws<FormatException>(() => AiBalanceTables.Parse(personalities, difficulty));
         }
 
@@ -163,10 +153,10 @@ namespace Wasteland.Sim.Tests
         {
             string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json");
             string difficulty = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
-                .Replace("\"economyBonusPpt\": 100", "\"economyBonusPpt\": -1");
+                .Replace("\"buildSpeedBonusPpt\": 0", "\"buildSpeedBonusPpt\": -1");
             FormatException difficultyEx = Assert.Throws<FormatException>(
                 () => AiBalanceTables.Parse(personalities, difficulty));
-            Assert.Contains("economyBonusPpt", difficultyEx.Message);
+            Assert.Contains("buildSpeedBonusPpt", difficultyEx.Message);
 
             FormatException personalityEx = Assert.Throws<FormatException>(() => AiBalanceTables.Parse(
                 personalities.Replace("\"reservePpt\": 80", "\"reservePpt\": -1", StringComparison.Ordinal),

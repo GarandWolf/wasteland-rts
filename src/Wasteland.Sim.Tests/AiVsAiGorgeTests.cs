@@ -119,7 +119,7 @@ namespace Wasteland.Sim.Tests
             AiMatchHost brutal = Start(MatchSeed, AiConstants.DifficultyBrutal, baseline);
             brutal.Run(40);
             Assert.NotEqual(normalHash, brutal.HashWorld());
-            Assert.Equal(100, brutal.Ai.Difficulty.EconomyBonusPpt);
+            Assert.Equal(1100, brutal.Ai.Balance.IncomeMultiplierPpt(AiConstants.DifficultyBrutal));
             brutal.Shutdown();
         }
 
