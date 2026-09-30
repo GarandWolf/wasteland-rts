@@ -4,6 +4,16 @@
 
 Scope: Remnant Command (player, HQ at Goldendale) vs Homestead Compact (AI, HQ at Hood River) on the real Columbia Gorge 100-mile bake (Gorge golden map **v1**, corrected build: pipeline `0.5.0-golden-v1.2`).
 
+## v0.7.1: AI limit keys in rules.json (data only)
+
+Three limit keys added to `rules.json`. No balance number changes. Unit, building and economy files are untouched. `dataVersion` stays 7 (additive; old readers ignore unknown keys).
+
+- `supply.maxDepotsPerFaction`: 16 (100-mile maps; a 200-mile map's scenario file may later set 32)
+- `supply.connectivityScratchSize`: 32 (must be >= `supply.maxDepotsPerFaction`)
+- `ai.maxCandidateGoals`: 64 (hard ceiling; any personality or difficulty value above it must later fail load with its rule id)
+
+**BalanceKey** changes once because the hash covers every file under `data/balance/`, so the AI Engineer needs one more re-pin after merge. The AI code will read these keys in a later AI PR: `candidateGoals` above the ceiling will fail load instead of clipping; the depot cap and scratch size become data-driven with a counter when a placement is skipped.
+
 ## v0.7 draft: per-map scenario file (no balance change)
 
 **Status: DRAFT, in PR #13 awaiting review and merge approval.** `rules.json` is now map-agnostic. The `scenario` block moved to `scenarios/columbia_gorge_100mi_test.json`, so a second map is a second scenario file and needs no edit to `rules.json`.
