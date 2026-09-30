@@ -84,7 +84,6 @@
     "designerOverridePlaces": 1,
     "sceneryPlaces": 2,
     "sceneryPlacesPendingPopulationFix": 0,
-    "largestPopulation": 15000,
     "resourceSiteCounts": {
       "fuel_station": 65,
       "fuel_storage_depot": 8,
