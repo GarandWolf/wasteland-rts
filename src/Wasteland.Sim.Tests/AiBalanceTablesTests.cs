@@ -9,13 +9,13 @@ namespace Wasteland.Sim.Tests
     {
         /// <summary>
         /// Folder-wide <see cref="BalanceKey.For"/> of <c>data/balance</c> after
-        /// PR #10 (units, buildings, economy, rules, balance-notes), PR #12
-        /// (<c>scenario.mapFile</c> → marsh), plus AI tables with camelCase JSON
-        /// keys, score/cost fields, and economyFactionId. FromDirectory parses
-        /// <c>ai/*.json</c>, <c>rules.json</c> capture, and <c>economy.json</c>.
-        /// Re-pin when those files change.
+        /// v0.7.1 (per-map scenario file, AI limit keys in rules.json) plus M1
+        /// AI tables with camelCase JSON keys, score/cost fields, and
+        /// economyFactionId. FromDirectory parses <c>ai/*.json</c>,
+        /// <c>rules.json</c> capture, and <c>economy.json</c>. Re-pin when
+        /// those files change.
         /// </summary>
-        public const ulong ExpectedFolderBalanceKey = 0x4320A897E2CECBD9UL;
+        public const ulong ExpectedFolderBalanceKey = 0xC3C45628F43C02F6UL;
 
         [Fact]
         public void LoadsPersonalitiesAndDifficulties_FromBalanceFiles()
