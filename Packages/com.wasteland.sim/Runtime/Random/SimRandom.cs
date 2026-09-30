@@ -29,9 +29,37 @@ namespace Wasteland.Sim.Random
             get { return _state; }
         }
 
+        /// <summary>
+        /// PCG increment register. Always odd. This is <c>(streamId &lt;&lt; 1) | 1</c>
+        /// from the constructor, not the constructor's <c>stream</c> argument.
+        /// </summary>
+        public ulong Increment
+        {
+            get { return _inc; }
+        }
+
+        /// <summary>Same value as <see cref="Increment"/>; persisted PCG increment.</summary>
         public ulong Stream
         {
             get { return _inc; }
+        }
+
+        /// <summary>
+        /// Restores a generator from persisted <see cref="State"/> /
+        /// <see cref="Increment"/>. Does not re-run the seed scramble.
+        /// <paramref name="increment"/> must be odd.
+        /// </summary>
+        public static SimRandom FromPersisted(ulong state, ulong increment)
+        {
+            if ((increment & 1UL) == 0UL)
+            {
+                throw new System.ArgumentException("PCG increment must be odd.", nameof(increment));
+            }
+
+            SimRandom rng = default;
+            rng._state = state;
+            rng._inc = increment;
+            return rng;
         }
 
         public uint NextUInt()

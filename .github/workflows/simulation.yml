@@ -22,3 +22,15 @@ jobs:
 
       - name: Test
         run: dotnet test Wasteland.Sim.sln --configuration Release --nologo
+
+      - name: Guard AI integer-only and no squads
+        run: |
+          set -euo pipefail
+          if grep -RIn --include='*.cs' -E 'squad' Packages/com.wasteland.sim/Runtime/Ai; then
+            echo "AI code must not mention squad" >&2
+            exit 1
+          fi
+          if grep -RIn --include='*.cs' -E '\b(float|double|Single|Double)\b' Packages/com.wasteland.sim/Runtime/Ai; then
+            echo "AI code must stay integer-only (no float/double)" >&2
+            exit 1
+          fi
