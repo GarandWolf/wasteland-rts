@@ -4,11 +4,10 @@ namespace Wasteland.Sim.Ai
 {
     /// <summary>
     /// Frontline / neighbour source for the strategic layer.
-    /// Gorge v0 has no trusted map neighbour lists (<c>defenseGroupId</c> /
-    /// v1 <c>neighborTerritoryIds</c> land with PR #6). Until then the AI uses
-    /// <see cref="RoadConnectedTerritoryAdjacency"/> (road-connected stopgap).
-    /// A v1 loader should implement this same interface from the baked lists
-    /// and drop the stopgap.
+    /// Gorge v1 uses <see cref="MapNeighborListAdjacency"/> (baked
+    /// <c>TERR.neighborTerritoryIds</c>). Gorge v0 still uses
+    /// <see cref="RoadConnectedTerritoryAdjacency"/> because that golden's
+    /// neighbour lists are not the v1 contract (Goldendale–Hood River).
     /// </summary>
     public interface ITerritoryAdjacency
     {

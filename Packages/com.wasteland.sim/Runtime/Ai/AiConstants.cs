@@ -1,11 +1,14 @@
 namespace Wasteland.Sim.Ai
 {
-    /// <summary>M0 seams constants from the enemy AI design (Appendix A / §4.2 / §7 / §8).</summary>
+    /// <summary>Enemy AI constants from the design (Appendix A / §4.2 / §7 / §8) plus M1 economy/claim pins.</summary>
     public static class AiConstants
     {
         public const int SchemaVersion = 1;
+        public const int BalanceSchemaVersion = 1;
         public const int DataVersion = 1;
-        public const int StateSchemaVersion = 2;
+        public const int StateSchemaVersion = 5;
+        public const int PendingCommandCapacity = 128;
+        public const int CommandLogCapacity = 4096;
         public const int TickRateHz = SimConfig.TickRateHz;
         public const int FactionPlanOffsetTicks = 3;
         public const int AiWorkUnitsPerTick = 50000;
@@ -15,18 +18,42 @@ namespace Wasteland.Sim.Ai
         public const int HeadlessLogFromTick = 2400;
         public const int HeadlessLogThroughTickMinimum = 6000;
         public const int M0DeterminismTicks = 10000;
+        public const int M1DeterminismTicks = 10000;
+        public const int SaveLoadMidRunTick = 4000;
         public const int TimeSliceModulus = 8;
         public const int PhaseStrategic = 6;
         public const int DefaultAiFactionA = 1;
         public const int DefaultAiFactionB = 2;
         public const string TheDallesTownName = "The Dalles";
+        public const string GoldendaleTownName = "Goldendale";
+        public const string HoodRiverTownName = "Hood River";
+        public const string WhiteSalmonTownName = "White Salmon";
+        public const string KlickitatTownName = "Klickitat";
         public const string RoadConnectedAdjacencySource = "RoadConnectedV0";
+        public const string MapNeighborListAdjacencySource = "MapNeighborListV1";
         public const string MapKeyTagChok = "CHOK";
         public const string MapKeyTagTerr = "TERR";
         public const string MapKeyTagRnod = "RNOD";
         public const string MapKeyTagRedg = "REDG";
         public const string MapKeyTagBrdg = "BRDG";
         public const string MapKeyTagTown = "TOWN";
+
+        public const int WhiteSalmonTerritoryId = 9;
+
+        public const int MileCm = 160934;
+        public const int HqRangeCm = 40 * MileCm;
+        public const int DepotRangeCm = 30 * MileCm;
+        public const int DepotMinSpacingCm = 804670;
+        public const int MaxDepotsPerNode = 1;
+        public const int BuildingTagDepot = 1;
+
+        public const string TierIITickNone = "none";
+        public const int ClaimMarchSpeedCmPerSecond = 25000;
+        public const int MinAcceptScore = 1000;
+        public const int SeatAnchorBonusPpt = 1000;
+        public const int BattalionIdStride = 100000;
+        public const int OpeningClaimBattalions = 1;
+        public const int UnreachableCm = int.MaxValue / 4;
 
         public static string[] MapKeySectionTags()
         {
@@ -62,5 +89,13 @@ namespace Wasteland.Sim.Ai
         BuildUp = 1,
         Attack = 2,
         Counterattack = 3
+    }
+
+    public enum AiGoalType : byte
+    {
+        None = 0,
+        ClaimTown = 1,
+        PlaceDepot = 2,
+        ExpandEconomy = 3
     }
 }

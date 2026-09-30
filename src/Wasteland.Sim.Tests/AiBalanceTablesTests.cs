@@ -9,11 +9,13 @@ namespace Wasteland.Sim.Tests
     {
         /// <summary>
         /// Folder-wide <see cref="BalanceKey.For"/> of <c>data/balance</c> after
-        /// v0.7.1 (AI limit keys in rules.json plus notes). Any file under
-        /// <c>data/balance</c> moves this hash; re-pin when those files change.
-        /// AI still only parses <c>ai/*.json</c>.
+        /// v0.7.1 (per-map scenario file, AI limit keys in rules.json) plus M1
+        /// AI tables with camelCase JSON keys, score/cost fields, and
+        /// economyFactionId. FromDirectory parses <c>ai/*.json</c>,
+        /// <c>rules.json</c> capture, and <c>economy.json</c>. Re-pin when
+        /// those files change.
         /// </summary>
-        public const ulong ExpectedFolderBalanceKey = 0xD58386EC7D063AB6UL;
+        public const ulong ExpectedFolderBalanceKey = 0xC3C45628F43C02F6UL;
 
         [Fact]
         public void LoadsPersonalitiesAndDifficulties_FromBalanceFiles()
@@ -23,6 +25,11 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(4, tables.DifficultyCount);
             Assert.Equal(ExpectedFolderBalanceKey, tables.BalanceKey);
             Assert.Equal(BalanceKey.For(System.IO.Path.Combine(GoldenMapFiles.FindRepoRoot(), "data", "balance")), tables.BalanceKey);
+            Assert.True(tables.HasCaptureTable);
+            Assert.Equal(AiCaptureTests.ExpectedHamletTicks, tables.CaptureTicksForClass(0));
+            Assert.Equal(AiCaptureTests.ExpectedVillageTicks, tables.CaptureTicksForClass(1));
+            Assert.Equal(AiCaptureTests.ExpectedTownTicks, tables.CaptureTicksForClass(2));
+            Assert.Equal(AiCaptureTests.ExpectedCityTicks, tables.CaptureTicksForClass(3));
 
             AiPersonalityProfile settler = tables.GetPersonality(AiConstants.PersonalitySettler);
             Assert.False(settler.Stub);
@@ -46,6 +53,24 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(0, normal.EconomyBonusPpt);
             Assert.Equal(40, normal.StrategicCadenceTicks);
             Assert.Equal(60, normal.ManpowerReserveSeconds);
+            Assert.Equal(20, normal.BattalionManpowerCost);
+            Assert.Equal(20, brutal.BattalionManpowerCost);
+
+            AiPersonalityProfile warlordScores = tables.GetPersonality(AiConstants.PersonalityWarlord);
+            Assert.Equal(200, warlordScores.NonSeatBonusPpt);
+            Assert.Equal(200, warlordScores.BuildUpScoreBonus);
+            Assert.Equal(1800, warlordScores.DepotBaseScore);
+            Assert.Equal(400, warlordScores.AwayDepotScoreBonus);
+            Assert.Equal("remnant_command", warlordScores.EconomyFactionId);
+            Assert.Equal("homestead_compact", settler.EconomyFactionId);
+
+            Assert.True(tables.HasEconomyTable);
+            Assert.Equal(2, tables.IncomePerMinForClass(0));
+            Assert.Equal(8, tables.IncomePerMinForClass(1));
+            Assert.Equal(24, tables.IncomePerMinForClass(2));
+            Assert.Equal(48, tables.IncomePerMinForClass(3));
+            Assert.Equal(10, tables.HqManpowerPerMin("homestead_compact"));
+            Assert.Equal(1150, tables.ManpowerModifierPpt("homestead_compact"));
         }
 
         [Fact]
@@ -66,9 +91,19 @@ namespace Wasteland.Sim.Tests
         public void RejectsMissingDataVersion()
         {
             string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json");
-            string difficulty = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
+            string difficultyLf = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
+                .Replace("\r\n", "\n");
+            AssertMissingDataVersion(personalities, difficultyLf);
+            AssertMissingDataVersion(personalities, difficultyLf.Replace("\n", "\r\n"));
+        }
+
+        private static void AssertMissingDataVersion(string personalities, string difficulty)
+        {
+            string stripped = difficulty
+                .Replace("  \"dataVersion\": 1,\r\n", string.Empty)
                 .Replace("  \"dataVersion\": 1,\n", string.Empty);
-            FormatException ex = Assert.Throws<FormatException>(() => AiBalanceTables.Parse(personalities, difficulty));
+            Assert.NotEqual(difficulty, stripped);
+            FormatException ex = Assert.Throws<FormatException>(() => AiBalanceTables.Parse(personalities, stripped));
             Assert.Contains("dataVersion", ex.Message);
         }
 
@@ -100,7 +135,7 @@ namespace Wasteland.Sim.Tests
         {
             string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json");
             string difficulty = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
-                .Replace("\"FogCheat\": \"none\"", "\"FogCheat\": \"omniscient\"");
+                .Replace("\"fogCheat\": \"none\"", "\"fogCheat\": \"omniscient\"");
             Assert.Throws<FormatException>(() => AiBalanceTables.Parse(personalities, difficulty));
         }
 
@@ -109,8 +144,55 @@ namespace Wasteland.Sim.Tests
         {
             string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json");
             string difficulty = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
-                .Replace("\"EconomyBonusPpt\": 100", "\"EconomyBonusPpt\": 10.0");
+                .Replace("\"economyBonusPpt\": 100", "\"economyBonusPpt\": 10.0");
             Assert.Throws<FormatException>(() => AiBalanceTables.Parse(personalities, difficulty));
+        }
+
+        [Fact]
+        public void RejectsDuplicateDifficultyId()
+        {
+            string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json");
+            string difficulty = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
+                .Replace("\"id\": \"hard\"", "\"id\": \"easy\"", StringComparison.Ordinal);
+            FormatException ex = Assert.Throws<FormatException>(() => AiBalanceTables.Parse(personalities, difficulty));
+            Assert.Contains("Duplicate difficulty id", ex.Message);
+        }
+
+        [Fact]
+        public void RejectsNegativePptFields()
+        {
+            string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json");
+            string difficulty = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")
+                .Replace("\"economyBonusPpt\": 100", "\"economyBonusPpt\": -1");
+            FormatException difficultyEx = Assert.Throws<FormatException>(
+                () => AiBalanceTables.Parse(personalities, difficulty));
+            Assert.Contains("economyBonusPpt", difficultyEx.Message);
+
+            FormatException personalityEx = Assert.Throws<FormatException>(() => AiBalanceTables.Parse(
+                personalities.Replace("\"reservePpt\": 80", "\"reservePpt\": -1", StringComparison.Ordinal),
+                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")));
+            Assert.Contains("reservePpt", personalityEx.Message);
+        }
+
+        [Fact]
+        public void EconomyLoader_FailsWithKeyIdWhenHqMissing()
+        {
+            AiBalanceTables tables = AiBalanceTables.Parse(
+                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json"),
+                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json"));
+            AiPersonalityProfile[] rows = new[]
+            {
+                tables.GetPersonality(AiConstants.PersonalityWarlord),
+                tables.GetPersonality(AiConstants.PersonalitySettler),
+                tables.GetPersonality(AiConstants.PersonalityRaider)
+            };
+            string economy = GoldenMapFiles.ReadRepoText("data/balance/economy.json")
+                .Replace("\"remnant_command\": {", "\"not_remnant_command\": {", StringComparison.Ordinal);
+            FormatException ex = Assert.Throws<FormatException>(() =>
+            {
+                AiBalanceTables.ParseEconomy(economy, rows, new AiBalanceTables.RulesState());
+            });
+            Assert.Contains("remnant_command", ex.Message);
         }
 
         internal static AiBalanceTables LoadBalance()

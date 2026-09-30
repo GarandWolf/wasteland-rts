@@ -56,6 +56,15 @@ namespace Wasteland.Sim.Commands
             return new SimCommand(issuedTick, issuerId, battalionId, CommandKind.Move, xCm, yCm, 0);
         }
 
+        /// <summary>
+        /// Building intent. The AI command sink accepts this in M1. SimWorld
+        /// rejects it until the sim owns buildings.
+        /// </summary>
+        public static SimCommand Build(int issuedTick, int issuerId, int xCm, int yCm, int buildingTag)
+        {
+            return new SimCommand(issuedTick, issuerId, 0, CommandKind.Build, xCm, yCm, buildingTag);
+        }
+
         public SimCommand WithIssuedTick(int issuedTick)
         {
             return new SimCommand(issuedTick, IssuerId, BattalionId, Kind, Arg0, Arg1, Arg2, ExecuteTick, Sequence);

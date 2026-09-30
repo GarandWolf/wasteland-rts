@@ -31,6 +31,11 @@ namespace Wasteland.Sim.Ai
         public readonly int SiegeAssaultRatioPpt;
         public readonly int RetreatThresholdPpt;
         public readonly int PostureSwitchMarginPpt;
+        public readonly int NonSeatBonusPpt;
+        public readonly int BuildUpScoreBonus;
+        public readonly int DepotBaseScore;
+        public readonly int AwayDepotScoreBonus;
+        public readonly string EconomyFactionId;
         public readonly int MinGarrisonPerTown;
         public readonly int TaskForceTargetSize;
         public readonly AiPosture DefaultPosture;
@@ -58,6 +63,11 @@ namespace Wasteland.Sim.Ai
             int siegeAssaultRatioPpt,
             int retreatThresholdPpt,
             int postureSwitchMarginPpt,
+            int nonSeatBonusPpt,
+            int buildUpScoreBonus,
+            int depotBaseScore,
+            int awayDepotScoreBonus,
+            string economyFactionId,
             int minGarrisonPerTown,
             int taskForceTargetSize,
             AiPosture defaultPosture)
@@ -84,6 +94,11 @@ namespace Wasteland.Sim.Ai
             SiegeAssaultRatioPpt = siegeAssaultRatioPpt;
             RetreatThresholdPpt = retreatThresholdPpt;
             PostureSwitchMarginPpt = postureSwitchMarginPpt;
+            NonSeatBonusPpt = nonSeatBonusPpt;
+            BuildUpScoreBonus = buildUpScoreBonus;
+            DepotBaseScore = depotBaseScore;
+            AwayDepotScoreBonus = awayDepotScoreBonus;
+            EconomyFactionId = economyFactionId ?? throw new ArgumentNullException(nameof(economyFactionId));
             MinGarrisonPerTown = minGarrisonPerTown;
             TaskForceTargetSize = taskForceTargetSize;
             DefaultPosture = defaultPosture;
@@ -108,6 +123,7 @@ namespace Wasteland.Sim.Ai
         public readonly int MaxActiveOrders;
         public readonly int MaxCandidateGoals;
         public readonly int ManpowerReserveSeconds;
+        public readonly int BattalionManpowerCost;
 
         internal AiDifficultyProfile(
             string id,
@@ -125,7 +141,8 @@ namespace Wasteland.Sim.Ai
             int retreatThresholdMulPpt,
             int maxActiveOrders,
             int maxCandidateGoals,
-            int manpowerReserveSeconds)
+            int manpowerReserveSeconds,
+            int battalionManpowerCost)
         {
             Id = id;
             ReactionExtraTicks = reactionExtraTicks;
@@ -143,6 +160,7 @@ namespace Wasteland.Sim.Ai
             MaxActiveOrders = maxActiveOrders;
             MaxCandidateGoals = maxCandidateGoals;
             ManpowerReserveSeconds = manpowerReserveSeconds;
+            BattalionManpowerCost = battalionManpowerCost;
         }
     }
 
@@ -153,16 +171,25 @@ namespace Wasteland.Sim.Ai
     /// <c>schemaVersion</c> next to <c>dataVersion</c> (AI content is
     /// dataVersion 1; designer pack files are currently dataVersion 6).
     /// Parse requires <c>dataVersion</c> as an int32 — missing or non-integer
-    /// values are rejected.
-    /// </summary>
-    public sealed class AiBalanceTables
+    ///         values are rejected. <see cref="FromDirectory"/> also loads
+        /// <c>rules.json</c> <c>capture</c> (timers, zone radii, fortification,
+        /// decay) and <c>economy.json</c> holding-tier / HQ / faction manpower.
+        /// The rest of <c>rules.json</c> is not read.
+        /// </summary>
+    public sealed partial class AiBalanceTables
     {
+        public const string CaptureRuleHamlet = "hamlet";
+        public const string CaptureRuleVillage = "village";
+        public const string CaptureRuleTown = "town";
+        public const string CaptureRuleCity = "city";
+
         private readonly AiPersonalityProfile[] _personalities;
         private readonly AiDifficultyProfile[] _difficulties;
         private readonly int[] _bindingFactionIds;
         private readonly string[] _bindingPersonalityIds;
 
         private readonly ulong _balanceKey;
+        private readonly RulesState _rules;
 
         private AiBalanceTables(
             ulong balanceKey,
@@ -171,7 +198,8 @@ namespace Wasteland.Sim.Ai
             AiPersonalityProfile[] personalities,
             AiDifficultyProfile[] difficulties,
             int[] bindingFactionIds,
-            string[] bindingPersonalityIds)
+            string[] bindingPersonalityIds,
+            RulesState rules)
         {
             _balanceKey = balanceKey;
             PersonalityJsonHash = personalityJsonHash;
@@ -180,6 +208,7 @@ namespace Wasteland.Sim.Ai
             _difficulties = difficulties;
             _bindingFactionIds = bindingFactionIds;
             _bindingPersonalityIds = bindingPersonalityIds;
+            _rules = rules ?? new RulesState();
         }
 
         public ulong BalanceKey
@@ -201,6 +230,52 @@ namespace Wasteland.Sim.Ai
             get { return _difficulties.Length; }
         }
 
+        public bool HasCaptureTable
+        {
+            get { return _rules.HasCapture; }
+        }
+
+        public bool HasEconomyTable
+        {
+            get { return _rules.HasEconomy; }
+        }
+
+        public int DecayStartsAfterTicks
+        {
+            get
+            {
+                RequireCapture();
+                return _rules.DecayStartsAfterTicks;
+            }
+        }
+
+        public int DecayTicksPerTick
+        {
+            get
+            {
+                RequireCapture();
+                return _rules.DecayTicksPerTick;
+            }
+        }
+
+        public int AccrualIntervalTicks
+        {
+            get
+            {
+                RequireEconomy();
+                return _rules.AccrualIntervalTicks;
+            }
+        }
+
+        public int AccrualIntervalsPerMinute
+        {
+            get
+            {
+                RequireEconomy();
+                return _rules.AccrualIntervalsPerMinute;
+            }
+        }
+
         public static AiBalanceTables FromDirectory(string balanceDirectory)
         {
             if (balanceDirectory == null)
@@ -210,13 +285,131 @@ namespace Wasteland.Sim.Ai
 
             string personalitiesPath = Path.Combine(balanceDirectory, "ai", "ai_personalities.json");
             string difficultyPath = Path.Combine(balanceDirectory, "ai", "ai_difficulty.json");
+            string rulesPath = Path.Combine(balanceDirectory, "rules.json");
+            string economyPath = Path.Combine(balanceDirectory, "economy.json");
             AiBalanceTables tables = Parse(
                 File.ReadAllText(personalitiesPath),
                 File.ReadAllText(difficultyPath));
-            return tables.WithBalanceKey(global::Wasteland.Sim.Movement.BalanceKey.For(balanceDirectory));
+            RulesState rules = ParseCapture(File.ReadAllText(rulesPath));
+            ParseEconomy(File.ReadAllText(economyPath), tables._personalities, rules);
+            return tables.WithRules(rules).WithBalanceKey(
+                global::Wasteland.Sim.Movement.BalanceKey.For(balanceDirectory));
         }
 
         public AiBalanceTables WithBalanceKey(ulong balanceKey)
+        {
+            return Clone(balanceKey, _rules);
+        }
+
+        public AiBalanceTables WithCapture(
+            int hamletTicks,
+            int villageTicks,
+            int townTicks,
+            int cityTicks)
+        {
+            if (hamletTicks < 1 || villageTicks < 1 || townTicks < 1 || cityTicks < 1)
+            {
+                throw new FormatException("capture.timerTicksByTier values must be >= 1.");
+            }
+
+            RulesState rules = _rules.Clone();
+            rules.HasCapture = true;
+            rules.CaptureTicks[AiHoldingClass.Hamlet] = hamletTicks;
+            rules.CaptureTicks[AiHoldingClass.Village] = villageTicks;
+            rules.CaptureTicks[AiHoldingClass.Town] = townTicks;
+            rules.CaptureTicks[AiHoldingClass.City] = cityTicks;
+            return Clone(_balanceKey, rules);
+        }
+
+        internal AiBalanceTables WithRules(RulesState rules)
+        {
+            return Clone(_balanceKey, rules);
+        }
+
+        public int CaptureTicksForClass(int populationClass)
+        {
+            return CaptureTicksForClass(populationClass, 0);
+        }
+
+        public int CaptureTicksForClass(int populationClass, int fortificationLevel)
+        {
+            RequireCapture();
+            string ruleId = AiHoldingClass.RuleId(populationClass);
+            int ticks = _rules.CaptureTicks[AiHoldingClass.IndexOfRuleId(ruleId)];
+            if (fortificationLevel < 0)
+            {
+                throw new FormatException("fortification level must be >= 0.");
+            }
+
+            int bonusPpt = fortificationLevel * _rules.FortPerLevelPpt;
+            if (bonusPpt > _rules.FortMaxPpt)
+            {
+                bonusPpt = _rules.FortMaxPpt;
+            }
+
+            return (int)(((long)ticks * (SimConfig.PptScale + bonusPpt)) / SimConfig.PptScale);
+        }
+
+        public int CaptureRadiusCmForClass(int populationClass)
+        {
+            RequireCapture();
+            string ruleId = AiHoldingClass.RuleId(populationClass);
+            return _rules.ZoneRadiusCm[AiHoldingClass.IndexOfRuleId(ruleId)];
+        }
+
+        public int IncomePerMinForClass(int populationClass)
+        {
+            RequireEconomy();
+            string ruleId = AiHoldingClass.RuleId(populationClass);
+            return _rules.IncomePerMin[AiHoldingClass.IndexOfRuleId(ruleId)];
+        }
+
+        public int HqManpowerPerMin(string economyFactionId)
+        {
+            return LookupEconomy(economyFactionId, _rules.HqManpowerPerMin);
+        }
+
+        public int ManpowerModifierPpt(string economyFactionId)
+        {
+            return LookupEconomy(economyFactionId, _rules.ManpowerModifierPpt);
+        }
+
+        private int LookupEconomy(string economyFactionId, int[] values)
+        {
+            RequireEconomy();
+            if (economyFactionId == null)
+            {
+                throw new ArgumentNullException(nameof(economyFactionId));
+            }
+
+            for (int i = 0; i < _rules.EconomyFactionIds.Length; i++)
+            {
+                if (_rules.EconomyFactionIds[i] == economyFactionId)
+                {
+                    return values[i];
+                }
+            }
+
+            throw new FormatException("Missing economy faction key '" + economyFactionId + "'.");
+        }
+
+        private void RequireCapture()
+        {
+            if (!_rules.HasCapture)
+            {
+                throw new InvalidOperationException("Balance tables have no rules.json capture table.");
+            }
+        }
+
+        private void RequireEconomy()
+        {
+            if (!_rules.HasEconomy)
+            {
+                throw new InvalidOperationException("Balance tables have no economy.json table.");
+            }
+        }
+
+        private AiBalanceTables Clone(ulong balanceKey, RulesState rules)
         {
             return new AiBalanceTables(
                 balanceKey,
@@ -225,7 +418,8 @@ namespace Wasteland.Sim.Ai
                 _personalities,
                 _difficulties,
                 _bindingFactionIds,
-                _bindingPersonalityIds);
+                _bindingPersonalityIds,
+                rules);
         }
 
         public static ulong HashUtf8(string text)
@@ -253,14 +447,14 @@ namespace Wasteland.Sim.Ai
 
             JsonValue personalityRoot = IntegerJsonParser.Parse(personalitiesJson);
             JsonValue difficultyRoot = IntegerJsonParser.Parse(difficultyJson);
-            if (JsonUtil.Int32(JsonUtil.Field(personalityRoot, "schemaVersion"), "schemaVersion") != AiConstants.SchemaVersion)
+            if (JsonUtil.Int32(JsonUtil.Field(personalityRoot, "schemaVersion"), "schemaVersion") != AiConstants.BalanceSchemaVersion)
             {
                 throw new FormatException("Unsupported ai_personalities.json schema.");
             }
 
             RequireDataVersion(personalityRoot, "ai_personalities.json");
 
-            if (JsonUtil.Int32(JsonUtil.Field(difficultyRoot, "schemaVersion"), "schemaVersion") != AiConstants.SchemaVersion)
+            if (JsonUtil.Int32(JsonUtil.Field(difficultyRoot, "schemaVersion"), "schemaVersion") != AiConstants.BalanceSchemaVersion)
             {
                 throw new FormatException("Unsupported ai_difficulty.json schema.");
             }
@@ -323,7 +517,214 @@ namespace Wasteland.Sim.Ai
                 personalities,
                 difficulties,
                 bindingFactionIds,
-                bindingPersonalityIds);
+                bindingPersonalityIds,
+                new RulesState());
+        }
+
+        public static void ParseCaptureRules(
+            string rulesJson,
+            out int hamletTicks,
+            out int villageTicks,
+            out int townTicks,
+            out int cityTicks)
+        {
+            RulesState rules = ParseCapture(rulesJson);
+            hamletTicks = rules.CaptureTicks[AiHoldingClass.Hamlet];
+            villageTicks = rules.CaptureTicks[AiHoldingClass.Village];
+            townTicks = rules.CaptureTicks[AiHoldingClass.Town];
+            cityTicks = rules.CaptureTicks[AiHoldingClass.City];
+        }
+
+        internal static RulesState ParseCapture(string rulesJson)
+        {
+            if (rulesJson == null)
+            {
+                throw new ArgumentNullException(nameof(rulesJson));
+            }
+
+            JsonValue root = IntegerJsonParser.Parse(rulesJson);
+            if (JsonUtil.Int32(JsonUtil.Field(root, "schemaVersion"), "schemaVersion") != AiConstants.BalanceSchemaVersion)
+            {
+                throw new FormatException("Unsupported rules.json schema.");
+            }
+
+            JsonUtil.Int32(JsonUtil.Field(root, "dataVersion"), "dataVersion");
+            JsonValue capture = JsonUtil.Field(root, "capture");
+            RulesState rules = new RulesState();
+            rules.HasCapture = true;
+            JsonValue timer = JsonUtil.Field(capture, "timerTicksByTier");
+            JsonValue radius = JsonUtil.Field(capture, "zoneRadiusCmByTier");
+            for (int i = 0; i < AiHoldingClass.Count; i++)
+            {
+                string ruleId = AiHoldingClass.RuleId(i);
+                rules.CaptureTicks[i] = RequireTierTicks(timer, ruleId);
+                int cm = JsonUtil.Int32(JsonUtil.Field(radius, ruleId), "zoneRadiusCmByTier." + ruleId);
+                if (cm < 1)
+                {
+                    throw new FormatException("zoneRadiusCmByTier rule '" + ruleId + "' must be >= 1.");
+                }
+
+                rules.ZoneRadiusCm[i] = cm;
+            }
+
+            rules.FortPerLevelPpt = RequireNamedPpt(capture, "fortificationTimerPerLevelPpt");
+            rules.FortMaxPpt = RequireNamedPpt(capture, "fortificationTimerMaxPpt");
+            string onContest = JsonUtil.String(JsonUtil.Field(capture, "onContest"), "onContest");
+            if (onContest != "pause")
+            {
+                throw new FormatException("onContest must be 'pause'.");
+            }
+
+            bool reset = JsonUtil.Bool(JsonUtil.Field(capture, "resetOnContest"), "resetOnContest");
+            if (reset)
+            {
+                throw new FormatException("resetOnContest must be false.");
+            }
+
+            string absent = JsonUtil.String(JsonUtil.Field(capture, "onCapturerAbsent"), "onCapturerAbsent");
+            if (absent != "pause_then_decay")
+            {
+                throw new FormatException("onCapturerAbsent must be 'pause_then_decay'.");
+            }
+
+            rules.DecayStartsAfterTicks = JsonUtil.Int32(
+                JsonUtil.Field(capture, "decayStartsAfterTicks"),
+                "decayStartsAfterTicks");
+            if (rules.DecayStartsAfterTicks < 0)
+            {
+                throw new FormatException("decayStartsAfterTicks must be >= 0.");
+            }
+
+            rules.DecayTicksPerTick = JsonUtil.Int32(
+                JsonUtil.Field(capture, "decayTicksPerTick"),
+                "decayTicksPerTick");
+            if (rules.DecayTicksPerTick < 1)
+            {
+                throw new FormatException("decayTicksPerTick must be >= 1.");
+            }
+
+            return rules;
+        }
+
+        internal static void ParseEconomy(string economyJson, AiPersonalityProfile[] personalities, RulesState rules)
+        {
+            if (economyJson == null)
+            {
+                throw new ArgumentNullException(nameof(economyJson));
+            }
+
+            JsonValue root = IntegerJsonParser.Parse(economyJson);
+            if (JsonUtil.Int32(JsonUtil.Field(root, "schemaVersion"), "schemaVersion") != AiConstants.BalanceSchemaVersion)
+            {
+                throw new FormatException("Unsupported economy.json schema.");
+            }
+
+            JsonUtil.Int32(JsonUtil.Field(root, "dataVersion"), "dataVersion");
+            JsonValue tiers = JsonUtil.Field(root, "holdingTiers");
+            if (tiers.Kind != JsonKind.Array)
+            {
+                throw new FormatException("holdingTiers must be an array.");
+            }
+
+            bool[] seen = new bool[AiHoldingClass.Count];
+            for (int i = 0; i < tiers.ArrayValue.Count; i++)
+            {
+                JsonValue row = tiers.ArrayValue[i];
+                string id = JsonUtil.String(JsonUtil.Field(row, "id"), "id");
+                int index;
+                try
+                {
+                    index = AiHoldingClass.IndexOfRuleId(id);
+                }
+                catch (FormatException)
+                {
+                    continue;
+                }
+
+                JsonValue income = JsonUtil.Field(row, "incomePerMin");
+                int manpower = JsonUtil.Int32(JsonUtil.Field(income, "manpower"), "holdingTiers." + id + ".incomePerMin.manpower");
+                if (manpower < 0)
+                {
+                    throw new FormatException("holdingTiers." + id + ".incomePerMin.manpower must be >= 0.");
+                }
+
+                rules.IncomePerMin[index] = manpower;
+                seen[index] = true;
+            }
+
+            for (int i = 0; i < seen.Length; i++)
+            {
+                if (!seen[i])
+                {
+                    throw new FormatException(
+                        "Missing holdingTiers id '" + AiHoldingClass.RuleId(i) + "'.");
+                }
+            }
+
+            JsonValue accrual = JsonUtil.Field(root, "incomeAccrual");
+            rules.AccrualIntervalTicks = JsonUtil.Int32(
+                JsonUtil.Field(accrual, "intervalTicks"),
+                "incomeAccrual.intervalTicks");
+            rules.AccrualIntervalsPerMinute = JsonUtil.Int32(
+                JsonUtil.Field(accrual, "intervalsPerMinute"),
+                "incomeAccrual.intervalsPerMinute");
+            if (rules.AccrualIntervalTicks < 1)
+            {
+                throw new FormatException("incomeAccrual.intervalTicks must be >= 1.");
+            }
+
+            if (rules.AccrualIntervalsPerMinute < 1)
+            {
+                throw new FormatException("incomeAccrual.intervalsPerMinute must be >= 1.");
+            }
+
+            JsonValue hq = JsonUtil.Field(root, "hqIncomePerMinByFaction");
+            JsonValue mods = JsonUtil.Field(root, "factionIncomeModifiersPpt");
+            string[] ids = new string[personalities.Length];
+            int[] hqManpower = new int[personalities.Length];
+            int[] modifier = new int[personalities.Length];
+            for (int i = 0; i < personalities.Length; i++)
+            {
+                string key = personalities[i].EconomyFactionId;
+                ids[i] = key;
+                JsonValue hqRow;
+                if (!JsonUtil.TryField(hq, key, out hqRow))
+                {
+                    throw new FormatException("Missing hqIncomePerMinByFaction key '" + key + "'.");
+                }
+
+                hqManpower[i] = JsonUtil.Int32(
+                    JsonUtil.Field(hqRow, "manpower"),
+                    "hqIncomePerMinByFaction." + key + ".manpower");
+                if (hqManpower[i] < 0)
+                {
+                    throw new FormatException("hqIncomePerMinByFaction." + key + ".manpower must be >= 0.");
+                }
+
+                JsonValue modRow;
+                if (!JsonUtil.TryField(mods, key, out modRow))
+                {
+                    throw new FormatException("Missing factionIncomeModifiersPpt key '" + key + "'.");
+                }
+
+                modifier[i] = RequireNamedPpt(modRow, "manpower");
+            }
+
+            rules.HasEconomy = true;
+            rules.EconomyFactionIds = ids;
+            rules.HqManpowerPerMin = hqManpower;
+            rules.ManpowerModifierPpt = modifier;
+        }
+
+        private static int RequireNamedPpt(JsonValue row, string key)
+        {
+            int value = JsonUtil.Int32(JsonUtil.Field(row, key), key);
+            if (value < 0)
+            {
+                throw new FormatException(key + " must be >= 0.");
+            }
+
+            return value;
         }
 
         public AiPersonalityProfile GetPersonality(string id)
@@ -396,6 +797,27 @@ namespace Wasteland.Sim.Ai
             }
         }
 
+        private static int RequireTierTicks(JsonValue table, string ruleId)
+        {
+            if (!JsonUtil.TryField(table, ruleId, out JsonValue value))
+            {
+                throw new FormatException("Missing capture.timerTicksByTier rule '" + ruleId + "'.");
+            }
+
+            if (value.Kind != JsonKind.Int)
+            {
+                throw new FormatException("capture.timerTicksByTier rule '" + ruleId + "' must be an integer.");
+            }
+
+            int ticks = JsonUtil.Int32(value, "capture.timerTicksByTier." + ruleId);
+            if (ticks < 1)
+            {
+                throw new FormatException("capture.timerTicksByTier rule '" + ruleId + "' must be >= 1.");
+            }
+
+            return ticks;
+        }
+
         private static AiPersonalityProfile ParsePersonality(JsonValue row)
         {
             string id = JsonUtil.String(JsonUtil.Field(row, "id"), "id");
@@ -430,11 +852,16 @@ namespace Wasteland.Sim.Ai
                 JsonUtil.Int32(JsonUtil.Field(row, "turtleBias"), "turtleBias"),
                 JsonUtil.Int32(JsonUtil.Field(row, "raidBias"), "raidBias"),
                 JsonUtil.Int32(JsonUtil.Field(row, "scoutBias"), "scoutBias"),
-                JsonUtil.Int32(JsonUtil.Field(row, "ReservePpt"), "ReservePpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "SiegeInvestRatioPpt"), "SiegeInvestRatioPpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "SiegeAssaultRatioPpt"), "SiegeAssaultRatioPpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "RetreatThresholdPpt"), "RetreatThresholdPpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "PostureSwitchMarginPpt"), "PostureSwitchMarginPpt"),
+                RequirePpt(row, "reservePpt"),
+                RequirePpt(row, "siegeInvestRatioPpt"),
+                RequirePpt(row, "siegeAssaultRatioPpt"),
+                RequirePpt(row, "retreatThresholdPpt"),
+                RequirePpt(row, "postureSwitchMarginPpt"),
+                RequirePpt(row, "nonSeatBonusPpt"),
+                RequireNonNegative(row, "buildUpScoreBonus"),
+                RequireNonNegative(row, "depotBaseScore"),
+                RequireNonNegative(row, "awayDepotScoreBonus"),
+                RequireEconomyFactionId(row),
                 minGarrison,
                 JsonUtil.Int32(JsonUtil.Field(row, "taskForceTargetSize"), "taskForceTargetSize"),
                 (AiPosture)defaultPosture);
@@ -442,53 +869,92 @@ namespace Wasteland.Sim.Ai
 
         private static AiDifficultyProfile ParseDifficulty(JsonValue row)
         {
-            string fogCheat = JsonUtil.String(JsonUtil.Field(row, "FogCheat"), "FogCheat");
+            string fogCheat = JsonUtil.String(JsonUtil.Field(row, "fogCheat"), "fogCheat");
             if (fogCheat != AiConstants.FogCheatNone)
             {
-                throw new FormatException("FogCheat must be 'none' at every difficulty.");
+                throw new FormatException("fogCheat must be 'none' at every difficulty.");
             }
 
-            int cadence = JsonUtil.Int32(JsonUtil.Field(row, "StrategicCadenceTicks"), "StrategicCadenceTicks");
+            int cadence = JsonUtil.Int32(JsonUtil.Field(row, "strategicCadenceTicks"), "strategicCadenceTicks");
             if (cadence < 1)
             {
-                throw new FormatException("StrategicCadenceTicks must be >= 1.");
+                throw new FormatException("strategicCadenceTicks must be >= 1.");
             }
 
-            int reaction = JsonUtil.Int32(JsonUtil.Field(row, "ReactionExtraTicks"), "ReactionExtraTicks");
+            int reaction = JsonUtil.Int32(JsonUtil.Field(row, "reactionExtraTicks"), "reactionExtraTicks");
             if (reaction < 0)
             {
-                throw new FormatException("ReactionExtraTicks must be >= 0.");
+                throw new FormatException("reactionExtraTicks must be >= 0.");
             }
 
-            int economyBonus = JsonUtil.Int32(JsonUtil.Field(row, "EconomyBonusPpt"), "EconomyBonusPpt");
-            if (economyBonus < 0)
-            {
-                throw new FormatException("EconomyBonusPpt must be >= 0.");
-            }
-
-            int maxActiveOrders = JsonUtil.Int32(JsonUtil.Field(row, "MaxActiveOrders"), "MaxActiveOrders");
+            int maxActiveOrders = JsonUtil.Int32(JsonUtil.Field(row, "maxActiveOrders"), "maxActiveOrders");
             if (maxActiveOrders < 1)
             {
-                throw new FormatException("MaxActiveOrders must be >= 1.");
+                throw new FormatException("maxActiveOrders must be >= 1.");
             }
 
             return new AiDifficultyProfile(
                 JsonUtil.String(JsonUtil.Field(row, "id"), "id"),
                 reaction,
                 cadence,
-                JsonUtil.Int32(JsonUtil.Field(row, "AggressionMulPpt"), "AggressionMulPpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "ScoutCadenceTicks"), "ScoutCadenceTicks"),
+                RequirePpt(row, "aggressionMulPpt"),
+                JsonUtil.Int32(JsonUtil.Field(row, "scoutCadenceTicks"), "scoutCadenceTicks"),
                 fogCheat,
-                JsonUtil.Int32(JsonUtil.Field(row, "MemoryDecayPerCadencePpt"), "MemoryDecayPerCadencePpt"),
-                economyBonus,
-                JsonUtil.Int32(JsonUtil.Field(row, "BuildSpeedBonusPpt"), "BuildSpeedBonusPpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "VisionRadiusBonusCm"), "VisionRadiusBonusCm"),
-                JsonUtil.Int32(JsonUtil.Field(row, "MicroQuality"), "MicroQuality"),
-                JsonUtil.Int32(JsonUtil.Field(row, "MistakeRatePpt"), "MistakeRatePpt"),
-                JsonUtil.Int32(JsonUtil.Field(row, "RetreatThresholdMulPpt"), "RetreatThresholdMulPpt"),
+                RequirePpt(row, "memoryDecayPerCadencePpt"),
+                RequirePpt(row, "economyBonusPpt"),
+                RequirePpt(row, "buildSpeedBonusPpt"),
+                JsonUtil.Int32(JsonUtil.Field(row, "visionRadiusBonusCm"), "visionRadiusBonusCm"),
+                JsonUtil.Int32(JsonUtil.Field(row, "microQuality"), "microQuality"),
+                RequirePpt(row, "mistakeRatePpt"),
+                RequirePpt(row, "retreatThresholdMulPpt"),
                 maxActiveOrders,
-                JsonUtil.Int32(JsonUtil.Field(row, "MaxCandidateGoals"), "MaxCandidateGoals"),
-                JsonUtil.Int32(JsonUtil.Field(row, "manpowerReserveSeconds"), "manpowerReserveSeconds"));
+                JsonUtil.Int32(JsonUtil.Field(row, "maxCandidateGoals"), "maxCandidateGoals"),
+                JsonUtil.Int32(JsonUtil.Field(row, "manpowerReserveSeconds"), "manpowerReserveSeconds"),
+                RequireManpowerCost(row));
+        }
+
+        private static int RequireManpowerCost(JsonValue row)
+        {
+            int value = JsonUtil.Int32(JsonUtil.Field(row, "battalionManpowerCost"), "battalionManpowerCost");
+            if (value < 1)
+            {
+                throw new FormatException("battalionManpowerCost must be >= 1.");
+            }
+
+            return value;
+        }
+
+        private static string RequireEconomyFactionId(JsonValue row)
+        {
+            string id = JsonUtil.String(JsonUtil.Field(row, "economyFactionId"), "economyFactionId");
+            if (id.Length < 1)
+            {
+                throw new FormatException("economyFactionId must be a non-empty string.");
+            }
+
+            return id;
+        }
+
+        private static int RequireNonNegative(JsonValue row, string key)
+        {
+            int value = JsonUtil.Int32(JsonUtil.Field(row, key), key);
+            if (value < 0)
+            {
+                throw new FormatException(key + " must be >= 0.");
+            }
+
+            return value;
+        }
+
+        private static int RequirePpt(JsonValue row, string key)
+        {
+            int value = JsonUtil.Int32(JsonUtil.Field(row, key), key);
+            if (value < 0)
+            {
+                throw new FormatException(key + " must be >= 0.");
+            }
+
+            return value;
         }
 
         private static void RequireUniquePersonalityIds(AiPersonalityProfile[] rows)
@@ -593,6 +1059,44 @@ namespace Wasteland.Sim.Ai
 
                 factionIds[j + 1] = factionId;
                 personalityIds[j + 1] = personalityId;
+            }
+        }
+
+        internal sealed class RulesState
+        {
+            public bool HasCapture;
+            public readonly int[] CaptureTicks = new int[AiHoldingClass.Count];
+            public readonly int[] ZoneRadiusCm = new int[AiHoldingClass.Count];
+            public int FortPerLevelPpt;
+            public int FortMaxPpt;
+            public int DecayStartsAfterTicks;
+            public int DecayTicksPerTick;
+            public bool HasEconomy;
+            public readonly int[] IncomePerMin = new int[AiHoldingClass.Count];
+            public int AccrualIntervalTicks;
+            public int AccrualIntervalsPerMinute;
+            public string[] EconomyFactionIds = Array.Empty<string>();
+            public int[] HqManpowerPerMin = Array.Empty<int>();
+            public int[] ManpowerModifierPpt = Array.Empty<int>();
+
+            public RulesState Clone()
+            {
+                RulesState copy = new RulesState();
+                copy.HasCapture = HasCapture;
+                Array.Copy(CaptureTicks, copy.CaptureTicks, CaptureTicks.Length);
+                Array.Copy(ZoneRadiusCm, copy.ZoneRadiusCm, ZoneRadiusCm.Length);
+                copy.FortPerLevelPpt = FortPerLevelPpt;
+                copy.FortMaxPpt = FortMaxPpt;
+                copy.DecayStartsAfterTicks = DecayStartsAfterTicks;
+                copy.DecayTicksPerTick = DecayTicksPerTick;
+                copy.HasEconomy = HasEconomy;
+                Array.Copy(IncomePerMin, copy.IncomePerMin, IncomePerMin.Length);
+                copy.AccrualIntervalTicks = AccrualIntervalTicks;
+                copy.AccrualIntervalsPerMinute = AccrualIntervalsPerMinute;
+                copy.EconomyFactionIds = (string[])EconomyFactionIds.Clone();
+                copy.HqManpowerPerMin = (int[])HqManpowerPerMin.Clone();
+                copy.ManpowerModifierPpt = (int[])ManpowerModifierPpt.Clone();
+                return copy;
             }
         }
     }

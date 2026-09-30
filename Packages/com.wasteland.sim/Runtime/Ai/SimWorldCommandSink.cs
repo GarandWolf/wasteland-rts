@@ -5,8 +5,11 @@ using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
 {
-    /// <summary>Adapter: AI orders go through <see cref="SimWorld.Submit"/> only.</summary>
-    public sealed class SimWorldCommandSink : ISimCommandSink, ISimWorldView
+    /// <summary>
+    /// Adapter: spawn/move go through <see cref="SimWorld.Submit"/>. Build is
+    /// accepted here so SimWorld does not stub buildings.
+    /// </summary>
+    public sealed class SimWorldCommandSink : ISimCommandSink, ISimWorldView, ICaptureOccupancyView
     {
         private readonly SimWorld _world;
 
@@ -35,6 +38,11 @@ namespace Wasteland.Sim.Ai
             if (command.IssuedTick != Tick)
             {
                 command = command.WithIssuedTick(Tick);
+            }
+
+            if (command.Kind == CommandKind.Build)
+            {
+                return command;
             }
 
             return _world.Submit(command);
@@ -67,6 +75,44 @@ namespace Wasteland.Sim.Ai
 
             // Fog-honest: no vision / LoS hook on main yet. Never leak live enemies.
             into.Clear();
+        }
+
+        public CaptureZoneOccupancyResult OccupancyOf(int xCm, int yCm, int radiusCm)
+        {
+            if (radiusCm < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(radiusCm));
+            }
+
+            long radiusSq = (long)radiusCm * radiusCm;
+            int occupant = 0;
+            IReadOnlyList<SimBattalion> battalions = _world.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                long dx = (long)battalion.PositionXCm - xCm;
+                long dy = (long)battalion.PositionYCm - yCm;
+                if ((dx * dx) + (dy * dy) > radiusSq)
+                {
+                    continue;
+                }
+
+                if (occupant == 0)
+                {
+                    occupant = battalion.OwnerId;
+                }
+                else if (occupant != battalion.OwnerId)
+                {
+                    return new CaptureZoneOccupancyResult(CaptureOccupancyKind.Contested, 0);
+                }
+            }
+
+            if (occupant == 0)
+            {
+                return new CaptureZoneOccupancyResult(CaptureOccupancyKind.Empty, 0);
+            }
+
+            return new CaptureZoneOccupancyResult(CaptureOccupancyKind.OneFaction, occupant);
         }
 
         public int CountOwnBattalions(int factionId)

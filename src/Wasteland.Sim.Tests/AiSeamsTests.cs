@@ -1,7 +1,9 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Commands;
+using Wasteland.Sim.Events;
 using Wasteland.Sim.Movement;
 using Wasteland.Sim.World;
 using Xunit;
@@ -112,6 +114,7 @@ namespace Wasteland.Sim.Tests
                 reader.ReadUInt64();
                 reader.ReadInt32();
                 reader.ReadInt32();
+                reader.ReadInt32();
                 reader.ReadString();
                 reader.ReadString();
                 offset = (int)reader.BaseStream.Position;
@@ -123,6 +126,66 @@ namespace Wasteland.Sim.Tests
             InvalidDataException ex = Assert.Throws<InvalidDataException>(() => other.Ai.Load(mutated));
             Assert.Contains("ReactionExtraTicks", ex.Message);
             other.Shutdown();
+        }
+
+        [Fact]
+        public void Load_RejectsOutOfRangePosture_AndLeavesHashUnchanged()
+        {
+            AiMatchHost host = StartHost();
+            host.Run(80);
+            byte[] blob = host.Ai.Save();
+            host.Shutdown();
+
+            int postureOffset = FirstFactionIntOffset(blob) + (9 * sizeof(int));
+            byte[] mutated = (byte[])blob.Clone();
+            mutated[postureOffset] = (byte)((int)AiPosture.Counterattack + 1);
+
+            AiMatchHost other = StartHost();
+            ulong before = other.Ai.HashState();
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => other.Ai.Load(mutated));
+            Assert.Contains("posture", ex.Message);
+            Assert.Equal(before, other.Ai.HashState());
+            other.Shutdown();
+        }
+
+        [Fact]
+        public void Load_FailedCollectionCountLeavesHashUnchanged()
+        {
+            AiMatchHost host = StartHost();
+            host.Run(80);
+            byte[] blob = host.Ai.Save();
+            host.Shutdown();
+
+            int orderCountOffset = FirstFactionIntOffset(blob) + (9 * sizeof(int)) + 1 + sizeof(int);
+            byte[] mutated = (byte[])blob.Clone();
+            mutated[orderCountOffset] = 0xFF;
+            mutated[orderCountOffset + 1] = 0xFF;
+            mutated[orderCountOffset + 2] = 0xFF;
+            mutated[orderCountOffset + 3] = 0x7F;
+
+            AiMatchHost other = StartHost();
+            ulong before = other.Ai.HashState();
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => other.Ai.Load(mutated));
+            Assert.Contains("slot capacity", ex.Message);
+            Assert.Equal(before, other.Ai.HashState());
+            other.Shutdown();
+        }
+
+        private static int FirstFactionIntOffset(byte[] blob)
+        {
+            using (BinaryReader reader = new BinaryReader(new MemoryStream(blob)))
+            {
+                reader.ReadInt32();
+                reader.ReadUInt64();
+                reader.ReadUInt64();
+                reader.ReadUInt64();
+                reader.ReadInt32();
+                reader.ReadInt32();
+                reader.ReadInt32();
+                reader.ReadString();
+                reader.ReadString();
+                return (int)reader.BaseStream.Position;
+            }
         }
 
         [Fact]
@@ -140,12 +203,133 @@ namespace Wasteland.Sim.Tests
         {
             AiMatchHost host = StartHost();
             host.Run(200);
-            Assert.Equal(0, host.World.BattalionCount);
-            Assert.Empty(host.World.Events);
-            Assert.IsType<SimWorldCommandSink>(host.Ai.Commands);
+            Assert.IsType<LoggingCommandSink>(host.Ai.Commands);
             Assert.Equal(host.World.CommandDelayTicks, host.Ai.Commands.CommandDelayTicks);
             Assert.Equal(SimConfig.DefaultCommandDelayTicks, host.World.CommandDelayTicks);
+            for (int i = 0; i < host.World.Events.Count; i++)
+            {
+                SimEvent ev = host.World.Events[i];
+                if (ev.Kind == SimEventKind.CommandRejected)
+                {
+                    Assert.NotEqual(CommandRejectReason.UnknownKind, ev.RejectReason);
+                }
+            }
+
+            Assert.True(host.CommandLog.Count > 0);
+            for (int i = 0; i < host.CommandLog.Count; i++)
+            {
+                Assert.Equal(0, host.CommandLog[i].ExecuteTick);
+            }
+
             host.Shutdown();
+        }
+
+        [Fact]
+        public void ReactionDelayQueue_SubmitsOnlyAfterExtraTicks()
+        {
+            AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
+            int extra = balance.GetDifficulty(AiConstants.DifficultyNormal).ReactionExtraTicks;
+            Assert.Equal(12, extra);
+
+            AiMatchHost host = StartHost();
+            int pending = 0;
+            while (host.Tick < 200)
+            {
+                pending = TotalPending(host.Ai);
+                if (pending > 0)
+                {
+                    break;
+                }
+
+                host.Step();
+            }
+
+            Assert.True(pending > 0);
+            Assert.Empty(host.CommandLog);
+            int ready = FirstReadyTick(host.Ai);
+            Assert.True(ready > host.Tick);
+            while (host.Tick < ready)
+            {
+                host.Step();
+            }
+
+            host.Step();
+            Assert.True(host.CommandLog.Count > 0);
+            Assert.Equal(ready, host.CommandLog[0].IssuedTick);
+            Assert.Equal(0, host.CommandLog[0].ExecuteTick);
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void ReactionDelayQueue_IsHashedAndRestoredOnSaveLoad()
+        {
+            AiMatchHost host = StartHost();
+            while (host.Tick < 200 && TotalPending(host.Ai) == 0)
+            {
+                host.Step();
+            }
+
+            Assert.True(TotalPending(host.Ai) > 0);
+            Assert.Empty(host.CommandLog);
+            ulong before = host.Ai.HashState();
+            byte[] blob = host.Ai.Save();
+            int pending = TotalPending(host.Ai);
+            int readyTick = host.Ai.Owned.FactionAt(0).PendingCount > 0
+                ? host.Ai.Owned.FactionAt(0).Pending[0].ReadyTick
+                : host.Ai.Owned.FactionAt(1).Pending[0].ReadyTick;
+
+            AiMatchHost restored = StartHost();
+            restored.Ai.Load(blob);
+            Assert.Equal(before, restored.Ai.HashState());
+            Assert.Equal(pending, TotalPending(restored.Ai));
+            Assert.Equal(readyTick, FirstReadyTick(restored.Ai));
+            restored.Shutdown();
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void Brutal_HasNoReactionDelayOnSubmit()
+        {
+            AiMatchHost host = AiMatchHost.Start(
+                MatchConfig.Default(0xA11EEDUL),
+                LoadGorgeBytes(),
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                AiConstants.DifficultyBrutal,
+                AiBalanceTablesTests.LoadBalance());
+            Assert.Equal(0, host.Ai.Difficulty.ReactionExtraTicks);
+            host.Run(80);
+            Assert.True(host.CommandLog.Count > 0);
+            Assert.Equal(0, host.CommandLog[0].ExecuteTick);
+            host.Shutdown();
+        }
+
+        private static int TotalPending(EnemyAi ai)
+        {
+            int total = 0;
+            for (int i = 0; i < ai.Owned.FactionCount; i++)
+            {
+                total += ai.Owned.FactionAt(i).PendingCount;
+            }
+
+            return total;
+        }
+
+        private static int FirstReadyTick(EnemyAi ai)
+        {
+            int best = int.MaxValue;
+            for (int i = 0; i < ai.Owned.FactionCount; i++)
+            {
+                AiFactionState faction = ai.Owned.FactionAt(i);
+                for (int p = 0; p < faction.PendingCount; p++)
+                {
+                    if (faction.Pending[p].ReadyTick < best)
+                    {
+                        best = faction.Pending[p].ReadyTick;
+                    }
+                }
+            }
+
+            return best;
         }
 
         [Fact]
@@ -178,6 +362,41 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(1, host.World.BattalionCount);
             Assert.Equal(1, host.World.GetBattalion(7).OwnerId);
             host.Shutdown();
+        }
+
+        [Fact]
+        public void SimWorld_RejectsBuildAsUnknownKind()
+        {
+            SimWorld world = new SimWorld(MatchConfig.Default(1UL));
+            world.Submit(SimCommand.Build(0, 1, 0, 0, AiConstants.BuildingTagDepot));
+            world.Step();
+            world.Step();
+            world.Step();
+            Assert.Single(world.Events);
+            Assert.Equal(SimEventKind.CommandRejected, world.Events[0].Kind);
+            Assert.Equal(CommandRejectReason.UnknownKind, world.Events[0].RejectReason);
+        }
+
+        [Fact]
+        public void AiCommandSink_AcceptsBuildWithoutForwardingToSimWorld()
+        {
+            SimWorld world = new SimWorld(MatchConfig.Default(1UL));
+            SimWorldCommandSink sink = new SimWorldCommandSink(world);
+            sink.Submit(SimCommand.Build(0, 1, 100, 200, AiConstants.BuildingTagDepot));
+            world.Step();
+            world.Step();
+            world.Step();
+            Assert.Empty(world.Events);
+            Assert.Equal(0, world.BattalionCount);
+        }
+
+        [Fact]
+        public void HomeSeeder_MapsLaunchPersonalities()
+        {
+            IAiHomeSeeder seeder = new AiHomeSeeder();
+            Assert.Equal(AiHomeSeeder.RemnantHomeTerritoryId, seeder.TerritoryIdFor(AiConstants.PersonalityWarlord));
+            Assert.Equal(AiHomeSeeder.CompactHomeTerritoryId, seeder.TerritoryIdFor(AiConstants.PersonalitySettler));
+            Assert.Equal(0, seeder.TerritoryIdFor(AiConstants.PersonalityRaider));
         }
 
         [Fact]
@@ -228,6 +447,270 @@ namespace Wasteland.Sim.Tests
             host.Shutdown();
         }
 
+        [Fact]
+        public void ReactionDelayQueue_DropsLowestPriorityWhenFull()
+        {
+            AiMatchHost host = StartHost();
+            AiFactionState faction = host.Ai.Owned.FactionAt(0);
+            for (int i = 0; i < AiConstants.PendingCommandCapacity; i++)
+            {
+                AiPendingCommand move = default;
+                move.ReadyTick = 1000;
+                move.BattalionId = 100 + i;
+                move.Kind = CommandKind.Move;
+                Assert.True(faction.EnqueuePending(move));
+            }
+
+            Assert.Equal(AiConstants.PendingCommandCapacity, faction.PendingCount);
+            ulong full = host.Ai.HashState();
+
+            AiPendingCommand spawn = default;
+            spawn.ReadyTick = 1;
+            spawn.BattalionId = 1;
+            spawn.Kind = CommandKind.SpawnBattalion;
+            Assert.True(faction.EnqueuePending(spawn));
+            Assert.Equal(AiConstants.PendingCommandCapacity, faction.PendingCount);
+            Assert.Equal(1, faction.PendingDropped);
+            Assert.NotEqual(full, host.Ai.HashState());
+
+            bool foundSpawn = false;
+            bool foundReplacedMove = false;
+            for (int i = 0; i < faction.PendingCount; i++)
+            {
+                if (faction.Pending[i].Kind == CommandKind.SpawnBattalion
+                    && faction.Pending[i].BattalionId == 1)
+                {
+                    foundSpawn = true;
+                }
+
+                if (faction.Pending[i].BattalionId == 100 + AiConstants.PendingCommandCapacity - 1)
+                {
+                    foundReplacedMove = true;
+                }
+            }
+
+            Assert.True(foundSpawn);
+            Assert.False(foundReplacedMove);
+
+            AiPendingCommand build = default;
+            build.ReadyTick = 9999;
+            build.BattalionId = 9999;
+            build.Kind = CommandKind.Build;
+            Assert.False(faction.EnqueuePending(build));
+            Assert.Equal(2, faction.PendingDropped);
+            Assert.Equal(AiConstants.PendingCommandCapacity, faction.PendingCount);
+
+            byte[] blob = host.Ai.Save();
+            AiMatchHost restored = StartHost();
+            restored.Ai.Load(blob);
+            Assert.Equal(2, restored.Ai.Owned.FactionAt(0).PendingDropped);
+            Assert.Equal(host.Ai.HashState(), restored.Ai.HashState());
+            restored.Shutdown();
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void CaptureOccupancy_ReturnsOnlyEmptyOneFactionOrContested()
+        {
+            SimWorld world = new SimWorld(MatchConfig.Default(1UL));
+            SimWorldCommandSink sink = new SimWorldCommandSink(world);
+            CaptureZoneOccupancyResult empty = sink.OccupancyOf(0, 0, 80000);
+            Assert.Equal(CaptureOccupancyKind.Empty, empty.Kind);
+            Assert.Equal(0, empty.FactionId);
+
+            sink.Submit(SimCommand.SpawnBattalion(0, 1, 11, 0, 0, 100));
+            sink.Submit(SimCommand.SpawnBattalion(0, 2, 12, 0, 0, 100));
+            world.Step();
+            world.Step();
+            world.Step();
+
+            CaptureZoneOccupancyResult contested = sink.OccupancyOf(0, 0, 80000);
+            Assert.Equal(CaptureOccupancyKind.Contested, contested.Kind);
+            Assert.Equal(0, contested.FactionId);
+
+            CaptureZoneOccupancyResult far = sink.OccupancyOf(5_000_000, 5_000_000, 100);
+            Assert.Equal(CaptureOccupancyKind.Empty, far.Kind);
+        }
+
+        [Fact]
+        public void LoggingCommandSink_CapsTheRecordedLog()
+        {
+            Assert.Equal(4096, AiConstants.CommandLogCapacity);
+            SimWorld world = new SimWorld(MatchConfig.Default(1UL));
+            LoggingCommandSink sink = new LoggingCommandSink(world);
+            for (int i = 0; i < 4; i++)
+            {
+                sink.Submit(SimCommand.SpawnBattalion(0, 1, 20 + i, i, 0, 100));
+            }
+
+            Assert.Equal(4, sink.Log.Count);
+            Assert.Equal(0, sink.DroppedFromLog);
+            Assert.Equal(world.Tick, sink.Log[0].IssuedTick);
+
+            for (int i = 0; i < AiConstants.CommandLogCapacity + 2; i++)
+            {
+                sink.Submit(SimCommand.Build(0, 1, i, 0, AiConstants.BuildingTagDepot));
+            }
+
+            Assert.Equal(AiConstants.CommandLogCapacity, sink.Log.Count);
+            Assert.Equal(6, sink.DroppedFromLog);
+        }
+
+        [Fact]
+        public void Load_RejectsTrailingBytes_AndLeavesLiveStateUntouched()
+        {
+            AiMatchHost host = StartHost();
+            host.Run(16);
+            byte[] blob = host.Ai.Save();
+            host.Shutdown();
+
+            byte[] trailing = new byte[blob.Length + 1];
+            Buffer.BlockCopy(blob, 0, trailing, 0, blob.Length);
+            trailing[trailing.Length - 1] = 0x7F;
+
+            AiMatchHost other = StartHost();
+            ulong before = other.Ai.HashState();
+            int live = other.Ai.Owned.FactionAt(0).Manpower;
+            other.Ai.Owned.FactionAt(0).Manpower = live + 12345;
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => other.Ai.Load(trailing));
+            Assert.Contains("trailing", ex.Message);
+            Assert.Equal(live + 12345, other.Ai.Owned.FactionAt(0).Manpower);
+            Assert.NotEqual(before, other.Ai.HashState());
+            other.Shutdown();
+        }
+
+        [Fact]
+        public void Load_CorruptSchema_LeavesLiveStateUntouched()
+        {
+            AiMatchHost host = StartHost();
+            byte[] blob = host.Ai.Save();
+            host.Shutdown();
+
+            byte[] mutated = (byte[])blob.Clone();
+            mutated[0] ^= 0xFF;
+            AiMatchHost other = StartHost();
+            int live = other.Ai.Owned.FactionAt(0).Manpower;
+            other.Ai.Owned.FactionAt(0).Manpower = live + 77;
+            Assert.Throws<InvalidDataException>(() => other.Ai.Load(mutated));
+            Assert.Equal(live + 77, other.Ai.Owned.FactionAt(0).Manpower);
+            other.Shutdown();
+        }
+
+        [Fact]
+        public void OverflowDrop_RemovesWholeSpawnOrderAndBuildDepot()
+        {
+            AiMatchHost host = StartHost();
+            AiFactionState faction = host.Ai.Owned.FactionAt(0);
+            AiOrder order = default;
+            order.Id = 9;
+            order.Type = AiGoalType.ClaimTown;
+            order.BattalionId = 77;
+            faction.Orders[0] = order;
+            faction.OrderCount = 1;
+
+            AiDepot depot = default;
+            depot.XCm = 11;
+            depot.YCm = 22;
+            depot.NodeId = 4;
+            faction.Depots[0] = depot;
+            faction.DepotCount = 1;
+
+            for (int i = 0; i < AiConstants.PendingCommandCapacity; i++)
+            {
+                AiPendingCommand fill = default;
+                fill.ReadyTick = 1000;
+                fill.BattalionId = 50 + i;
+                fill.Kind = CommandKind.Build;
+                fill.Arg0 = 11;
+                fill.Arg1 = 22;
+                Assert.True(faction.EnqueuePending(fill));
+            }
+
+            AiPendingCommand incoming = default;
+            incoming.ReadyTick = 1;
+            incoming.BattalionId = 1;
+            incoming.Kind = CommandKind.SpawnBattalion;
+            PendingEnqueueResult result = faction.EnqueuePending(incoming, out AiPendingCommand evicted);
+            Assert.Equal(PendingEnqueueResult.Replaced, result);
+            Assert.Equal(CommandKind.Build, evicted.Kind);
+            host.Ai.DropAssociated(faction, evicted);
+            Assert.Equal(0, faction.DepotCount);
+            Assert.Equal(1, faction.OrderCount);
+
+            faction.PendingCount = 0;
+            faction.PendingDropped = 0;
+            for (int i = 0; i < AiConstants.PendingCommandCapacity; i++)
+            {
+                AiPendingCommand fill = default;
+                fill.ReadyTick = 1000;
+                fill.BattalionId = 77;
+                fill.Kind = CommandKind.SpawnBattalion;
+                Assert.True(faction.EnqueuePending(fill));
+            }
+
+            incoming.BattalionId = 2;
+            incoming.ReadyTick = 1;
+            result = faction.EnqueuePending(incoming, out evicted);
+            Assert.Equal(PendingEnqueueResult.Replaced, result);
+            Assert.Equal(CommandKind.SpawnBattalion, evicted.Kind);
+            host.Ai.DropAssociated(faction, evicted);
+            Assert.Equal(0, faction.OrderCount);
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void ReplayTo_FailsWhenDroppedFromLogIsNonzero()
+        {
+            AiMatchHost host = StartHost();
+            LoggingCommandSink sink = (LoggingCommandSink)host.Ai.Commands;
+            while (sink.DroppedFromLog == 0)
+            {
+                host.Ai.Commands.Submit(SimCommand.Build(host.Tick, 1, 0, 0, AiConstants.BuildingTagDepot));
+            }
+
+            Assert.True(host.Ai.DroppedFromLog > 0);
+            ulong hashed = host.Ai.HashState();
+            host.Ai.Commands.Submit(SimCommand.Build(host.Tick, 1, 1, 0, AiConstants.BuildingTagDepot));
+            Assert.NotEqual(hashed, host.Ai.HashState());
+
+            byte[] blob = host.Ai.Save();
+            SimCommand[] log = new SimCommand[host.CommandLog.Count];
+            for (int i = 0; i < log.Length; i++)
+            {
+                log[i] = host.CommandLog[i];
+            }
+
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => AiMatchHost.ReplayTo(
+                MatchConfig.Default(0xA11EEDUL),
+                LoadGorgeBytes(),
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                AiConstants.DifficultyNormal,
+                AiBalanceTablesTests.LoadBalance(),
+                log,
+                blob,
+                host.Tick));
+            Assert.Contains("overflow", ex.Message);
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void RoadSupply_ReusesScratchAndChargesWorkUnits()
+        {
+            AiMatchHost host = StartHost();
+            RoadGraph roads = host.Ai.Map.Roads;
+            int from = roads.GetNodeId(0);
+            int to = roads.GetNodeId(roads.NodeCount > 8 ? 8 : roads.NodeCount - 1);
+            AiFactionState faction = host.Ai.Owned.FactionAt(0);
+            faction.WorkUnitsThisTick = 0;
+            AiRoadSupply supply = new AiRoadSupply();
+            int first = supply.DistanceCm(roads, from, to, faction);
+            Assert.Equal(1, faction.WorkUnitsThisTick);
+            int second = supply.DistanceCm(roads, from, to, faction);
+            Assert.Equal(2, faction.WorkUnitsThisTick);
+            Assert.Equal(first, second);
+            host.Shutdown();
+        }
+
         private static AiMatchHost StartHost()
         {
             return AiMatchHost.Start(
@@ -242,6 +725,12 @@ namespace Wasteland.Sim.Tests
         {
             string dir = GoldenMapFiles.FindDirectory(GoldenMapTests.MapFileName);
             return GoldenMapFiles.ReadWrmb(Path.Combine(dir, GoldenMapTests.MapFileName), GoldenMapTests.MapBytes);
+        }
+
+        internal static byte[] LoadGorgeV1Bytes()
+        {
+            string dir = GoldenMapFiles.FindDirectory(GoldenMapV1MarshTests.MapFileName);
+            return GoldenMapFiles.ReadWrmb(Path.Combine(dir, GoldenMapV1MarshTests.MapFileName), GoldenMapV1MarshTests.MapBytes);
         }
 
         internal static AiMapSnapshot LoadGorgeMap()
