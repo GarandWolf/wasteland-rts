@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "dataVersion": 6,
+  "dataVersion": 7,
   "scenery": {
     "populationBelow": 50,
     "capturable": false

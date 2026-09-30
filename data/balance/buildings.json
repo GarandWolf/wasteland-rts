@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "dataVersion": 6,
+  "dataVersion": 7,
   "fortification": {
     "captureTimerPerLevelPpt": 250,
     "captureTimerMaxPpt": 500,
