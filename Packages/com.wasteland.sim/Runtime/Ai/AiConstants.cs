@@ -6,7 +6,7 @@ namespace Wasteland.Sim.Ai
         public const int SchemaVersion = 1;
         public const int BalanceSchemaVersion = 1;
         public const int DataVersion = 1;
-        public const int StateSchemaVersion = 6;
+        public const int StateSchemaVersion = 7;
         public const int PendingCommandCapacity = 128;
         public const int CommandLogCapacity = 4096;
         public const int TickRateHz = SimConfig.TickRateHz;
@@ -45,6 +45,9 @@ namespace Wasteland.Sim.Ai
         public const int DepotMinSpacingCm = 804670;
         public const int MaxDepotsPerNode = 1;
         public const int BuildingTagDepot = 1;
+        public const int UnitKindInfantry = 1;
+        public const int UnitKindEngineer = 2;
+        public const int UnitKindTierII = 3;
 
         public const string TierIITickNone = "none";
         public const int ClaimMarchSpeedCmPerSecond = 25000;
@@ -95,6 +98,8 @@ namespace Wasteland.Sim.Ai
         None = 0,
         ClaimTown = 1,
         PlaceDepot = 2,
-        ExpandEconomy = 3
+        ExpandEconomy = 3,
+        AttackTown = 4,
+        DefendTown = 5
     }
 }

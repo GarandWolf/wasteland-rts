@@ -245,6 +245,132 @@ namespace Wasteland.Sim.Ai
             return true;
         }
 
+        public bool TryGetTerritoryByStableKey(ulong stableKey, out AiTerritoryRecord territory)
+        {
+            int best = -1;
+            for (int i = 0; i < _territories.Length; i++)
+            {
+                if (_territories[i].StableKey != stableKey)
+                {
+                    continue;
+                }
+
+                if (best < 0 || _territories[i].Id < _territories[best].Id)
+                {
+                    best = i;
+                }
+            }
+
+            if (best < 0)
+            {
+                territory = default;
+                return false;
+            }
+
+            territory = _territories[best];
+            return true;
+        }
+
+        internal static AiMapSnapshot ForTests(
+            AiTownRecord[] towns,
+            AiTerritoryRecord[] territories,
+            RoadGraph roads)
+        {
+            AiTownRecord[] townCopy = towns == null
+                ? Array.Empty<AiTownRecord>()
+                : (AiTownRecord[])towns.Clone();
+            AiTerritoryRecord[] terrCopy = territories == null
+                ? Array.Empty<AiTerritoryRecord>()
+                : (AiTerritoryRecord[])territories.Clone();
+            SortTowns(townCopy);
+            return new AiMapSnapshot(
+                0,
+                0UL,
+                0UL,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                townCopy,
+                terrCopy,
+                Array.Empty<AiChokepointRecord>(),
+                roads,
+                new EmptyAdjacency(terrCopy));
+        }
+
+        private static void SortTowns(AiTownRecord[] towns)
+        {
+            for (int i = 1; i < towns.Length; i++)
+            {
+                AiTownRecord row = towns[i];
+                int j = i - 1;
+                while (j >= 0 && towns[j].Id > row.Id)
+                {
+                    towns[j + 1] = towns[j];
+                    j--;
+                }
+
+                towns[j + 1] = row;
+            }
+        }
+
+        private sealed class EmptyAdjacency : ITerritoryAdjacency
+        {
+            private readonly AiTerritoryRecord[] _territories;
+
+            public EmptyAdjacency(AiTerritoryRecord[] territories)
+            {
+                _territories = territories;
+            }
+
+            public string SourceName
+            {
+                get { return "TestEmpty"; }
+            }
+
+            public int TerritoryCount
+            {
+                get { return _territories.Length; }
+            }
+
+            public int TerritoryIdAt(int index)
+            {
+                return _territories[index].Id;
+            }
+
+            public bool Contains(int territoryId)
+            {
+                for (int i = 0; i < _territories.Length; i++)
+                {
+                    if (_territories[i].Id == territoryId)
+                    {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            public bool AreNeighbors(int territoryIdA, int territoryIdB)
+            {
+                _ = territoryIdA;
+                _ = territoryIdB;
+                return false;
+            }
+
+            public void CopyNeighbors(int territoryId, List<int> into)
+            {
+                _ = territoryId;
+                if (into != null)
+                {
+                    into.Clear();
+                }
+            }
+        }
+
         public int IndexOfTown(int townId)
         {
             int lo = 0;

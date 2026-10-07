@@ -123,6 +123,7 @@ namespace Wasteland.Sim.Ai
         public readonly int MaxCandidateGoals;
         public readonly int ManpowerReserveSeconds;
         public readonly int BattalionManpowerCost;
+        public readonly int AttackStrengthRatioPpt;
 
         internal AiDifficultyProfile(
             string id,
@@ -140,7 +141,8 @@ namespace Wasteland.Sim.Ai
             int maxActiveOrders,
             int maxCandidateGoals,
             int manpowerReserveSeconds,
-            int battalionManpowerCost)
+            int battalionManpowerCost,
+            int attackStrengthRatioPpt)
         {
             Id = id;
             ReactionExtraTicks = reactionExtraTicks;
@@ -158,6 +160,7 @@ namespace Wasteland.Sim.Ai
             MaxCandidateGoals = maxCandidateGoals;
             ManpowerReserveSeconds = manpowerReserveSeconds;
             BattalionManpowerCost = battalionManpowerCost;
+            AttackStrengthRatioPpt = attackStrengthRatioPpt;
         }
     }
 
@@ -167,7 +170,7 @@ namespace Wasteland.Sim.Ai
     /// Both files carry the same integer pair as the designer balance JSON:
     /// <c>schemaVersion</c> next to <c>dataVersion</c> (AI content is
     /// dataVersion 1; designer pack files are currently dataVersion 6).
-    /// Parse requires <c>dataVersion</c> as an int32 — missing or non-integer
+        /// Parse requires <c>dataVersion</c> as an int32 — missing or non-int
         /// values are rejected. <see cref="FromDirectory"/> also loads
         /// <c>rules.json</c> capture, supply caps, AI goal ceiling, difficulty
         /// income multipliers, and <c>economy.json</c> holding-tier / HQ /
@@ -184,6 +187,7 @@ namespace Wasteland.Sim.Ai
         public const string RuleIdSupplyScratch = "supply.connectivityScratchSize";
         public const string RuleIdWorkUnitsPerTick = "workUnitsPerTick";
         public const string RuleIdContestedHoldingPaysIncome = "contestedHoldingPaysIncome";
+        public const string RuleIdAttackStrengthRatioPpt = "attackStrengthRatioPpt";
 
         private readonly AiPersonalityProfile[] _personalities;
         private readonly AiDifficultyProfile[] _difficulties;
@@ -1044,8 +1048,10 @@ namespace Wasteland.Sim.Ai
                 throw new FormatException("maxCandidateGoals must be >= 1.");
             }
 
+            string id = JsonUtil.String(JsonUtil.Field(row, "id"), "id");
+            int attackRatio = ParseAttackStrengthRatioPpt(row, id);
             return new AiDifficultyProfile(
-                JsonUtil.String(JsonUtil.Field(row, "id"), "id"),
+                id,
                 reaction,
                 cadence,
                 RequirePpt(row, "aggressionMulPpt"),
@@ -1060,7 +1066,30 @@ namespace Wasteland.Sim.Ai
                 maxActiveOrders,
                 maxCandidateGoals,
                 JsonUtil.Int32(JsonUtil.Field(row, "manpowerReserveSeconds"), "manpowerReserveSeconds"),
-                RequireManpowerCost(row));
+                RequireManpowerCost(row),
+                attackRatio);
+        }
+
+        private static int ParseAttackStrengthRatioPpt(JsonValue row, string difficultyId)
+        {
+            bool required = difficultyId == AiConstants.DifficultyNormal;
+            if (!JsonUtil.TryField(row, RuleIdAttackStrengthRatioPpt, out JsonValue field))
+            {
+                if (required)
+                {
+                    throw new FormatException(RuleIdAttackStrengthRatioPpt);
+                }
+
+                return 0;
+            }
+
+            int value = JsonUtil.Int32(field, RuleIdAttackStrengthRatioPpt);
+            if (value < 1)
+            {
+                throw new FormatException(RuleIdAttackStrengthRatioPpt);
+            }
+
+            return value;
         }
 
         private static int RequireManpowerCost(JsonValue row)

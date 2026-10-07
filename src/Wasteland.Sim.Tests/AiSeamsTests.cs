@@ -393,10 +393,16 @@ namespace Wasteland.Sim.Tests
         [Fact]
         public void HomeSeeder_MapsLaunchPersonalities()
         {
-            IAiHomeSeeder seeder = new AiHomeSeeder();
-            Assert.Equal(AiHomeSeeder.RemnantHomeTerritoryId, seeder.TerritoryIdFor(AiConstants.PersonalityWarlord));
-            Assert.Equal(AiHomeSeeder.CompactHomeTerritoryId, seeder.TerritoryIdFor(AiConstants.PersonalitySettler));
-            Assert.Equal(0, seeder.TerritoryIdFor(AiConstants.PersonalityRaider));
+            AiMapSnapshot map = LoadGorgeMap();
+            IAiScenarioSeats seats = FixtureAiScenarioSeats.ForLaunchPersonalities(
+                map,
+                AiBalanceTablesTests.LoadBalance());
+            Assert.True(seats.TryGetByFaction("homestead_compact", out AiScenarioSeatView settler));
+            Assert.Equal(map.HoodRiverTownId, settler.HqTownId);
+            Assert.True(seats.TryGetByFaction("remnant_command", out AiScenarioSeatView remnant));
+            Assert.Equal(map.GoldendaleTownId, remnant.HqTownId);
+            Assert.Equal("remnant_command", remnant.FactionId);
+            Assert.False(seats.TryGetByFaction("missing_faction", out _));
         }
 
         [Fact]

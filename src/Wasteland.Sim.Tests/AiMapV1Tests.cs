@@ -169,7 +169,7 @@ namespace Wasteland.Sim.Tests
             host.Run(120);
 
             AiFactionState remnant = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA);
-            Assert.True(host.Ai.OwnsTerritory(remnant.FactionId, AiHomeSeeder.RemnantHomeTerritoryId));
+            Assert.True(host.Ai.OwnsTerritory(remnant.FactionId, remnant.HomeTerritoryId));
             Assert.False(host.Ai.OwnsTerritory(remnant.FactionId, AiConstants.WhiteSalmonTerritoryId));
             for (int i = 0; i < remnant.DepotCount; i++)
             {

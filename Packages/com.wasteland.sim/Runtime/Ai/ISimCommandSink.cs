@@ -76,15 +76,4 @@ namespace Wasteland.Sim.Ai
         void AccrueTick(int tick);
     }
 
-    /// <summary>
-    /// Starting homes are not map-authored. Personality → territory and
-    /// starting manpower until the sim owns spawn/HQ placement. Do not read
-    /// <c>rules.json</c> scenario here.
-    /// </summary>
-    public interface IAiHomeSeeder
-    {
-        int TerritoryIdFor(string personalityId);
-
-        void Seed(AiOwnedState owned, AiMapSnapshot map);
-    }
 }

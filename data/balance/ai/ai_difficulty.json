@@ -37,7 +37,8 @@
       "maxActiveOrders": 12,
       "maxCandidateGoals": 64,
       "manpowerReserveSeconds": 60,
-      "battalionManpowerCost": 20
+      "battalionManpowerCost": 20,
+      "attackStrengthRatioPpt": 1500
     },
     {
       "id": "hard",

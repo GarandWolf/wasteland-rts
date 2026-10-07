@@ -250,7 +250,7 @@ namespace Wasteland.Sim.Tests
             AiEconomyStub economy = new AiEconomyStub(host.Ai.Map, host.Ai.Owned, host.Ai.Balance, (ICaptureOccupancyView)host.Ai.Commands);
             int remnant = AiConstants.DefaultAiFactionA;
             int start = host.Ai.ManpowerOf(remnant);
-            Assert.Equal(AiHomeSeeder.StartingManpower, start);
+            Assert.Equal(300, start);
             int perMin = economy.IncomePerMinute(remnant);
             Assert.Equal(host.Ai.ManpowerIncomePerMinute(remnant), perMin);
             Assert.Equal(18, perMin);

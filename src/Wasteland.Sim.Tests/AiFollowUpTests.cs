@@ -288,9 +288,7 @@ namespace Wasteland.Sim.Tests
 
         private static AiBalanceTables WithContestedPays(bool pays)
         {
-            AiBalanceTables tables = AiBalanceTables.Parse(
-                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json"),
-                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json"));
+            AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
             AiBalanceTables.RulesState rules = AiBalanceTables.ParseCapture(
                 GoldenMapFiles.ReadRepoText("data/balance/rules.json"));
             string economy = GoldenMapFiles.ReadRepoText("data/balance/economy.json")
@@ -318,9 +316,7 @@ namespace Wasteland.Sim.Tests
         {
             string rulesJson = GoldenMapFiles.ReadRepoText("data/balance/rules.json")
                 .Replace("\"maxDepotsPerFaction\": 16", "\"maxDepotsPerFaction\": " + cap);
-            AiBalanceTables tables = AiBalanceTables.Parse(
-                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json"),
-                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json"));
+            AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
             AiBalanceTables.RulesState rules = AiBalanceTables.ParseCapture(rulesJson);
             AiBalanceTables.ParseEconomy(
                 GoldenMapFiles.ReadRepoText("data/balance/economy.json"),
@@ -413,7 +409,7 @@ namespace Wasteland.Sim.Tests
 
                 reader.ReadBoolean();
                 reader.ReadBoolean();
-                for (int i = 0; i < 11; i++)
+                for (int i = 0; i < 19; i++)
                 {
                     reader.ReadInt32();
                 }
@@ -459,6 +455,11 @@ namespace Wasteland.Sim.Tests
             int pendingCount = reader.ReadInt32();
             reader.ReadInt32();
             reader.ReadInt32();
+            for (int i = 0; i < 8; i++)
+            {
+                reader.ReadInt32();
+            }
+
             for (int r = 0; r < 4; r++)
             {
                 reader.ReadUInt64();

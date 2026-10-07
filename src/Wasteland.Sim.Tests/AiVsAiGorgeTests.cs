@@ -216,8 +216,10 @@ namespace Wasteland.Sim.Tests
                 dalles.XCm,
                 dalles.YCm,
                 radius);
-            Assert.True(host.Ai.Map.Adjacency.AreNeighbors(AiHomeSeeder.RemnantHomeTerritoryId, host.Ai.Map.TheDallesTerritoryId));
-            Assert.True(host.Ai.Map.Adjacency.AreNeighbors(AiHomeSeeder.CompactHomeTerritoryId, host.Ai.Map.TheDallesTerritoryId));
+            int remnantHome = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA).HomeTerritoryId;
+            int compactHome = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionB).HomeTerritoryId;
+            Assert.True(host.Ai.Map.Adjacency.AreNeighbors(remnantHome, host.Ai.Map.TheDallesTerritoryId));
+            Assert.True(host.Ai.Map.Adjacency.AreNeighbors(compactHome, host.Ai.Map.TheDallesTerritoryId));
             Assert.Equal(CaptureOccupancyKind.Contested, zone.Kind);
             Assert.Equal(0, zone.FactionId);
             Assert.Equal(0, host.Ai.Owned.TownOwnerAt(index));

@@ -12,7 +12,7 @@ namespace Wasteland.Sim.Tests
         /// (personalities + difficulty). Designer files under <c>data/balance</c>
         /// are not part of this pin. Re-pin when AI-owned files change.
         /// </summary>
-        public const ulong ExpectedAiOwnedBalanceKey = 0xA89B3C67EDEC2A7DUL;
+        public const ulong ExpectedAiOwnedBalanceKey = 0xE675A84C23F9E486UL;
 
         [Fact]
         public void AiOwnedFiles_MatchExpectedBalanceKey()
@@ -59,6 +59,8 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(40, normal.StrategicCadenceTicks);
             Assert.Equal(60, normal.ManpowerReserveSeconds);
             Assert.Equal(20, normal.BattalionManpowerCost);
+            Assert.Equal(1500, normal.AttackStrengthRatioPpt);
+            Assert.Equal(0, brutal.AttackStrengthRatioPpt);
             Assert.Equal(20, brutal.BattalionManpowerCost);
 
             AiPersonalityProfile warlordScores = tables.GetPersonality(AiConstants.PersonalityWarlord);

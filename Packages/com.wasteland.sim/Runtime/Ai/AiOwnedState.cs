@@ -88,6 +88,14 @@ namespace Wasteland.Sim.Ai
         public int PickedPostCount;
         public int PendingCount;
         public int PendingDropped;
+        public int AttackTargetTownId;
+        public int DefendTownId;
+        public int LastIssuedCommandId;
+        public int LastRejectCode;
+        public int RejectBackoffUntilTick;
+        public int RejectStreak;
+        public int DepotSiteTick;
+        public int DepotActiveTick;
         public readonly AiOrder[] Orders;
         public readonly AiDepot[] Depots;
         public readonly int[] PickedPostIds;
@@ -376,6 +384,13 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.DepotCapSkips);
                 hash.AddInt(faction.PendingCount);
                 hash.AddInt(faction.PendingDropped);
+                hash.AddInt(faction.AttackTargetTownId);
+                hash.AddInt(faction.DefendTownId);
+                hash.AddInt(faction.LastRejectCode);
+                hash.AddInt(faction.RejectBackoffUntilTick);
+                hash.AddInt(faction.RejectStreak);
+                hash.AddInt(faction.DepotSiteTick);
+                hash.AddInt(faction.DepotActiveTick);
                 hash.AddULong(faction.StrategyRng.State);
                 hash.AddULong(faction.StrategyRng.Increment);
                 hash.AddULong(faction.TacticalRng.State);
@@ -477,6 +492,14 @@ namespace Wasteland.Sim.Ai
                 writer.Write(faction.PendingCount);
                 writer.Write(faction.PendingDropped);
                 writer.Write(faction.DepotCapSkips);
+                writer.Write(faction.AttackTargetTownId);
+                writer.Write(faction.DefendTownId);
+                writer.Write(faction.LastIssuedCommandId);
+                writer.Write(faction.LastRejectCode);
+                writer.Write(faction.RejectBackoffUntilTick);
+                writer.Write(faction.RejectStreak);
+                writer.Write(faction.DepotSiteTick);
+                writer.Write(faction.DepotActiveTick);
                 WriteRng(writer, faction.StrategyRng);
                 WriteRng(writer, faction.TacticalRng);
                 WriteRng(writer, faction.MistakeRng);
@@ -674,6 +697,14 @@ namespace Wasteland.Sim.Ai
             loaded.PendingCount = reader.ReadInt32();
             loaded.PendingDropped = reader.ReadInt32();
             loaded.DepotCapSkips = reader.ReadInt32();
+            loaded.AttackTargetTownId = reader.ReadInt32();
+            loaded.DefendTownId = reader.ReadInt32();
+            loaded.LastIssuedCommandId = reader.ReadInt32();
+            loaded.LastRejectCode = reader.ReadInt32();
+            loaded.RejectBackoffUntilTick = reader.ReadInt32();
+            loaded.RejectStreak = reader.ReadInt32();
+            loaded.DepotSiteTick = reader.ReadInt32();
+            loaded.DepotActiveTick = reader.ReadInt32();
             if (loaded.PendingDropped < 0)
             {
                 throw new InvalidDataException("AI PendingDropped is negative.");
@@ -682,6 +713,11 @@ namespace Wasteland.Sim.Ai
             if (loaded.DepotCapSkips < 0)
             {
                 throw new InvalidDataException("AI DepotCapSkips is negative.");
+            }
+
+            if (loaded.RejectStreak < 0 || loaded.LastRejectCode < 0)
+            {
+                throw new InvalidDataException("AI reject state must be >= 0.");
             }
 
             loaded.StrategyRng = ReadRng(reader);
@@ -771,6 +807,14 @@ namespace Wasteland.Sim.Ai
             faction.PendingCount = loaded.PendingCount;
             faction.PendingDropped = loaded.PendingDropped;
             faction.DepotCapSkips = loaded.DepotCapSkips;
+            faction.AttackTargetTownId = loaded.AttackTargetTownId;
+            faction.DefendTownId = loaded.DefendTownId;
+            faction.LastIssuedCommandId = loaded.LastIssuedCommandId;
+            faction.LastRejectCode = loaded.LastRejectCode;
+            faction.RejectBackoffUntilTick = loaded.RejectBackoffUntilTick;
+            faction.RejectStreak = loaded.RejectStreak;
+            faction.DepotSiteTick = loaded.DepotSiteTick;
+            faction.DepotActiveTick = loaded.DepotActiveTick;
             faction.StrategyRng = loaded.StrategyRng;
             faction.TacticalRng = loaded.TacticalRng;
             faction.MistakeRng = loaded.MistakeRng;
@@ -813,7 +857,7 @@ namespace Wasteland.Sim.Ai
         private static AiGoalType ReadGoalType(BinaryReader reader)
         {
             byte value = reader.ReadByte();
-            if (value > (byte)AiGoalType.ExpandEconomy)
+            if (value > (byte)AiGoalType.DefendTown)
             {
                 throw new InvalidDataException("AI order type byte is out of range.");
             }
@@ -852,6 +896,14 @@ namespace Wasteland.Sim.Ai
             public int PendingCount;
             public int PendingDropped;
             public int DepotCapSkips;
+            public int AttackTargetTownId;
+            public int DefendTownId;
+            public int LastIssuedCommandId;
+            public int LastRejectCode;
+            public int RejectBackoffUntilTick;
+            public int RejectStreak;
+            public int DepotSiteTick;
+            public int DepotActiveTick;
             public SimRandom StrategyRng;
             public SimRandom TacticalRng;
             public SimRandom MistakeRng;
