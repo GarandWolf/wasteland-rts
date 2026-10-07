@@ -4,6 +4,15 @@
 
 Scope: Remnant Command (player, HQ at Goldendale) vs Homestead Compact (AI, HQ at Hood River) on the real Columbia Gorge 100-mile bake (Gorge golden map **v1**, corrected build: pipeline `0.5.0-golden-v1.2`).
 
+## v0.7.2: `sanity.json` added, stale `derived.largestPopulation` removed (data only)
+
+Two data edits. No balance number changes and no gameplay change: unit, building, economy and rules values are untouched, and no code reads either edit yet. `dataVersion` stays 7 (both edits are additive or a removal of an unread derived field; the v0.7.1 convention applies, and `sanity.json` carries `dataVersion` 7 so the version stays equal across files).
+
+- **`sanity.json` added** next to `rules.json` (`data/balance/sanity.json`). It holds every threshold of the user-map balance sanity rules (`SAN-*`, spec `user-map-sanity-spec.md` v2, section 8): a `common` block, and `sizeClass.c100` / `sizeClass.c200` blocks with the 100-mile and 200-mile values. Integers only, plus the tier and faction ids as snake_case strings. The 200-mile values are extrapolated (no 200-mile map exists yet) and unvalidated. It includes the `SAN-BUDGET` cap `maxNodePops` (4,000,000 at 100 miles, 16,000,000 at 200 miles) and the population-override limits `overrideWarnMaxPpt` 100 and `overrideErrorMaxPpt` 250.
+- **The thresholds are owned by the game build.** They ship with the game and are never read from a map package or a Workshop upload. A scenario may only **lower** caps (`supply.maxDepotsPerFaction` up to the class `depotCap`, and `sanity.maxNodePops` up to the class `maxNodePops`), acknowledge WARN rule ids, and switch tier III on. It cannot raise a cap or ship thresholds of its own.
+- **`derived.largestPopulation` removed** from `scenarios/columbia_gorge_100mi_test.json`. It said 15000, and the map's largest town (The Dalles) is 15340, so the validator's `SCN-DERIVED-LARGEST-POP` check failed on the shipped scenario. The field is derived from the map and nothing reads it, so the fix is to drop it. Every other byte of the scenario file is unchanged, including `mapFileSha256`. The validator's exact-key-set check and the `SCN-DERIVED-LARGEST-POP` rule need the matching change on the designer-tooling side (not in this repo).
+- **BalanceKey** changes once, because the hash covers every file under `data/balance/` (a new file, an edited file and this notes file). `AiBalanceTablesTests.ExpectedFolderBalanceKey` is re-pinned in the same PR. No code loads `sanity.json` yet (the validator and the load gate come later), and `AiBalanceTables.FromDirectory` reads only named files, so the new file changes the hash and nothing else.
+
 ## v0.7.1: AI limit keys in rules.json (data only)
 
 Three limit keys added to `rules.json`. No balance number changes. Unit, building and economy files are untouched. `dataVersion` stays 7 (additive; old readers ignore unknown keys).
