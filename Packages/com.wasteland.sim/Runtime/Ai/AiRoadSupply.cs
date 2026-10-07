@@ -82,7 +82,7 @@ namespace Wasteland.Sim.Ai
         }
 
         /// <summary>
-        /// Single-source Dijkstra from <paramref name="fromIndex"/>. When
+        /// One-source Dijkstra from <paramref name="fromIndex"/>. When
         /// <paramref name="stopIndex"/> is a node index, stop on that node.
         /// When <paramref name="networkNodeIds"/> is set, stop as soon as any
         /// network node is settled (one multi-source-equivalent pass).
