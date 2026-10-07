@@ -343,7 +343,7 @@ namespace Wasteland.Sim.Tests
             public AiScenarioSeatView Seat;
             private AiBattalionPin[] _battalions = System.Array.Empty<AiBattalionPin>();
 
-            private Harness(RoadGraph roads, AiAttackTownInfo[] towns)
+            private Harness(RoadGraph roads, AiAttackTownInfo[] towns, int workUnitsPerTick)
             {
                 Roads = roads;
                 TownRows = towns;
@@ -360,7 +360,7 @@ namespace Wasteland.Sim.Tests
                     8,
                     1,
                     0,
-                    50000,
+                    workUnitsPerTick,
                     4,
                     4,
                     AiPosture.Attack,
@@ -375,6 +375,11 @@ namespace Wasteland.Sim.Tests
             }
 
             public static Harness Line()
+            {
+                return Line(50000);
+            }
+
+            public static Harness Line(int workUnitsPerTick)
             {
                 RoadGraph roads = Wrmb.ReadRoadGraph(
                     new RoadGraphBuilder()
@@ -391,7 +396,8 @@ namespace Wasteland.Sim.Tests
                         new AiAttackTownInfo(10, 1, 1, 0, 0, true),
                         new AiAttackTownInfo(20, 2, 2, 1000, 0, false),
                         new AiAttackTownInfo(30, 3, 3, 2000, 0, true)
-                    });
+                    },
+                    workUnitsPerTick);
             }
 
             public void SetBattalions(params AiBattalionPin[] pins)
@@ -406,6 +412,7 @@ namespace Wasteland.Sim.Tests
 
             public void Tick(int tick)
             {
+                Faction.WorkUnitsThisTick = 0;
                 Sink.Tick = tick;
                 int[] network = Network;
                 int networkCount = 1;

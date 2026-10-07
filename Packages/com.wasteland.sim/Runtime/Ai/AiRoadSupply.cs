@@ -7,8 +7,9 @@ namespace Wasteland.Sim.Ai
     /// Along-graph distances for depot pre-check and HQ/depot range.
     /// Reuses scratch buffers; they are neither hashed nor saved.
     /// Each settled node charges <see cref="AiFactionState.WorkUnitsThisTick"/>
-    /// against <see cref="AiFactionState.WorkUnitsPerTick"/>. A search that
-    /// exhausts the budget returns <see cref="AiConstants.UnreachableCm"/>.
+    /// against <see cref="AiFactionState.WorkUnitsPerTick"/>. Exhausting the
+    /// budget returns <see cref="AiSupplyStatus.BudgetExhausted"/>, not
+    /// unreachability.
     /// </summary>
     internal sealed class AiRoadSupply
     {
@@ -16,7 +17,7 @@ namespace Wasteland.Sim.Ai
         private bool[] _seen = Array.Empty<bool>();
         private readonly MinHeap _heap = new MinHeap(8);
 
-        public int DistanceCm(RoadGraph graph, int fromNodeId, int toNodeId, AiFactionState faction)
+        public AiSupplyResult DistanceCm(RoadGraph graph, int fromNodeId, int toNodeId, AiFactionState faction)
         {
             if (graph == null)
             {
@@ -25,19 +26,19 @@ namespace Wasteland.Sim.Ai
 
             if (fromNodeId == toNodeId)
             {
-                return 0;
+                return AiSupplyResult.Reached(0);
             }
 
             if (!graph.TryGetNodeIndex(fromNodeId, out int fromIndex)
                 || !graph.TryGetNodeIndex(toNodeId, out int toIndex))
             {
-                return AiConstants.UnreachableCm;
+                return AiSupplyResult.Unreachable();
             }
 
             return Search(graph, fromIndex, toIndex, Array.Empty<int>(), 0, faction);
         }
 
-        public int DistanceToNearestCm(
+        public AiSupplyResult DistanceToNearestCm(
             RoadGraph graph,
             int fromNodeId,
             int[] networkNodeIds,
@@ -51,19 +52,19 @@ namespace Wasteland.Sim.Ai
 
             if (networkNodeIds == null || networkCount < 1)
             {
-                return AiConstants.UnreachableCm;
+                return AiSupplyResult.Unreachable();
             }
 
             if (!graph.TryGetNodeIndex(fromNodeId, out int fromIndex))
             {
-                return AiConstants.UnreachableCm;
+                return AiSupplyResult.Unreachable();
             }
 
             for (int i = 0; i < networkCount; i++)
             {
                 if (networkNodeIds[i] == fromNodeId)
                 {
-                    return 0;
+                    return AiSupplyResult.Reached(0);
                 }
             }
 
@@ -77,8 +78,7 @@ namespace Wasteland.Sim.Ai
             int networkCount,
             AiFactionState faction)
         {
-            return DistanceToNearestCm(graph, fromNodeId, networkNodeIds, networkCount, faction)
-                < AiConstants.UnreachableCm;
+            return DistanceToNearestCm(graph, fromNodeId, networkNodeIds, networkCount, faction).IsReached;
         }
 
         /// <summary>
@@ -87,7 +87,7 @@ namespace Wasteland.Sim.Ai
         /// When <paramref name="networkNodeIds"/> is set, stop as soon as any
         /// network node is settled (one multi-source-equivalent pass).
         /// </summary>
-        private int Search(
+        private AiSupplyResult Search(
             RoadGraph graph,
             int fromIndex,
             int stopIndex,
@@ -116,7 +116,8 @@ namespace Wasteland.Sim.Ai
 
                 if (!TryCharge(faction))
                 {
-                    return AiConstants.UnreachableCm;
+                    faction.SupplyBudgetDefers++;
+                    return AiSupplyResult.BudgetExhausted();
                 }
 
                 _seen[index] = true;
@@ -127,12 +128,12 @@ namespace Wasteland.Sim.Ai
 
                 if (stopIndex >= 0 && index == stopIndex)
                 {
-                    return DistanceOf(index);
+                    return ReachedOf(index);
                 }
 
                 if (stopOnNetwork && IsNetworkIndex(graph, index, networkNodeIds, networkCount))
                 {
-                    return DistanceOf(index);
+                    return ReachedOf(index);
                 }
 
                 int start = graph.AdjOffset[index];
@@ -155,32 +156,7 @@ namespace Wasteland.Sim.Ai
                 }
             }
 
-            if (stopIndex >= 0)
-            {
-                return AiConstants.UnreachableCm;
-            }
-
-            if (!stopOnNetwork)
-            {
-                return AiConstants.UnreachableCm;
-            }
-
-            int best = AiConstants.UnreachableCm;
-            for (int i = 0; i < networkCount; i++)
-            {
-                if (!graph.TryGetNodeIndex(networkNodeIds[i], out int idx) || !_seen[idx])
-                {
-                    continue;
-                }
-
-                int d = DistanceOf(idx);
-                if (d < best)
-                {
-                    best = d;
-                }
-            }
-
-            return best;
+            return AiSupplyResult.Unreachable();
         }
 
         private static bool IsNetworkIndex(RoadGraph graph, int index, int[] networkNodeIds, int networkCount)
@@ -197,9 +173,14 @@ namespace Wasteland.Sim.Ai
             return false;
         }
 
-        private int DistanceOf(int index)
+        private AiSupplyResult ReachedOf(int index)
         {
-            return _dist[index] > int.MaxValue ? AiConstants.UnreachableCm : (int)_dist[index];
+            if (_dist[index] > int.MaxValue)
+            {
+                return AiSupplyResult.Unreachable();
+            }
+
+            return AiSupplyResult.Reached((int)_dist[index]);
         }
 
         private static bool TryCharge(AiFactionState faction)

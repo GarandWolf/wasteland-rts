@@ -29,19 +29,19 @@ namespace Wasteland.Sim.Tests
             AiFactionState faction = host.Ai.Owned.FactionAt(0);
             faction.WorkUnitsThisTick = 0;
             AiRoadSupply supply = new AiRoadSupply();
-            int multi = supply.DistanceToNearestCm(roads, from, network, n, faction);
+            AiSupplyResult multi = supply.DistanceToNearestCm(roads, from, network, n, faction);
             int best = AiConstants.UnreachableCm;
             for (int i = 0; i < n; i++)
             {
-                int d = supply.DistanceCm(roads, from, network[i], faction);
-                if (d < best)
+                AiSupplyResult d = supply.DistanceCm(roads, from, network[i], faction);
+                if (d.IsReached && d.DistanceCm < best)
                 {
-                    best = d;
+                    best = d.DistanceCm;
                 }
             }
 
-            Assert.Equal(best, multi);
-            Assert.True(multi < AiConstants.UnreachableCm);
+            Assert.True(multi.IsReached);
+            Assert.Equal(best, multi.DistanceCm);
             host.Shutdown();
 
             RoadGraph line = Wrmb.ReadRoadGraph(
@@ -55,14 +55,17 @@ namespace Wasteland.Sim.Tests
             AiFactionState tight = TestFaction(1);
             AiRoadSupply budgeted = new AiRoadSupply();
             int[] far = { 3 };
-            Assert.Equal(AiConstants.UnreachableCm, budgeted.DistanceToNearestCm(line, 1, far, 1, tight));
+            AiSupplyResult tightResult = budgeted.DistanceToNearestCm(line, 1, far, 1, tight);
+            Assert.Equal(AiSupplyStatus.BudgetExhausted, tightResult.Status);
             Assert.Equal(1, tight.WorkUnitsThisTick);
             Assert.True(tight.WorkUnitsThisTick <= tight.WorkUnitsPerTick);
+            Assert.Equal(1, tight.SupplyBudgetDefers);
 
             tight.WorkUnitsThisTick = 0;
             AiFactionState roomy = TestFaction(50000);
-            int along = budgeted.DistanceToNearestCm(line, 1, far, 1, roomy);
-            Assert.Equal(2000, along);
+            AiSupplyResult along = budgeted.DistanceToNearestCm(line, 1, far, 1, roomy);
+            Assert.True(along.IsReached);
+            Assert.Equal(2000, along.DistanceCm);
             Assert.True(roomy.WorkUnitsThisTick > 1);
         }
 
@@ -409,7 +412,7 @@ namespace Wasteland.Sim.Tests
 
                 reader.ReadBoolean();
                 reader.ReadBoolean();
-                for (int i = 0; i < 19; i++)
+                for (int i = 0; i < 20; i++)
                 {
                     reader.ReadInt32();
                 }
@@ -455,7 +458,7 @@ namespace Wasteland.Sim.Tests
             int pendingCount = reader.ReadInt32();
             reader.ReadInt32();
             reader.ReadInt32();
-            for (int i = 0; i < 8; i++)
+            for (int i = 0; i < 9; i++)
             {
                 reader.ReadInt32();
             }

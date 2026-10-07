@@ -709,13 +709,14 @@ namespace Wasteland.Sim.Tests
             AiFactionState faction = host.Ai.Owned.FactionAt(0);
             faction.WorkUnitsThisTick = 0;
             AiRoadSupply supply = new AiRoadSupply();
-            int first = supply.DistanceCm(roads, from, to, faction);
+            AiSupplyResult first = supply.DistanceCm(roads, from, to, faction);
             Assert.True(faction.WorkUnitsThisTick > 0);
             Assert.True(faction.WorkUnitsThisTick <= faction.WorkUnitsPerTick);
             int charged = faction.WorkUnitsThisTick;
-            int second = supply.DistanceCm(roads, from, to, faction);
+            AiSupplyResult second = supply.DistanceCm(roads, from, to, faction);
             Assert.Equal(charged * 2, faction.WorkUnitsThisTick);
-            Assert.Equal(first, second);
+            Assert.Equal(first.Status, second.Status);
+            Assert.Equal(first.DistanceCm, second.DistanceCm);
             host.Shutdown();
         }
 

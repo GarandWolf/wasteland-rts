@@ -1475,8 +1475,13 @@ namespace Wasteland.Sim.Ai
                 for (int d = 0; d < faction.DepotCount; d++)
                 {
                     int other = faction.Depots[d].NodeId;
-                    int dist = _roadSupply.DistanceCm(_map.Roads, nodeId, other, planner);
-                    if (dist < AiConstants.DepotMinSpacingCm)
+                    AiSupplyResult dist = _roadSupply.DistanceCm(_map.Roads, nodeId, other, planner);
+                    if (dist.IsBudgetExhausted)
+                    {
+                        return false;
+                    }
+
+                    if (dist.IsReached && dist.DistanceCm < AiConstants.DepotMinSpacingCm)
                     {
                         return false;
                     }

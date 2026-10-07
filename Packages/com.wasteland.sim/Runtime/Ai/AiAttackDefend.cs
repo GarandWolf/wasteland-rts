@@ -144,16 +144,22 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                int dist = _roads.DistanceCm(graph, fromNodeId, town.NodeId, faction);
-                if (BetterTarget(dist, town.Id, nearestDist, nearestId))
+                AiSupplyResult dist = _roads.DistanceCm(graph, fromNodeId, town.NodeId, faction);
+                if (dist.IsBudgetExhausted)
                 {
-                    nearestDist = dist;
+                    continue;
+                }
+
+                int d = dist.IsReached ? dist.DistanceCm : AiConstants.UnreachableCm;
+                if (BetterTarget(d, town.Id, nearestDist, nearestId))
+                {
+                    nearestDist = d;
                     nearestId = town.Id;
                 }
 
-                if (town.IsHq && BetterTarget(dist, town.Id, hqDist, hqId))
+                if (town.IsHq && BetterTarget(d, town.Id, hqDist, hqId))
                 {
-                    hqDist = dist;
+                    hqDist = d;
                     hqId = town.Id;
                     hqNodeId = town.NodeId;
                 }
@@ -161,8 +167,13 @@ namespace Wasteland.Sim.Ai
 
             if (hqId != 0)
             {
-                int supply = _roads.DistanceToNearestCm(graph, hqNodeId, networkNodeIds, networkCount, faction);
-                if (supply != AiConstants.UnreachableCm && supply <= supplyReachCm)
+                AiSupplyResult supply = _roads.DistanceToNearestCm(
+                    graph,
+                    hqNodeId,
+                    networkNodeIds,
+                    networkCount,
+                    faction);
+                if (supply.IsReached && supply.DistanceCm <= supplyReachCm)
                 {
                     return hqId;
                 }
@@ -370,8 +381,18 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            int supplyDist = _roads.DistanceToNearestCm(graph, target.NodeId, networkNodeIds, networkCount, faction);
-            if (supplyDist == AiConstants.UnreachableCm || supplyDist > supplyReachCm)
+            AiSupplyResult supply = _roads.DistanceToNearestCm(
+                graph,
+                target.NodeId,
+                networkNodeIds,
+                networkCount,
+                faction);
+            if (supply.IsBudgetExhausted)
+            {
+                return;
+            }
+
+            if (supply.IsUnreachable || supply.DistanceCm > supplyReachCm)
             {
                 TryPlaceForwardDepot(
                     tick,
@@ -433,8 +454,18 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < graph.NodeCount; i++)
             {
                 int nodeId = graph.GetNodeId(i);
-                int fromNet = _roads.DistanceToNearestCm(graph, nodeId, networkNodeIds, networkCount, faction);
-                if (fromNet == AiConstants.UnreachableCm || fromNet > supplyReachCm)
+                AiSupplyResult fromNet = _roads.DistanceToNearestCm(
+                    graph,
+                    nodeId,
+                    networkNodeIds,
+                    networkCount,
+                    faction);
+                if (fromNet.IsBudgetExhausted)
+                {
+                    continue;
+                }
+
+                if (!fromNet.IsReached || fromNet.DistanceCm > supplyReachCm)
                 {
                     continue;
                 }
@@ -449,10 +480,16 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                int toTarget = _roads.DistanceCm(graph, nodeId, targetNodeId, faction);
+                AiSupplyResult toTarget = _roads.DistanceCm(graph, nodeId, targetNodeId, faction);
+                if (toTarget.IsBudgetExhausted)
+                {
+                    continue;
+                }
+
+                int remain = toTarget.IsReached ? toTarget.DistanceCm : AiConstants.UnreachableCm;
                 if (bestNode != 0)
                 {
-                    int cmp = toTarget.CompareTo(bestRemain);
+                    int cmp = remain.CompareTo(bestRemain);
                     if (cmp > 0)
                     {
                         continue;
@@ -464,7 +501,7 @@ namespace Wasteland.Sim.Ai
                     }
                 }
 
-                bestRemain = toTarget;
+                bestRemain = remain;
                 bestNode = nodeId;
                 bestX = graph.GetNodeXCm(i);
                 bestY = graph.GetNodeYCm(i);
@@ -550,11 +587,13 @@ namespace Wasteland.Sim.Ai
             int fromNodeId,
             int toNodeId)
         {
-            int pathDist = _roads.DistanceCm(graph, fromNodeId, toNodeId, faction);
-            if (pathDist == AiConstants.UnreachableCm)
+            AiSupplyResult path = _roads.DistanceCm(graph, fromNodeId, toNodeId, faction);
+            if (!path.IsReached)
             {
                 return false;
             }
+
+            int pathDist = path.DistanceCm;
 
             for (int i = 0; i < townCount; i++)
             {
@@ -569,19 +608,19 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                int via = _roads.DistanceCm(graph, fromNodeId, town.NodeId, faction);
-                if (via == AiConstants.UnreachableCm)
+                AiSupplyResult viaResult = _roads.DistanceCm(graph, fromNodeId, town.NodeId, faction);
+                if (!viaResult.IsReached)
                 {
                     continue;
                 }
 
-                int rest = _roads.DistanceCm(graph, town.NodeId, toNodeId, faction);
-                if (rest == AiConstants.UnreachableCm)
+                AiSupplyResult restResult = _roads.DistanceCm(graph, town.NodeId, toNodeId, faction);
+                if (!restResult.IsReached)
                 {
                     continue;
                 }
 
-                if (via + rest == pathDist)
+                if (viaResult.DistanceCm + restResult.DistanceCm == pathDist)
                 {
                     return true;
                 }
@@ -668,8 +707,14 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                int dist = _roads.DistanceCm(graph, pin.RoadNodeId, toNodeId, faction);
-                int cmp = dist.CompareTo(bestDist);
+                AiSupplyResult dist = _roads.DistanceCm(graph, pin.RoadNodeId, toNodeId, faction);
+                if (dist.IsBudgetExhausted)
+                {
+                    continue;
+                }
+
+                int d = dist.IsReached ? dist.DistanceCm : AiConstants.UnreachableCm;
+                int cmp = d.CompareTo(bestDist);
                 if (cmp > 0)
                 {
                     continue;
@@ -680,7 +725,7 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                bestDist = dist;
+                bestDist = d;
                 bestId = pin.Id;
             }
 

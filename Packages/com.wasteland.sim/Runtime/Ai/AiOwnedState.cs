@@ -66,7 +66,7 @@ namespace Wasteland.Sim.Ai
         public readonly int MaxCandidateGoals;
         public readonly int TaskForceTargetSize;
         public readonly int ReservePpt;
-        public readonly int WorkUnitsPerTick;
+        public int WorkUnitsPerTick;
 
         public AiPosture Posture;
         public int NextOrderId;
@@ -96,6 +96,7 @@ namespace Wasteland.Sim.Ai
         public int RejectStreak;
         public int DepotSiteTick;
         public int DepotActiveTick;
+        public int SupplyBudgetDefers;
         public readonly AiOrder[] Orders;
         public readonly AiDepot[] Depots;
         public readonly int[] PickedPostIds;
@@ -391,6 +392,7 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.RejectStreak);
                 hash.AddInt(faction.DepotSiteTick);
                 hash.AddInt(faction.DepotActiveTick);
+                hash.AddInt(faction.SupplyBudgetDefers);
                 hash.AddULong(faction.StrategyRng.State);
                 hash.AddULong(faction.StrategyRng.Increment);
                 hash.AddULong(faction.TacticalRng.State);
@@ -500,6 +502,7 @@ namespace Wasteland.Sim.Ai
                 writer.Write(faction.RejectStreak);
                 writer.Write(faction.DepotSiteTick);
                 writer.Write(faction.DepotActiveTick);
+                writer.Write(faction.SupplyBudgetDefers);
                 WriteRng(writer, faction.StrategyRng);
                 WriteRng(writer, faction.TacticalRng);
                 WriteRng(writer, faction.MistakeRng);
@@ -705,6 +708,7 @@ namespace Wasteland.Sim.Ai
             loaded.RejectStreak = reader.ReadInt32();
             loaded.DepotSiteTick = reader.ReadInt32();
             loaded.DepotActiveTick = reader.ReadInt32();
+            loaded.SupplyBudgetDefers = reader.ReadInt32();
             if (loaded.PendingDropped < 0)
             {
                 throw new InvalidDataException("AI PendingDropped is negative.");
@@ -713,6 +717,11 @@ namespace Wasteland.Sim.Ai
             if (loaded.DepotCapSkips < 0)
             {
                 throw new InvalidDataException("AI DepotCapSkips is negative.");
+            }
+
+            if (loaded.SupplyBudgetDefers < 0)
+            {
+                throw new InvalidDataException("AI SupplyBudgetDefers is negative.");
             }
 
             if (loaded.RejectStreak < 0 || loaded.LastRejectCode < 0)
@@ -815,6 +824,7 @@ namespace Wasteland.Sim.Ai
             faction.RejectStreak = loaded.RejectStreak;
             faction.DepotSiteTick = loaded.DepotSiteTick;
             faction.DepotActiveTick = loaded.DepotActiveTick;
+            faction.SupplyBudgetDefers = loaded.SupplyBudgetDefers;
             faction.StrategyRng = loaded.StrategyRng;
             faction.TacticalRng = loaded.TacticalRng;
             faction.MistakeRng = loaded.MistakeRng;
@@ -904,6 +914,7 @@ namespace Wasteland.Sim.Ai
             public int RejectStreak;
             public int DepotSiteTick;
             public int DepotActiveTick;
+            public int SupplyBudgetDefers;
             public SimRandom StrategyRng;
             public SimRandom TacticalRng;
             public SimRandom MistakeRng;
