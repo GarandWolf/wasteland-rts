@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace Wasteland.Sim.Ai
@@ -18,6 +19,8 @@ namespace Wasteland.Sim.Ai
         public const string RuleIdBuildableBuildings = "buildableBuildings";
         public const string RuleIdUnlockTick = "unlockTick";
         public const string RuleIdTier = "tier";
+        public const string SimultaneousHqLossDraw = "draw";
+        public const string AutoResearchTier2 = "tier2";
 
         public static readonly int[] DefaultRaisableUnits =
         {
@@ -34,15 +37,40 @@ namespace Wasteland.Sim.Ai
         public static readonly AiAutoResearch DefaultResearch = new AiAutoResearch(0, 1);
 
         private readonly AiScenarioSeatView[] _seats;
+        private readonly string[] _mapDiagnostics;
+        private readonly bool _fuelEnabled;
+        private readonly string _simultaneousHqLoss;
 
-        private FixtureAiScenarioSeats(AiScenarioSeatView[] seats)
+        private FixtureAiScenarioSeats(
+            AiScenarioSeatView[] seats,
+            string[] mapDiagnostics,
+            bool fuelEnabled,
+            string simultaneousHqLoss)
         {
             _seats = seats;
+            _mapDiagnostics = mapDiagnostics;
+            _fuelEnabled = fuelEnabled;
+            _simultaneousHqLoss = simultaneousHqLoss;
         }
 
         public int SeatCount
         {
             get { return _seats.Length; }
+        }
+
+        public bool FuelEnabled
+        {
+            get { return _fuelEnabled; }
+        }
+
+        public string SimultaneousHqLoss
+        {
+            get { return _simultaneousHqLoss; }
+        }
+
+        public IReadOnlyList<string> PersonalityMapDiagnostics
+        {
+            get { return _mapDiagnostics; }
         }
 
         public AiScenarioSeatView SeatAt(int index)
@@ -52,15 +80,31 @@ namespace Wasteland.Sim.Ai
 
         public static FixtureAiScenarioSeats Create(params AiScenarioSeatView[] seats)
         {
+            return Create(seats, false, SimultaneousHqLossDraw);
+        }
+
+        public static FixtureAiScenarioSeats Create(
+            AiScenarioSeatView[] seats,
+            bool fuelEnabled,
+            string simultaneousHqLoss)
+        {
             if (seats == null || seats.Length < 1)
             {
                 throw new InvalidDataException(RuleIdSeats);
             }
 
             AiScenarioSeatView[] copy = new AiScenarioSeatView[seats.Length];
+            List<string> diagnostics = new List<string>();
             for (int i = 0; i < seats.Length; i++)
             {
                 copy[i] = CopyValidated(seats[i]);
+                string mapped = AiGenericPersonality.Map(copy[i].PersonalityId);
+                if (mapped != AiGenericPersonality.ParameterSetId)
+                {
+                    throw new InvalidDataException("aiPersonality");
+                }
+
+                AiGenericPersonality.RecordMappedFrom(diagnostics, copy[i].PersonalityId);
             }
 
             SortByFaction(copy);
@@ -72,7 +116,40 @@ namespace Wasteland.Sim.Ai
                 }
             }
 
-            return new FixtureAiScenarioSeats(copy);
+            string loss = string.IsNullOrEmpty(simultaneousHqLoss)
+                ? SimultaneousHqLossDraw
+                : simultaneousHqLoss;
+            return new FixtureAiScenarioSeats(copy, diagnostics.ToArray(), fuelEnabled, loss);
+        }
+
+        /// <summary>
+        /// Adapter from the PR #17 seat/matchRules shape. Catalog strings are
+        /// synthetic; fuel is stored and ignored.
+        /// </summary>
+        public static FixtureAiScenarioSeats FromMvpShape(
+            AiMvpSeatShape[] seats,
+            AiMvpMatchRulesShape matchRules)
+        {
+            if (seats == null || seats.Length < 1)
+            {
+                throw new InvalidDataException(RuleIdSeats);
+            }
+
+            AiScenarioSeatView[] views = new AiScenarioSeatView[seats.Length];
+            for (int i = 0; i < seats.Length; i++)
+            {
+                AiMvpSeatShape row = seats[i];
+                views[i] = new AiScenarioSeatView(
+                    row.Faction,
+                    row.AiPersonality,
+                    row.HqTownId,
+                    row.StartingManpower,
+                    MapUnitCatalog(row.RaisableUnits),
+                    MapBuildingCatalog(row.BuildableBuildings),
+                    MapAutoResearch(row.AutoResearch));
+            }
+
+            return Create(views, matchRules.FuelEnabled, matchRules.SimultaneousHqLoss);
         }
 
         /// <summary>
@@ -92,17 +169,23 @@ namespace Wasteland.Sim.Ai
                 throw new ArgumentNullException(nameof(balance));
             }
 
-            AiPersonalityProfile remnant = balance.GetPersonality(AiConstants.PersonalityWarlord);
-            AiPersonalityProfile compact = balance.GetPersonality(AiConstants.PersonalitySettler);
+            AiPersonalityProfile remnant = balance.GetPersonalityOrGeneric(AiConstants.PersonalityWarlord);
+            AiPersonalityProfile compact = balance.GetPersonalityOrGeneric(AiConstants.PersonalitySettler);
             return Create(
-                LaunchSeat(remnant.EconomyFactionId, map.GoldendaleTownId),
-                LaunchSeat(compact.EconomyFactionId, map.HoodRiverTownId));
+                LaunchSeat(remnant.EconomyFactionId, remnant.Id, map.GoldendaleTownId),
+                LaunchSeat(compact.EconomyFactionId, compact.Id, map.HoodRiverTownId));
         }
 
         public static AiScenarioSeatView LaunchSeat(string factionId, int hqTownId)
         {
+            return LaunchSeat(factionId, string.Empty, hqTownId);
+        }
+
+        public static AiScenarioSeatView LaunchSeat(string factionId, string personalityId, int hqTownId)
+        {
             return new AiScenarioSeatView(
                 factionId,
+                personalityId,
                 hqTownId,
                 300,
                 DefaultRaisableUnits,
@@ -174,11 +257,126 @@ namespace Wasteland.Sim.Ai
             int[] buildings = CopySortedUnique(seat.BuildableBuildings, RuleIdBuildableBuildings);
             return new AiScenarioSeatView(
                 seat.FactionId,
+                seat.PersonalityId,
                 seat.HqTownId,
                 seat.StartingManpower,
                 units,
                 buildings,
                 seat.AutoResearch);
+        }
+
+        private static int[] MapUnitCatalog(string[] names)
+        {
+            if (names == null || names.Length < 1)
+            {
+                throw new InvalidDataException(RuleIdRaisableUnits);
+            }
+
+            int[] ids = new int[names.Length];
+            for (int i = 0; i < names.Length; i++)
+            {
+                ids[i] = MapUnitName(names[i]);
+            }
+
+            return ids;
+        }
+
+        private static int MapUnitName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                throw new InvalidDataException(RuleIdRaisableUnits);
+            }
+
+            if (ContainsToken(name, "engineer"))
+            {
+                return AiConstants.UnitKindEngineer;
+            }
+
+            if (ContainsToken(name, "tier2"))
+            {
+                return AiConstants.UnitKindTierII;
+            }
+
+            return AiConstants.UnitKindInfantry;
+        }
+
+        private static int[] MapBuildingCatalog(string[] names)
+        {
+            if (names == null || names.Length < 1)
+            {
+                throw new InvalidDataException(RuleIdBuildableBuildings);
+            }
+
+            int[] ids = new int[names.Length];
+            for (int i = 0; i < names.Length; i++)
+            {
+                if (string.IsNullOrEmpty(names[i]))
+                {
+                    throw new InvalidDataException(RuleIdBuildableBuildings);
+                }
+
+                ids[i] = AiConstants.BuildingTagDepot;
+            }
+
+            return ids;
+        }
+
+        private static AiAutoResearch MapAutoResearch(AiMvpAutoResearchItem[] rows)
+        {
+            if (rows == null || rows.Length < 1)
+            {
+                return new AiAutoResearch(0, 1);
+            }
+
+            int unlock = int.MaxValue;
+            int tier = 1;
+            for (int i = 0; i < rows.Length; i++)
+            {
+                AiMvpAutoResearchItem row = rows[i];
+                if (row.NotBeforeTick < 0)
+                {
+                    throw new InvalidDataException(RuleIdUnlockTick);
+                }
+
+                if (row.Item == AutoResearchTier2)
+                {
+                    tier = 2;
+                    if (row.NotBeforeTick < unlock)
+                    {
+                        unlock = row.NotBeforeTick;
+                    }
+                }
+            }
+
+            if (tier < 2)
+            {
+                return new AiAutoResearch(0, 1);
+            }
+
+            return new AiAutoResearch(unlock, tier);
+        }
+
+        private static bool ContainsToken(string name, string token)
+        {
+            int start = 0;
+            while (start + token.Length <= name.Length)
+            {
+                int i = 0;
+                while (i < token.Length && name[start + i] == token[i])
+                {
+                    i++;
+                }
+
+                if (i == token.Length)
+                {
+                    return true;
+                }
+
+                start++;
+            }
+
+            return false;
         }
 
         private static int[] CopySortedUnique(int[] source, string ruleId)

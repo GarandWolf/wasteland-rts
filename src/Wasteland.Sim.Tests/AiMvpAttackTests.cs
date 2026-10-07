@@ -243,6 +243,7 @@ namespace Wasteland.Sim.Tests
         {
             AiScenarioSeatView seat = new AiScenarioSeatView(
                 "homestead_compact",
+                "unknown_raider_v9",
                 10,
                 300,
                 new[]
@@ -321,6 +322,7 @@ namespace Wasteland.Sim.Tests
         {
             return FixtureAiScenarioSeats.Create(new AiScenarioSeatView(
                 "homestead_compact",
+                string.Empty,
                 10,
                 300,
                 new[] { AiConstants.UnitKindInfantry },

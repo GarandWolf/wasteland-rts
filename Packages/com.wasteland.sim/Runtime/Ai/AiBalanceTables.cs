@@ -894,6 +894,26 @@ namespace Wasteland.Sim.Ai
             throw new KeyNotFoundException("Unknown personality '" + id + "'.");
         }
 
+        /// <summary>
+        /// MVP generic-AI fallback: unknown or empty ids use the settler
+        /// profile. Seat <c>aiPersonality</c> strings must not fail the load.
+        /// </summary>
+        public AiPersonalityProfile GetPersonalityOrGeneric(string id)
+        {
+            if (!string.IsNullOrEmpty(id))
+            {
+                for (int i = 0; i < _personalities.Length; i++)
+                {
+                    if (_personalities[i].Id == id)
+                    {
+                        return _personalities[i];
+                    }
+                }
+            }
+
+            return GetPersonality(AiGenericPersonality.GenericProfileId);
+        }
+
         public AiDifficultyProfile GetDifficulty(string id)
         {
             if (id == null)

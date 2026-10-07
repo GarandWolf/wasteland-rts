@@ -980,7 +980,7 @@ namespace Wasteland.Sim.Ai
                 throw new InvalidOperationException(AiBalanceTables.RuleIdAiMaxCandidateGoals);
             }
 
-            AiPersonalityProfile personality = _balance.GetPersonality(faction.PersonalityId);
+            AiPersonalityProfile personality = _balance.GetPersonalityOrGeneric(faction.PersonalityId);
             if (!_map.TryGetTown(faction.HomeTownId, out AiTownRecord home))
             {
                 return 0;
@@ -1527,7 +1527,7 @@ namespace Wasteland.Sim.Ai
             int townCount = FillAttackTowns();
             int battalionCount = FillAttackBattalions(faction);
             int networkCount = CollectSupplyNetwork(faction);
-            AiPersonalityProfile personality = _balance.GetPersonality(faction.PersonalityId);
+            AiPersonalityProfile personality = _balance.GetPersonalityOrGeneric(faction.PersonalityId);
             if (!_seats.TryGetByFaction(personality.EconomyFactionId, out AiScenarioSeatView seat))
             {
                 return;

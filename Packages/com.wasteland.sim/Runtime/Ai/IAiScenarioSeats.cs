@@ -25,6 +25,7 @@ namespace Wasteland.Sim.Ai
     public readonly struct AiScenarioSeatView
     {
         public readonly string FactionId;
+        public readonly string PersonalityId;
         public readonly int HqTownId;
         public readonly int StartingManpower;
         public readonly int[] RaisableUnits;
@@ -33,6 +34,7 @@ namespace Wasteland.Sim.Ai
 
         public AiScenarioSeatView(
             string factionId,
+            string personalityId,
             int hqTownId,
             int startingManpower,
             int[] raisableUnits,
@@ -40,6 +42,7 @@ namespace Wasteland.Sim.Ai
             AiAutoResearch autoResearch)
         {
             FactionId = factionId;
+            PersonalityId = personalityId ?? string.Empty;
             HqTownId = hqTownId;
             StartingManpower = startingManpower;
             RaisableUnits = raisableUnits;
@@ -107,6 +110,12 @@ namespace Wasteland.Sim.Ai
     {
         int SeatCount { get; }
 
+        bool FuelEnabled { get; }
+
+        string SimultaneousHqLoss { get; }
+
+        System.Collections.Generic.IReadOnlyList<string> PersonalityMapDiagnostics { get; }
+
         AiScenarioSeatView SeatAt(int index);
 
         bool TryGetByFaction(string factionId, out AiScenarioSeatView seat);
@@ -148,7 +157,7 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < owned.FactionCount; i++)
             {
                 AiFactionState faction = owned.FactionAt(i);
-                AiPersonalityProfile personality = balance.GetPersonality(faction.PersonalityId);
+                AiPersonalityProfile personality = balance.GetPersonalityOrGeneric(faction.PersonalityId);
                 if (!_seats.TryGetByFaction(personality.EconomyFactionId, out AiScenarioSeatView seat))
                 {
                     throw new InvalidDataException(RuleIdFaction);

@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Movement;
@@ -24,6 +25,8 @@ namespace Wasteland.Sim.Tests
             Assert.False(ai.AllowsUnit(AiConstants.UnitKindTierII, 0));
             Assert.True(ai.AllowsUnit(AiConstants.UnitKindTierII, 40));
             Assert.True(ai.AllowsBuilding(AiConstants.BuildingTagDepot));
+            Assert.Equal("homestead_compact_settler", ai.PersonalityId);
+            Assert.Equal(AiGenericPersonality.ParameterSetId, AiGenericPersonality.Map(ai.PersonalityId));
         }
 
         [Fact]
@@ -71,6 +74,7 @@ namespace Wasteland.Sim.Tests
             InvalidDataException faction = Assert.Throws<InvalidDataException>(
                 () => FixtureAiScenarioSeats.Create(new AiScenarioSeatView(
                     string.Empty,
+                    string.Empty,
                     7,
                     10,
                     FixtureAiScenarioSeats.DefaultRaisableUnits,
@@ -81,6 +85,7 @@ namespace Wasteland.Sim.Tests
             InvalidDataException hq = Assert.Throws<InvalidDataException>(
                 () => FixtureAiScenarioSeats.Create(new AiScenarioSeatView(
                     "beta",
+                    string.Empty,
                     0,
                     10,
                     FixtureAiScenarioSeats.DefaultRaisableUnits,
@@ -91,6 +96,7 @@ namespace Wasteland.Sim.Tests
             InvalidDataException manpower = Assert.Throws<InvalidDataException>(
                 () => FixtureAiScenarioSeats.Create(new AiScenarioSeatView(
                     "beta",
+                    string.Empty,
                     7,
                     -1,
                     FixtureAiScenarioSeats.DefaultRaisableUnits,
@@ -101,6 +107,7 @@ namespace Wasteland.Sim.Tests
             InvalidDataException units = Assert.Throws<InvalidDataException>(
                 () => FixtureAiScenarioSeats.Create(new AiScenarioSeatView(
                     "beta",
+                    string.Empty,
                     7,
                     10,
                     new[] { 0, 1 },
@@ -111,6 +118,7 @@ namespace Wasteland.Sim.Tests
             InvalidDataException unlock = Assert.Throws<InvalidDataException>(
                 () => FixtureAiScenarioSeats.Create(new AiScenarioSeatView(
                     "beta",
+                    string.Empty,
                     7,
                     10,
                     FixtureAiScenarioSeats.DefaultRaisableUnits,
@@ -155,11 +163,77 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(AiSeatHomeBinder.RuleIdHqTownId, ex.Message);
         }
 
+        [Fact]
+        public void UnknownPersonality_MapsToNormalAndKeepsAuthoredId()
+        {
+            const string unknown = "not_a_real_personality";
+            FixtureAiScenarioSeats seats = FixtureAiScenarioSeats.Create(new AiScenarioSeatView(
+                "homestead_compact",
+                unknown,
+                7,
+                250,
+                FixtureAiScenarioSeats.DefaultRaisableUnits,
+                FixtureAiScenarioSeats.DefaultBuildableBuildings,
+                FixtureAiScenarioSeats.DefaultResearch));
+            Assert.True(seats.TryGetByFaction("homestead_compact", out AiScenarioSeatView seat));
+            Assert.Equal(unknown, seat.PersonalityId);
+            Assert.Equal(AiGenericPersonality.ParameterSetId, AiGenericPersonality.Map(unknown));
+            Assert.Equal(AiGenericPersonality.ParameterSetId, AiGenericPersonality.Map("homestead_compact_settler"));
+            Assert.Contains(
+                AiGenericPersonality.FormatMappedFrom(unknown),
+                seats.PersonalityMapDiagnostics);
+            AiPersonalityProfile generic = AiBalanceTablesTests.LoadBalance().GetPersonalityOrGeneric(unknown);
+            Assert.Equal(AiGenericPersonality.GenericProfileId, generic.Id);
+        }
+
+        [Fact]
+        public void MvpShapeFixture_MirrorsSeatCatalogsAndMatchRules()
+        {
+            FixtureAiScenarioSeats seats = FixtureAiScenarioSeats.FromMvpShape(
+                new[]
+                {
+                    new AiMvpSeatShape(
+                        "alpha",
+                        string.Empty,
+                        11,
+                        100,
+                        new[] { "infantry_a" },
+                        new[] { "depot" },
+                        Array.Empty<AiMvpAutoResearchItem>()),
+                    new AiMvpSeatShape(
+                        "beta",
+                        "unknown_raider_v9",
+                        7,
+                        250,
+                        new[] { "infantry_b", "engineer_b", "tier2_b" },
+                        new[] { "depot" },
+                        new[] { new AiMvpAutoResearchItem("tier2", 40) })
+                },
+                new AiMvpMatchRulesShape(false, "draw"));
+            Assert.False(seats.FuelEnabled);
+            Assert.Equal(FixtureAiScenarioSeats.SimultaneousHqLossDraw, seats.SimultaneousHqLoss);
+            Assert.True(seats.TryGetByFaction("beta", out AiScenarioSeatView ai));
+            Assert.Equal("unknown_raider_v9", ai.PersonalityId);
+            Assert.Equal(7, ai.HqTownId);
+            Assert.True(ai.AllowsUnit(AiConstants.UnitKindInfantry, 0));
+            Assert.True(ai.AllowsUnit(AiConstants.UnitKindEngineer, 0));
+            Assert.False(ai.AllowsUnit(AiConstants.UnitKindTierII, 0));
+            Assert.True(ai.AllowsUnit(AiConstants.UnitKindTierII, 40));
+            Assert.True(ai.AllowsBuilding(AiConstants.BuildingTagDepot));
+            Assert.Contains(
+                AiGenericPersonality.FormatMappedFrom("unknown_raider_v9"),
+                seats.PersonalityMapDiagnostics);
+            Assert.Contains(
+                AiGenericPersonality.FormatMappedFrom(string.Empty),
+                seats.PersonalityMapDiagnostics);
+        }
+
         internal static FixtureAiScenarioSeats SyntheticSeats()
         {
             return FixtureAiScenarioSeats.Create(
                 new AiScenarioSeatView(
                     "remnant_command",
+                    string.Empty,
                     11,
                     100,
                     new[] { AiConstants.UnitKindInfantry },
@@ -167,6 +241,7 @@ namespace Wasteland.Sim.Tests
                     new AiAutoResearch(0, 1)),
                 new AiScenarioSeatView(
                     "homestead_compact",
+                    "homestead_compact_settler",
                     7,
                     250,
                     new[]
