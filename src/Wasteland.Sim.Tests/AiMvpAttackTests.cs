@@ -330,7 +330,7 @@ namespace Wasteland.Sim.Tests
                 FixtureAiScenarioSeats.DefaultResearch)).SeatAt(0);
         }
 
-        private sealed class Harness : IAiTownQuery
+        internal sealed class Harness : IAiTownQuery
         {
             public readonly RecordingAiCommandSink Sink = new RecordingAiCommandSink();
             public readonly AiAttackDefend Planner;
