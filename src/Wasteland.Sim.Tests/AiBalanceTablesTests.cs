@@ -7,6 +7,20 @@ namespace Wasteland.Sim.Tests
 {
     public sealed class AiBalanceTablesTests
     {
+        /// <summary>
+        /// AI-owned <see cref="BalanceKey.For"/> of <c>data/balance/ai</c> only
+        /// (personalities + difficulty). Designer files under <c>data/balance</c>
+        /// are not part of this pin. Re-pin when AI-owned files change.
+        /// </summary>
+        public const ulong ExpectedAiOwnedBalanceKey = 0xA89B3C67EDEC2A7DUL;
+
+        [Fact]
+        public void AiOwnedFiles_MatchExpectedBalanceKey()
+        {
+            string folder = System.IO.Path.Combine(GoldenMapFiles.FindRepoRoot(), "data", "balance", "ai");
+            Assert.Equal(ExpectedAiOwnedBalanceKey, BalanceKey.For(folder));
+        }
+
         [Fact]
         public void LoadsPersonalitiesAndDifficulties_FromBalanceFiles()
         {
@@ -15,6 +29,7 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(4, tables.DifficultyCount);
             string folder = System.IO.Path.Combine(GoldenMapFiles.FindRepoRoot(), "data", "balance");
             Assert.Equal(BalanceKey.For(folder), tables.BalanceKey);
+            Assert.NotEqual(ExpectedAiOwnedBalanceKey, tables.BalanceKey);
             Assert.True(tables.HasCaptureTable);
             Assert.Equal(AiCaptureTests.ExpectedHamletTicks, tables.CaptureTicksForClass(0));
             Assert.Equal(AiCaptureTests.ExpectedVillageTicks, tables.CaptureTicksForClass(1));
