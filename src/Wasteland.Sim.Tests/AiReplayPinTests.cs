@@ -146,7 +146,14 @@ namespace Wasteland.Sim.Tests
                         }
                     }
 
-                    pins.Add(new AiBattalionPin(cmd.Id, cmd.Arg1, cmd.Arg2, 3, cmd.UnitId, true));
+                    AiAttackTownInfo home = HomeTown(harness);
+                    pins.Add(new AiBattalionPin(
+                        cmd.Id,
+                        home.XCm,
+                        home.YCm,
+                        home.NodeId,
+                        cmd.UnitId,
+                        true));
                 }
             }
 
@@ -208,6 +215,19 @@ namespace Wasteland.Sim.Tests
             harness.SeatView.Manpower = harness.Seat.StartingManpower;
             harness.SupplyReachCm = 100000;
             return harness;
+        }
+
+        private static AiAttackTownInfo HomeTown(AiMvpAttackTests.Harness harness)
+        {
+            for (int i = 0; i < harness.TownRows.Length; i++)
+            {
+                if (harness.TownRows[i].Id == harness.Faction.HomeTownId)
+                {
+                    return harness.TownRows[i];
+                }
+            }
+
+            return default;
         }
 
         private static void DropFirstRole(List<AiBattalionPin> pins, IAiUnitCatalog catalog, string role)

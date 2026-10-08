@@ -401,11 +401,6 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                if (!readback.Contested && !isOwnHq)
-                {
-                    continue;
-                }
-
                 if (!readback.Contested)
                 {
                     continue;
@@ -877,6 +872,7 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
+            // xCm/yCm is the rally or march target. Spawn is the seat HQ.
             Issue(tick, faction, _commands.SubmitRaiseBattalion(faction.FactionId, unitId, xCm, yCm));
         }
 

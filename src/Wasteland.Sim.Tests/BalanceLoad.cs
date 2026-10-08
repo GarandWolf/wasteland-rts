@@ -27,7 +27,6 @@ namespace Wasteland.Sim.Tests
 
         /// <summary>
         /// Production pack load. Parses the real <c>buildings.json</c>.
-        /// Throws until the Designer's <c>role</c> field lands.
         /// </summary>
         public static AiBalanceTables Tables()
         {
@@ -46,7 +45,7 @@ namespace Wasteland.Sim.Tests
 
         /// <summary>
         /// Personalities, units, rules, and economy without the real building
-        /// pack. Used by decision tests until the Designer role PR lands.
+        /// pack. Gorge host tests that must not place depots use this.
         /// </summary>
         public static AiBalanceTables DecisionTables()
         {
@@ -55,8 +54,6 @@ namespace Wasteland.Sim.Tests
 
         internal const string DummyBuildingsWithoutDepotRole =
             "{\"buildings\":{\"probe_hq\":{\"category\":\"economy\",\"role\":\"production\"}}}";
-
-        internal const string BuildingRolePendingSkip = "building role pending Designer data PR #22";
 
         public static BalanceCatalog ScenarioCatalog(string unitsJson)
         {

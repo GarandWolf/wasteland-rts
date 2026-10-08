@@ -1,6 +1,9 @@
 using System;
+using System.Collections.Generic;
 using System.Reflection;
+using System.Text;
 using Wasteland.Sim.Ai;
+using Wasteland.Sim.Random;
 using Wasteland.Sim.Scenario;
 using Xunit;
 
@@ -28,9 +31,21 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void FromDirectory_RealPack_ThrowsOnMissingBuildingRole()
+        public void FromDirectory_RealDocumentMissingOneRole_ThrowsAndNamesBuilding()
         {
-            FormatException ex = Assert.Throws<FormatException>(() => BalanceLoad.Tables());
+            string json = BalanceLoad.ReadBuildingsJson();
+            const string buildingId = "supply_depot";
+            string needle = "\"" + buildingId + "\": {\n      \"category\": \"economy\",\n      \"role\": \"supply_depot\",";
+            Assert.Contains(needle, json);
+            string mutated = json.Replace(
+                needle,
+                "\"" + buildingId + "\": {\n      \"category\": \"economy\",");
+            FormatException ex = Assert.Throws<FormatException>(() =>
+                AiBalanceTables.FromDirectory(
+                    BalanceLoad.DirectoryPath(),
+                    BalanceLoad.ReadUnitsJson(),
+                    mutated));
+            Assert.Contains(buildingId, ex.Message);
             Assert.Contains("role", ex.Message);
         }
 
@@ -44,7 +59,7 @@ namespace Wasteland.Sim.Tests
                     null!));
         }
 
-        [Fact(Skip = BalanceLoad.BuildingRolePendingSkip)]
+        [Fact]
         public void FromDirectory_RealPack_ParsesBuildingRoles()
         {
             AiBalanceTables tables = BalanceLoad.Tables();
@@ -161,6 +176,14 @@ namespace Wasteland.Sim.Tests
             }
         }
 
+        [Fact]
+        public void RealGorgePack_PlacesForwardDepotDeterministically()
+        {
+            byte[] first = PlaceGorgeForwardDepot();
+            byte[] second = PlaceGorgeForwardDepot();
+            Assert.Equal(first, second);
+        }
+
         private static string SyntheticBuilding(string id, string? role)
         {
             string body = "\"category\":\"economy\"";
@@ -196,6 +219,181 @@ namespace Wasteland.Sim.Tests
 
             json.Append("}}");
             return json.ToString();
+        }
+
+        private static byte[] PlaceGorgeForwardDepot()
+        {
+            AiBalanceTables tables = BalanceLoad.Tables();
+            SimScenario scenario = LoadMvp();
+            ScenarioAiSeats seats = ScenarioAiSeats.From(scenario);
+            AiMapSnapshot map = AiMapSnapshot.FromWrmb(AiSeamsTests.LoadGorgeV1Bytes());
+            AiScenarioSeatView seat = seats.SeatAt(0);
+            Assert.True(AiAttackDefend.CanBuildDepot(seat, tables.BuildingCatalog));
+            Assert.True(map.TryGetTown(seat.HomeTownId, out AiTownRecord home));
+            AiScenarioSeatView enemySeat = seats.SeatAt(1);
+            Assert.True(map.TryGetTown(enemySeat.HomeTownId, out AiTownRecord enemyHome));
+
+            RecordingAiCommandSink sink = new RecordingAiCommandSink();
+            TownQuery towns = new TownQuery();
+            towns.Add(home.Id, new AiTownReadback(AiConstants.DefaultAiFactionA, false, AiConstants.DefaultAiFactionA, 1, 0, 0));
+            towns.Add(enemyHome.Id, new AiTownReadback(AiConstants.DefaultAiFactionB, false, AiConstants.DefaultAiFactionB, 1, 0, 0));
+            AiAttackDefend planner = new AiAttackDefend(sink, towns, sink);
+            AiFactionState faction = NewFaction(AiConstants.DefaultAiFactionA);
+            faction.HqNodeId = home.RoadNodeId;
+            faction.HomeTownId = home.Id;
+            faction.HomeTerritoryId = home.TerritoryId;
+            faction.WorkUnitsPerTick = 50000;
+
+            AiAttackTownInfo[] townRows = new AiAttackTownInfo[map.TownCount];
+            for (int i = 0; i < map.TownCount; i++)
+            {
+                AiTownRecord town = map.TownAt(i);
+                ulong territoryKey = 0UL;
+                if (map.TryGetTerritory(town.TerritoryId, out AiTerritoryRecord territory))
+                {
+                    territoryKey = territory.StableKey;
+                }
+
+                townRows[i] = new AiAttackTownInfo(
+                    town.Id,
+                    town.TerritoryId,
+                    town.RoadNodeId,
+                    town.XCm,
+                    town.YCm,
+                    town.Id == home.Id || town.Id == enemyHome.Id,
+                    territoryKey);
+            }
+
+            string lineId = AiMvpAttackTests.FirstRoleOrTarget(
+                seat,
+                tables.UnitCatalog,
+                AiConstants.RoleLineInfantry,
+                null);
+            string engineerId = AiMvpAttackTests.FirstRoleOrTarget(
+                seat,
+                tables.UnitCatalog,
+                AiConstants.RoleEngineer,
+                null);
+            Assert.False(string.IsNullOrEmpty(lineId));
+            Assert.False(string.IsNullOrEmpty(engineerId));
+            AiBattalionPin[] battalions =
+            {
+                new AiBattalionPin(5, home.XCm, home.YCm, home.RoadNodeId, lineId, false),
+                new AiBattalionPin(7, home.XCm, home.YCm, home.RoadNodeId, engineerId, false)
+            };
+
+            AiPersonalityProfile personality = tables.GetPersonalityOrGeneric(seat.AiPersonality ?? string.Empty);
+            FixtureAiSeatView view = new FixtureAiSeatView();
+            view.Tier2ResearchTicks = tables.Tier2ResearchTicks;
+            view.Manpower = seat.StartingManpower;
+            view.Refresh(seat, 0);
+            faction.WorkUnitsThisTick = 0;
+            sink.Tick = 0;
+            planner.Tick(
+                0,
+                faction,
+                seat,
+                townRows,
+                townRows.Length,
+                battalions,
+                battalions.Length,
+                new[] { home.RoadNodeId },
+                1,
+                map.Roads,
+                tables.GetDifficulty(AiConstants.DifficultyNormal).AttackStrengthRatioPpt,
+                tables.DepotRangeCm,
+                seats.NeutralPrizeTerritoryKey,
+                personality.PrizeTargetBonusPpt,
+                view,
+                tables.UnitCatalog,
+                tables.BuildingCatalog,
+                personality.LineUnitsPerAntiArmour,
+                personality.MinGarrisonPerTown);
+
+            bool built = false;
+            for (int i = 0; i < sink.Log.Count; i++)
+            {
+                if (sink.Log[i].Kind == AiIssuedKind.BuildDepot)
+                {
+                    built = true;
+                    break;
+                }
+            }
+
+            Assert.True(built);
+            return IssuedBytes(sink.Log);
+        }
+
+        private static byte[] IssuedBytes(IReadOnlyList<AiIssuedCommand> log)
+        {
+            List<byte> buffer = new List<byte>();
+            for (int i = 0; i < log.Count; i++)
+            {
+                AiIssuedCommand cmd = log[i];
+                WriteInt32(buffer, cmd.Tick);
+                WriteInt32(buffer, cmd.FactionId);
+                WriteInt32(buffer, (int)cmd.Kind);
+                WriteInt32(buffer, cmd.Arg0);
+                WriteInt32(buffer, cmd.Arg1);
+                WriteInt32(buffer, cmd.Arg2);
+                WriteInt32(buffer, cmd.Arg3);
+                byte[] unitBytes = Encoding.UTF8.GetBytes(cmd.UnitId);
+                WriteInt32(buffer, unitBytes.Length);
+                for (int b = 0; b < unitBytes.Length; b++)
+                {
+                    buffer.Add(unitBytes[b]);
+                }
+            }
+
+            return buffer.ToArray();
+        }
+
+        private static void WriteInt32(List<byte> buffer, int value)
+        {
+            uint bits = (uint)value;
+            buffer.Add((byte)bits);
+            buffer.Add((byte)(bits >> 8));
+            buffer.Add((byte)(bits >> 16));
+            buffer.Add((byte)(bits >> 24));
+        }
+
+        private static AiFactionState NewFaction(int factionId)
+        {
+            return new AiFactionState(
+                factionId,
+                AiConstants.PersonalityWarlord,
+                AiConstants.DifficultyNormal,
+                0,
+                40,
+                4,
+                1,
+                60,
+                8,
+                1,
+                0,
+                50000,
+                4,
+                4,
+                AiPosture.Attack,
+                new SimRandom(1UL),
+                new SimRandom(3UL),
+                new SimRandom(5UL),
+                new SimRandom(7UL));
+        }
+
+        private sealed class TownQuery : IAiTownQuery
+        {
+            private readonly Dictionary<int, AiTownReadback> _towns = new Dictionary<int, AiTownReadback>();
+
+            public void Add(int townId, AiTownReadback readback)
+            {
+                _towns[townId] = readback;
+            }
+
+            public bool TryGet(int townId, out AiTownReadback readback)
+            {
+                return _towns.TryGetValue(townId, out readback);
+            }
         }
 
         private static SimScenario LoadMvp()
