@@ -30,7 +30,7 @@
     {
       "id": "remnant_dalles_arrive",
       "side": "remnant",
-      "description": "First Remnant group (2 motor rifles + recon) arrives in The Dalles. Not in the rules sheet 5 table: from the designer sim (mvp/mvp_estimate.py 'Remnant arr 4:19', road distance Goldendale-The Dalles 5272961 cm from territory-roads.v1-marsh.json). See the PR's open question on 33.0 vs 32.8 road-mi.",
+      "description": "First Remnant group (2 motor rifles + recon) arrives in The Dalles. Not in the rules sheet 5 table: from the designer sim (mvp/mvp_estimate.py 'Remnant arr 4:19', road distance Goldendale-The Dalles 5272961 cm from territory-roads.v1-marsh.json). The 33.0 vs 32.8 road-mi question is decided (Designer decision, 2026-10-08): units take Map Pipeline's 33.0 road-mi cheapest route; the difference is a few seconds, well inside the 300-tick tolerance, so this target is unchanged.",
       "tick": 5180,
       "clock": "4:19",
       "toleranceTicks": 300,
