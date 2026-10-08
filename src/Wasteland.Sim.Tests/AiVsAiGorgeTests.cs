@@ -27,7 +27,7 @@ namespace Wasteland.Sim.Tests
             Assert.Contains("theDallesTown=14", logsA[0]);
             Assert.True(hostA.Ai.Map.UsesMapNeighborLists);
             Assert.Equal(AiMapV1Tests.ExpectedWheeledBlockedChokepoints, hostA.Ai.Map.WheeledBlockedCount);
-            AssertDallesUnownedBecauseContested(hostA);
+            AssertDallesOwnerAfterSerialProduction(hostA);
 
             hostA.Shutdown();
             hostB.Shutdown();
@@ -206,25 +206,17 @@ namespace Wasteland.Sim.Tests
             }
         }
 
-        private static void AssertDallesUnownedBecauseContested(AiMatchHost host)
+        // Instant SpawnBattalion kept both armies on The Dalles, so it stayed
+        // unowned. Serial HQ production thins the race; remnant holds it at 10k.
+        private static void AssertDallesOwnerAfterSerialProduction(AiMatchHost host)
         {
-            Assert.Equal(0, host.Ai.TheDallesOwnerId());
             int index = host.Ai.Map.IndexOfTown(host.Ai.Map.TheDallesTownId);
-            AiTownRecord dalles = host.Ai.Map.TownAt(index);
-            int radius = host.Ai.Balance.CaptureRadiusCmForClass(dalles.PopulationClass);
-            CaptureZoneOccupancyResult zone = ((LoggingCommandSink)host.Ai.Commands).OccupancyOf(
-                dalles.XCm,
-                dalles.YCm,
-                radius);
             int remnantHome = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA).HomeTerritoryId;
             int compactHome = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionB).HomeTerritoryId;
             Assert.True(host.Ai.Map.Adjacency.AreNeighbors(remnantHome, host.Ai.Map.TheDallesTerritoryId));
             Assert.True(host.Ai.Map.Adjacency.AreNeighbors(compactHome, host.Ai.Map.TheDallesTerritoryId));
-            Assert.Equal(0, zone.FactionId);
-            Assert.Equal(0, host.Ai.Owned.TownOwnerAt(index));
-            Assert.True(
-                zone.Kind == CaptureOccupancyKind.Empty
-                || zone.Kind == CaptureOccupancyKind.Contested);
+            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.TheDallesOwnerId());
+            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.TownOwnerAt(index));
         }
 
         private static AiTownHoldSample FindHold(IReadOnlyList<AiTownHoldSample> samples, int tick, int factionId)
