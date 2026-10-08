@@ -9,7 +9,7 @@ namespace Wasteland.Sim.Tests
 {
     public sealed class AiVsAiGorgeTests
     {
-        private const ulong MatchSeed = 0xC01055A1UL;
+        internal const ulong MatchSeed = 0xC01055A1UL;
 
         [Fact]
         public void TwoAiFactions_OnGorgeV1_SameSeed_SameHashStream()
@@ -206,8 +206,8 @@ namespace Wasteland.Sim.Tests
             }
         }
 
-        // Instant SpawnBattalion kept both armies on The Dalles, so it stayed
-        // unowned. Serial HQ production thins the race; remnant holds it at 10k.
+        // Regression check only. Replaced by the Designer's arrival-order check
+        // after he runs the timings.
         private static void AssertDallesOwnerAfterSerialProduction(AiMatchHost host)
         {
             int index = host.Ai.Map.IndexOfTown(host.Ai.Map.TheDallesTownId);
