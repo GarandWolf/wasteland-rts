@@ -1,4 +1,5 @@
 using System;
+using Wasteland.Sim.Scenario;
 
 namespace Wasteland.Sim.World
 {
@@ -24,6 +25,9 @@ namespace Wasteland.Sim.World
         public readonly int PopCap;
         public readonly string[] RaisableUnits;
 
+        /// <summary>Authored auto-research order from the scenario. Empty when the seat has none.</summary>
+        public readonly ScenarioAutoResearch[] AutoResearch;
+
         public SeatSetup(
             int factionId,
             int slot,
@@ -39,6 +43,41 @@ namespace Wasteland.Sim.World
             bool fuelEnabled,
             int popCap,
             string[] raisableUnits)
+            : this(
+                factionId,
+                slot,
+                factionKey,
+                homeTownId,
+                hqXCm,
+                hqYCm,
+                currentTier,
+                tierResearchCompleteTick,
+                manpower,
+                materials,
+                fuel,
+                fuelEnabled,
+                popCap,
+                raisableUnits,
+                Array.Empty<ScenarioAutoResearch>())
+        {
+        }
+
+        public SeatSetup(
+            int factionId,
+            int slot,
+            string factionKey,
+            int homeTownId,
+            int hqXCm,
+            int hqYCm,
+            int currentTier,
+            int tierResearchCompleteTick,
+            int manpower,
+            int materials,
+            int fuel,
+            bool fuelEnabled,
+            int popCap,
+            string[] raisableUnits,
+            ScenarioAutoResearch[] autoResearch)
         {
             if (factionKey == null)
             {
@@ -48,6 +87,11 @@ namespace Wasteland.Sim.World
             if (raisableUnits == null)
             {
                 throw new ArgumentNullException(nameof(raisableUnits));
+            }
+
+            if (autoResearch == null)
+            {
+                throw new ArgumentNullException(nameof(autoResearch));
             }
 
             if (popCap < 0)
@@ -69,6 +113,7 @@ namespace Wasteland.Sim.World
             FuelEnabled = fuelEnabled;
             PopCap = popCap;
             RaisableUnits = raisableUnits;
+            AutoResearch = autoResearch;
         }
     }
 

@@ -29,6 +29,11 @@ namespace Wasteland.Sim.Scenario
         private readonly string[][] _buildingFactions;
         private readonly string[] _buildingRoles;
         private readonly string[] _techIds;
+        private readonly int[] _techResearchTicks;
+        private readonly int[] _techManpower;
+        private readonly int[] _techFuel;
+        private readonly int[] _techMateriel;
+        private readonly int[] _techTargetTier;
         private readonly string[] _factionIds;
         private readonly string[] _personalityIds;
         private readonly string[] _personalityFactions;
@@ -39,6 +44,8 @@ namespace Wasteland.Sim.Scenario
         private BalanceCatalog(
             int dataVersion,
             int startingManpower,
+            int startingFuel,
+            int startingMateriel,
             string[] unitIds,
             string[] unitFactions,
             int[] unitTiers,
@@ -55,6 +62,11 @@ namespace Wasteland.Sim.Scenario
             string[][] buildingFactions,
             string[] buildingRoles,
             string[] techIds,
+            int[] techResearchTicks,
+            int[] techManpower,
+            int[] techFuel,
+            int[] techMateriel,
+            int[] techTargetTier,
             string[] factionIds,
             string[] personalityIds,
             string[] personalityFactions,
@@ -64,6 +76,8 @@ namespace Wasteland.Sim.Scenario
         {
             DataVersion = dataVersion;
             StartingManpower = startingManpower;
+            StartingFuel = startingFuel;
+            StartingMateriel = startingMateriel;
             _unitIds = unitIds;
             _unitFactions = unitFactions;
             _unitTiers = unitTiers;
@@ -80,6 +94,11 @@ namespace Wasteland.Sim.Scenario
             _buildingFactions = buildingFactions;
             _buildingRoles = buildingRoles;
             _techIds = techIds;
+            _techResearchTicks = techResearchTicks;
+            _techManpower = techManpower;
+            _techFuel = techFuel;
+            _techMateriel = techMateriel;
+            _techTargetTier = techTargetTier;
             _factionIds = factionIds;
             _personalityIds = personalityIds;
             _personalityFactions = personalityFactions;
@@ -91,6 +110,10 @@ namespace Wasteland.Sim.Scenario
         public int DataVersion { get; }
 
         public int StartingManpower { get; }
+
+        public int StartingFuel { get; }
+
+        public int StartingMateriel { get; }
 
         public static BalanceCatalog LoadFromDirectory(string balanceDirectory)
         {
@@ -172,7 +195,10 @@ namespace Wasteland.Sim.Scenario
 
             string[] holdingTiers = ReadHoldingTiers(economyRoot);
             string[] resourceSites = ReadResourceSites(economyRoot);
-            int startingManpower = ReadStartingManpower(economyRoot);
+            int startingManpower;
+            int startingFuel;
+            int startingMateriel;
+            ReadStartingResources(economyRoot, out startingManpower, out startingFuel, out startingMateriel);
 
             string[] unitIds;
             string[] unitFactions;
@@ -205,7 +231,20 @@ namespace Wasteland.Sim.Scenario
             string[] buildingRoles;
             ReadBuildings(buildingsRoot, out buildingIds, out buildingFactions, out buildingRoles);
             int[] unitProducedAtIndex = ResolveProducedAt(unitIds, unitProducedAt, buildingIds);
-            string[] techIds = ReadTech(rulesRoot);
+            string[] techIds;
+            int[] techResearchTicks;
+            int[] techManpower;
+            int[] techFuel;
+            int[] techMateriel;
+            int[] techTargetTier;
+            ReadTech(
+                rulesRoot,
+                out techIds,
+                out techResearchTicks,
+                out techManpower,
+                out techFuel,
+                out techMateriel,
+                out techTargetTier);
             int[] speedCmPerTick = ReadSpeeds(rulesRoot);
             string[] personalityIds;
             string[] personalityFactions;
@@ -214,6 +253,8 @@ namespace Wasteland.Sim.Scenario
             BalanceCatalog catalog = new BalanceCatalog(
                 unitsVersion,
                 startingManpower,
+                startingFuel,
+                startingMateriel,
                 unitIds,
                 unitFactions,
                 unitTiers,
@@ -230,6 +271,11 @@ namespace Wasteland.Sim.Scenario
                 buildingFactions,
                 buildingRoles,
                 techIds,
+                techResearchTicks,
+                techManpower,
+                techFuel,
+                techMateriel,
+                techTargetTier,
                 factionIds,
                 personalityIds,
                 personalityFactions,
@@ -456,6 +502,73 @@ namespace Wasteland.Sim.Scenario
             return IndexOf(_techIds, techId) >= 0;
         }
 
+        /// <summary>
+        /// Research duration in ticks for a tech id such as <c>tier2</c>.
+        /// </summary>
+        public bool TryGetTechResearchTicks(string techId, out int researchTicks)
+        {
+            int index = TechIndex(techId);
+            if (index < 0)
+            {
+                researchTicks = 0;
+                return false;
+            }
+
+            researchTicks = _techResearchTicks[index];
+            return true;
+        }
+
+        /// <summary>
+        /// Manpower, fuel, and materiel charged when research in <paramref name="techId"/> starts.
+        /// </summary>
+        public bool TryGetTechCost(string techId, out int manpower, out int fuel, out int materiel)
+        {
+            int index = TechIndex(techId);
+            if (index < 0)
+            {
+                manpower = 0;
+                fuel = 0;
+                materiel = 0;
+                return false;
+            }
+
+            manpower = _techManpower[index];
+            fuel = _techFuel[index];
+            materiel = _techMateriel[index];
+            return true;
+        }
+
+        internal int TechResearchTicksAt(int index)
+        {
+            return _techResearchTicks[index];
+        }
+
+        internal int TechManpowerAt(int index)
+        {
+            return _techManpower[index];
+        }
+
+        internal int TechFuelAt(int index)
+        {
+            return _techFuel[index];
+        }
+
+        internal int TechMaterielAt(int index)
+        {
+            return _techMateriel[index];
+        }
+
+        internal int TechTargetTierAt(int index)
+        {
+            return _techTargetTier[index];
+        }
+
+        internal bool TryGetTechIndex(string techId, out int index)
+        {
+            index = TechIndex(techId);
+            return index >= 0;
+        }
+
         public bool HasFaction(string factionId)
         {
             if (factionId == null)
@@ -613,12 +726,24 @@ namespace Wasteland.Sim.Scenario
             return ids;
         }
 
-        private static int ReadStartingManpower(JsonValue economyRoot)
+        private static void ReadStartingResources(
+            JsonValue economyRoot,
+            out int manpower,
+            out int fuel,
+            out int materiel)
         {
             JsonValue resources = Child(economyRoot, "startingResources", "economy.json $.startingResources");
-            return IntAt(
+            manpower = IntAt(
                 Child(resources, "manpower", "economy.json $.startingResources.manpower"),
                 "economy.json $.startingResources.manpower",
+                0);
+            fuel = IntAt(
+                Child(resources, "fuel", "economy.json $.startingResources.fuel"),
+                "economy.json $.startingResources.fuel",
+                0);
+            materiel = IntAt(
+                Child(resources, "materiel", "economy.json $.startingResources.materiel"),
+                "economy.json $.startingResources.materiel",
                 0);
         }
 
@@ -769,7 +894,14 @@ namespace Wasteland.Sim.Scenario
             ScenarioSort.RequireUnique(ids, "buildings.json $.buildings");
         }
 
-        private static string[] ReadTech(JsonValue rulesRoot)
+        private static void ReadTech(
+            JsonValue rulesRoot,
+            out string[] ids,
+            out int[] researchTicks,
+            out int[] manpower,
+            out int[] fuel,
+            out int[] materiel,
+            out int[] targetTier)
         {
             JsonValue tech = Child(rulesRoot, "tech", "rules.json $.tech");
             if (tech.Kind != JsonKind.Object || tech.ObjectValue.Count < 1)
@@ -777,21 +909,90 @@ namespace Wasteland.Sim.Scenario
                 throw ScenarioErrors.At("rules.json $.tech", "expected a non-empty object.");
             }
 
-            string[] ids = new string[tech.ObjectValue.Count];
-            for (int i = 0; i < ids.Length; i++)
+            int count = tech.ObjectValue.Count;
+            ids = new string[count];
+            researchTicks = new int[count];
+            manpower = new int[count];
+            fuel = new int[count];
+            materiel = new int[count];
+            targetTier = new int[count];
+            for (int i = 0; i < count; i++)
             {
                 ids[i] = tech.ObjectValue[i].Name;
                 string path = "rules.json $.tech." + ids[i];
                 ScenarioText.RequireSnake(ids[i], path);
-                if (tech.ObjectValue[i].Value.Kind != JsonKind.Object)
+                JsonValue row = tech.ObjectValue[i].Value;
+                if (row.Kind != JsonKind.Object)
                 {
                     throw ScenarioErrors.At(path, "expected an object.");
                 }
+
+                researchTicks[i] = IntAt(Child(row, "researchTicks", path + ".researchTicks"), path + ".researchTicks", 0);
+                JsonValue cost = Child(row, "cost", path + ".cost");
+                manpower[i] = IntAt(Child(cost, "manpower", path + ".cost.manpower"), path + ".cost.manpower", 0);
+                fuel[i] = IntAt(Child(cost, "fuel", path + ".cost.fuel"), path + ".cost.fuel", 0);
+                materiel[i] = IntAt(Child(cost, "materiel", path + ".cost.materiel"), path + ".cost.materiel", 0);
+                targetTier[i] = TargetTierFromId(ids[i], path);
             }
 
-            ScenarioSort.Ordinal(ids);
+            int[] order = OrderOf(ids);
+            ids = Permute(ids, order);
+            researchTicks = Permute(researchTicks, order);
+            manpower = Permute(manpower, order);
+            fuel = Permute(fuel, order);
+            materiel = Permute(materiel, order);
+            targetTier = Permute(targetTier, order);
             ScenarioSort.RequireUnique(ids, "rules.json $.tech");
-            return ids;
+        }
+
+        private static int TargetTierFromId(string id, string path)
+        {
+            const string prefix = "tier";
+            if (id.Length <= prefix.Length || string.CompareOrdinal(id, 0, prefix, 0, prefix.Length) != 0)
+            {
+                throw ScenarioErrors.At(path, "tech id must be tier followed by a positive integer.");
+            }
+
+            int value = 0;
+            for (int i = prefix.Length; i < id.Length; i++)
+            {
+                char c = id[i];
+                if (c < '0' || c > '9')
+                {
+                    throw ScenarioErrors.At(path, "tech id must be tier followed by a positive integer.");
+                }
+
+                value = checked((value * 10) + (c - '0'));
+            }
+
+            if (value < 1)
+            {
+                throw ScenarioErrors.At(path, "tech id must be tier followed by a positive integer.");
+            }
+
+            return value;
+        }
+
+        private static string[] Permute(string[] values, int[] order)
+        {
+            string[] sorted = new string[values.Length];
+            for (int i = 0; i < order.Length; i++)
+            {
+                sorted[i] = values[order[i]];
+            }
+
+            return sorted;
+        }
+
+        private static int[] Permute(int[] values, int[] order)
+        {
+            int[] sorted = new int[values.Length];
+            for (int i = 0; i < order.Length; i++)
+            {
+                sorted[i] = values[order[i]];
+            }
+
+            return sorted;
         }
 
         private static void ReadPersonalities(JsonValue root, out string[] ids, out string[] factions)
@@ -982,6 +1183,16 @@ namespace Wasteland.Sim.Scenario
             }
 
             return IndexOf(_unitIds, unitId);
+        }
+
+        private int TechIndex(string techId)
+        {
+            if (techId == null)
+            {
+                throw new ArgumentNullException(nameof(techId));
+            }
+
+            return IndexOf(_techIds, techId);
         }
 
         private static int[] OrderOf(string[] ids)

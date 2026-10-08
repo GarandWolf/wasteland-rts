@@ -221,6 +221,21 @@ namespace Wasteland.Sim.World
             seat.HqYCm = setup.HqYCm;
             seat.CurrentTier = setup.CurrentTier;
             seat.TierResearchCompleteTick = setup.TierResearchCompleteTick;
+            seat.AutoResearchTech = new int[setup.AutoResearch.Length];
+            seat.AutoResearchNotBefore = new int[setup.AutoResearch.Length];
+            seat.AutoResearchCursor = 0;
+            for (int i = 0; i < setup.AutoResearch.Length; i++)
+            {
+                string item = setup.AutoResearch[i].Item;
+                if (item == null || !_catalog.TryGetTechIndex(item, out int techIndex))
+                {
+                    throw new ArgumentException("Auto research item is not in the catalog.", nameof(setup));
+                }
+
+                seat.AutoResearchTech[i] = techIndex;
+                seat.AutoResearchNotBefore[i] = setup.AutoResearch[i].NotBeforeTick;
+            }
+
             seat.Manpower = setup.Manpower;
             seat.Materials = setup.Materials;
             seat.Fuel = setup.Fuel;
@@ -469,6 +484,15 @@ namespace Wasteland.Sim.World
                 hash.AddInt(seat.HqYCm);
                 hash.AddInt(seat.CurrentTier);
                 hash.AddInt(seat.TierResearchCompleteTick);
+                hash.AddInt(seat.AutoResearchCursor);
+                int researchCount = seat.AutoResearchTech == null ? 0 : seat.AutoResearchTech.Length;
+                hash.AddInt(researchCount);
+                for (int r = 0; r < researchCount; r++)
+                {
+                    hash.AddInt(seat.AutoResearchTech[r]);
+                    hash.AddInt(seat.AutoResearchNotBefore[r]);
+                }
+
                 hash.AddInt(seat.Manpower);
                 hash.AddInt(seat.Materials);
                 hash.AddInt(seat.Fuel);
@@ -1002,8 +1026,94 @@ namespace Wasteland.Sim.World
                     seat.CurrentTier++;
                     seat.TierResearchCompleteTick = -1;
                     _seats[i] = seat;
+                    Emit(SimEventKind.TierReached, seat.FactionId, seat.CurrentTier);
+                }
+
+                if (seat.TierResearchCompleteTick < 0 && TryStartAutoResearch(ref seat))
+                {
+                    _seats[i] = seat;
                 }
             }
+        }
+
+        /// <summary>
+        /// Start the next authored auto-research item when nothing is running,
+        /// its not-before tick has arrived, and it targets CurrentTier + 1.
+        /// Cost is charged on this tick the same way a raise is: manpower and
+        /// materiel always, fuel only when the seat has fuel enabled.
+        /// A short resource charges nothing and leaves the cursor in place
+        /// so the next tick can try again.
+        /// </summary>
+        private bool TryStartAutoResearch(ref SeatState seat)
+        {
+            if (_catalog == null || seat.AutoResearchTech == null || seat.AutoResearchNotBefore == null)
+            {
+                return false;
+            }
+
+            int cursor = seat.AutoResearchCursor;
+            if (cursor < 0 || cursor >= seat.AutoResearchTech.Length || cursor >= seat.AutoResearchNotBefore.Length)
+            {
+                return false;
+            }
+
+            if (seat.AutoResearchNotBefore[cursor] > Tick)
+            {
+                return false;
+            }
+
+            int techIndex = seat.AutoResearchTech[cursor];
+            int targetTier = _catalog.TechTargetTierAt(techIndex);
+            if (targetTier != seat.CurrentTier + 1)
+            {
+                return false;
+            }
+
+            int manpowerCost = _catalog.TechManpowerAt(techIndex);
+            int materielCost = _catalog.TechMaterielAt(techIndex);
+            int fuelCost = _catalog.TechFuelAt(techIndex);
+            if (seat.Manpower < manpowerCost || seat.Materials < materielCost)
+            {
+                return false;
+            }
+
+            if (seat.FuelEnabled && seat.Fuel < fuelCost)
+            {
+                return false;
+            }
+
+            int complete = checked(Tick + _catalog.TechResearchTicksAt(techIndex));
+            seat.Manpower -= manpowerCost;
+            seat.Materials -= materielCost;
+            if (seat.FuelEnabled)
+            {
+                seat.Fuel -= fuelCost;
+            }
+
+            seat.TierResearchCompleteTick = complete;
+            seat.AutoResearchCursor = cursor + 1;
+            Emit(SimEventKind.TierResearchStarted, seat.FactionId, targetTier, Tick, complete);
+            return true;
+        }
+
+        internal void AddResources(int factionId, int manpower, int materials, int fuel)
+        {
+            if (manpower < 0 || materials < 0 || fuel < 0)
+            {
+                throw new ArgumentOutOfRangeException(nameof(manpower), "Resource credit must be >= 0.");
+            }
+
+            int index = FindSeat(factionId);
+            if (index < 0)
+            {
+                throw new InvalidOperationException("Unknown seat " + factionId + ".");
+            }
+
+            SeatState seat = _seats[index];
+            seat.Manpower = checked(seat.Manpower + manpower);
+            seat.Materials = checked(seat.Materials + materials);
+            seat.Fuel = checked(seat.Fuel + fuel);
+            _seats[index] = seat;
         }
 
         private void NoteBattalionId(int id)
@@ -1246,6 +1356,9 @@ namespace Wasteland.Sim.World
             public int HqYCm;
             public int CurrentTier;
             public int TierResearchCompleteTick;
+            public int AutoResearchCursor;
+            public int[] AutoResearchTech;
+            public int[] AutoResearchNotBefore;
             public int Manpower;
             public int Materials;
             public int Fuel;
