@@ -15,41 +15,77 @@ namespace Wasteland.Sim.Scenario
     {
         private readonly string[] _unitIds;
         private readonly string[] _unitFactions;
+        private readonly int[] _unitTiers;
+        private readonly string[] _unitRoles;
+        private readonly string[] _unitTargetClasses;
+        private readonly int[] _unitManpower;
+        private readonly int[] _unitMateriel;
+        private readonly int[] _unitFuel;
+        private readonly int[] _unitPop;
+        private readonly byte[] _unitMoveClass;
+        private readonly int[] _unitBuildTicks;
+        private readonly int[] _unitProducedAt;
         private readonly string[] _buildingIds;
         private readonly string[][] _buildingFactions;
+        private readonly string[] _buildingRoles;
         private readonly string[] _techIds;
         private readonly string[] _factionIds;
         private readonly string[] _personalityIds;
         private readonly string[] _personalityFactions;
         private readonly string[] _holdingTiers;
         private readonly string[] _resourceSites;
+        private readonly int[] _speedCmPerTick;
 
         private BalanceCatalog(
             int dataVersion,
             int startingManpower,
             string[] unitIds,
             string[] unitFactions,
+            int[] unitTiers,
+            string[] unitRoles,
+            string[] unitTargetClasses,
+            int[] unitManpower,
+            int[] unitMateriel,
+            int[] unitFuel,
+            int[] unitPop,
+            byte[] unitMoveClass,
+            int[] unitBuildTicks,
+            int[] unitProducedAt,
             string[] buildingIds,
             string[][] buildingFactions,
+            string[] buildingRoles,
             string[] techIds,
             string[] factionIds,
             string[] personalityIds,
             string[] personalityFactions,
             string[] holdingTiers,
-            string[] resourceSites)
+            string[] resourceSites,
+            int[] speedCmPerTick)
         {
             DataVersion = dataVersion;
             StartingManpower = startingManpower;
             _unitIds = unitIds;
             _unitFactions = unitFactions;
+            _unitTiers = unitTiers;
+            _unitRoles = unitRoles;
+            _unitTargetClasses = unitTargetClasses;
+            _unitManpower = unitManpower;
+            _unitMateriel = unitMateriel;
+            _unitFuel = unitFuel;
+            _unitPop = unitPop;
+            _unitMoveClass = unitMoveClass;
+            _unitBuildTicks = unitBuildTicks;
+            _unitProducedAt = unitProducedAt;
             _buildingIds = buildingIds;
             _buildingFactions = buildingFactions;
+            _buildingRoles = buildingRoles;
             _techIds = techIds;
             _factionIds = factionIds;
             _personalityIds = personalityIds;
             _personalityFactions = personalityFactions;
             _holdingTiers = holdingTiers;
             _resourceSites = resourceSites;
+            _speedCmPerTick = speedCmPerTick;
         }
 
         public int DataVersion { get; }
@@ -140,11 +176,37 @@ namespace Wasteland.Sim.Scenario
 
             string[] unitIds;
             string[] unitFactions;
-            ReadUnits(unitsRoot, out unitIds, out unitFactions);
+            int[] unitTiers;
+            string[] unitRoles;
+            string[] unitTargetClasses;
+            int[] unitManpower;
+            int[] unitMateriel;
+            int[] unitFuel;
+            int[] unitPop;
+            byte[] unitMoveClass;
+            int[] unitBuildTicks;
+            string[] unitProducedAt;
+            ReadUnits(
+                unitsRoot,
+                out unitIds,
+                out unitFactions,
+                out unitTiers,
+                out unitRoles,
+                out unitTargetClasses,
+                out unitManpower,
+                out unitMateriel,
+                out unitFuel,
+                out unitPop,
+                out unitMoveClass,
+                out unitBuildTicks,
+                out unitProducedAt);
             string[] buildingIds;
             string[][] buildingFactions;
-            ReadBuildings(buildingsRoot, out buildingIds, out buildingFactions);
+            string[] buildingRoles;
+            ReadBuildings(buildingsRoot, out buildingIds, out buildingFactions, out buildingRoles);
+            int[] unitProducedAtIndex = ResolveProducedAt(unitIds, unitProducedAt, buildingIds);
             string[] techIds = ReadTech(rulesRoot);
+            int[] speedCmPerTick = ReadSpeeds(rulesRoot);
             string[] personalityIds;
             string[] personalityFactions;
             ReadPersonalities(personalityRoot, out personalityIds, out personalityFactions);
@@ -154,14 +216,26 @@ namespace Wasteland.Sim.Scenario
                 startingManpower,
                 unitIds,
                 unitFactions,
+                unitTiers,
+                unitRoles,
+                unitTargetClasses,
+                unitManpower,
+                unitMateriel,
+                unitFuel,
+                unitPop,
+                unitMoveClass,
+                unitBuildTicks,
+                unitProducedAtIndex,
                 buildingIds,
                 buildingFactions,
+                buildingRoles,
                 techIds,
                 factionIds,
                 personalityIds,
                 personalityFactions,
                 holdingTiers,
-                resourceSites);
+                resourceSites,
+                speedCmPerTick);
 
             for (int i = 0; i < unitIds.Length; i++)
             {
@@ -202,6 +276,143 @@ namespace Wasteland.Sim.Scenario
 
             factionId = _unitFactions[index];
             return true;
+        }
+
+        public bool TryGetUnitTier(string unitId, out int tier)
+        {
+            int index = UnitIndex(unitId);
+            if (index < 0)
+            {
+                tier = 0;
+                return false;
+            }
+
+            tier = _unitTiers[index];
+            return true;
+        }
+
+        public bool TryGetUnitRole(string unitId, out string role)
+        {
+            int index = UnitIndex(unitId);
+            if (index < 0)
+            {
+                role = string.Empty;
+                return false;
+            }
+
+            role = _unitRoles[index];
+            return true;
+        }
+
+        public bool TryGetUnitTargetClass(string unitId, out string targetClass)
+        {
+            int index = UnitIndex(unitId);
+            if (index < 0)
+            {
+                targetClass = string.Empty;
+                return false;
+            }
+
+            targetClass = _unitTargetClasses[index];
+            return true;
+        }
+
+        public bool TryGetManpowerCost(string unitId, out int manpower)
+        {
+            int index = UnitIndex(unitId);
+            if (index < 0)
+            {
+                manpower = 0;
+                return false;
+            }
+
+            manpower = _unitManpower[index];
+            return true;
+        }
+
+        public bool TryGetBuildingRole(string buildingId, out string role)
+        {
+            if (buildingId == null)
+            {
+                throw new ArgumentNullException(nameof(buildingId));
+            }
+
+            int index = IndexOf(_buildingIds, buildingId);
+            if (index < 0)
+            {
+                role = string.Empty;
+                return false;
+            }
+
+            role = _buildingRoles[index];
+            return true;
+        }
+
+        internal bool TryGetUnitIndex(string unitId, out int index)
+        {
+            if (unitId == null)
+            {
+                index = -1;
+                return false;
+            }
+
+            index = IndexOf(_unitIds, unitId);
+            return index >= 0;
+        }
+
+        internal int UnitCount
+        {
+            get { return _unitIds.Length; }
+        }
+
+        internal string UnitIdAt(int index)
+        {
+            return _unitIds[index];
+        }
+
+        internal int UnitTierAt(int index)
+        {
+            return _unitTiers[index];
+        }
+
+        internal int UnitManpowerAt(int index)
+        {
+            return _unitManpower[index];
+        }
+
+        internal int UnitMaterielAt(int index)
+        {
+            return _unitMateriel[index];
+        }
+
+        internal int UnitFuelAt(int index)
+        {
+            return _unitFuel[index];
+        }
+
+        internal int UnitPopAt(int index)
+        {
+            return _unitPop[index];
+        }
+
+        internal int UnitBuildTicksAt(int index)
+        {
+            return _unitBuildTicks[index];
+        }
+
+        internal int UnitProducedAtIndex(int index)
+        {
+            return _unitProducedAt[index];
+        }
+
+        internal MovementClass UnitMoveClassAt(int index)
+        {
+            return (MovementClass)_unitMoveClass[index];
+        }
+
+        internal int SpeedCmPerSecond(MovementClass clas)
+        {
+            return _speedCmPerTick[(int)clas] * Wasteland.Sim.SimConfig.TickRateHz;
         }
 
         public bool HasBuilding(string buildingId)
@@ -411,7 +622,20 @@ namespace Wasteland.Sim.Scenario
                 0);
         }
 
-        private static void ReadUnits(JsonValue root, out string[] ids, out string[] factions)
+        private static void ReadUnits(
+            JsonValue root,
+            out string[] ids,
+            out string[] factions,
+            out int[] tiers,
+            out string[] roles,
+            out string[] targetClasses,
+            out int[] manpower,
+            out int[] materiel,
+            out int[] fuel,
+            out int[] pop,
+            out byte[] moveClass,
+            out int[] buildTicks,
+            out string[] producedAt)
         {
             JsonValue units = Child(root, "units", "units.json $.units");
             if (units.Kind != JsonKind.Object || units.ObjectValue.Count < 1)
@@ -422,6 +646,16 @@ namespace Wasteland.Sim.Scenario
             int count = units.ObjectValue.Count;
             ids = new string[count];
             factions = new string[count];
+            tiers = new int[count];
+            roles = new string[count];
+            targetClasses = new string[count];
+            manpower = new int[count];
+            materiel = new int[count];
+            fuel = new int[count];
+            pop = new int[count];
+            moveClass = new byte[count];
+            buildTicks = new int[count];
+            producedAt = new string[count];
             for (int i = 0; i < count; i++)
             {
                 string id = units.ObjectValue[i].Name;
@@ -431,13 +665,67 @@ namespace Wasteland.Sim.Scenario
                 factions[i] = TextAt(Child(row, "faction", path + ".faction"), path + ".faction");
                 ScenarioText.RequireSnake(factions[i], path + ".faction");
                 ids[i] = id;
+                tiers[i] = IntAt(Child(row, "techTier", path + ".techTier"), path + ".techTier", 1);
+                roles[i] = TextAt(Child(row, "role", path + ".role"), path + ".role");
+                ScenarioText.RequireSnake(roles[i], path + ".role");
+                targetClasses[i] = TextAt(Child(row, "targetClass", path + ".targetClass"), path + ".targetClass");
+                ScenarioText.RequireSnake(targetClasses[i], path + ".targetClass");
+                JsonValue cost = Child(row, "cost", path + ".cost");
+                manpower[i] = IntAt(Child(cost, "manpower", path + ".cost.manpower"), path + ".cost.manpower", 0);
+                fuel[i] = IntAt(Child(cost, "fuel", path + ".cost.fuel"), path + ".cost.fuel", 0);
+                materiel[i] = IntAt(Child(cost, "materiel", path + ".cost.materiel"), path + ".cost.materiel", 0);
+                pop[i] = IntAt(Child(row, "popCost", path + ".popCost"), path + ".popCost", 0);
+                moveClass[i] = ParseMoveClass(
+                    TextAt(Child(row, "movementClass", path + ".movementClass"), path + ".movementClass"),
+                    path + ".movementClass");
+                buildTicks[i] = IntAt(Child(row, "buildTicks", path + ".buildTicks"), path + ".buildTicks", 0);
+                producedAt[i] = TextAt(Child(row, "producedAt", path + ".producedAt"), path + ".producedAt");
+                ScenarioText.RequireSnake(producedAt[i], path + ".producedAt");
             }
 
-            SortParallel(ids, factions);
+            SortUnits(ids, factions, tiers, roles, targetClasses, manpower, materiel, fuel, pop, moveClass, buildTicks, producedAt);
             ScenarioSort.RequireUnique(ids, "units.json $.units");
         }
 
-        private static void ReadBuildings(JsonValue root, out string[] ids, out string[][] factions)
+        private static int[] ReadSpeeds(JsonValue rulesRoot)
+        {
+            string path = "rules.json $.movement.baseSpeedCmPerTick";
+            JsonValue movement = Child(rulesRoot, "movement", "rules.json $.movement");
+            JsonValue speeds = Child(movement, "baseSpeedCmPerTick", path);
+            int[] result = new int[4];
+            result[(int)MovementClass.Wheeled] = IntAt(Child(speeds, "wheeled", path + ".wheeled"), path + ".wheeled", 0);
+            result[(int)MovementClass.Tracked] = IntAt(Child(speeds, "tracked", path + ".tracked"), path + ".tracked", 0);
+            result[(int)MovementClass.Foot] = IntAt(Child(speeds, "foot", path + ".foot"), path + ".foot", 0);
+            result[(int)MovementClass.Air] = IntAt(Child(speeds, "air", path + ".air"), path + ".air", 0);
+            return result;
+        }
+
+        private static byte ParseMoveClass(string text, string path)
+        {
+            if (text == "wheeled")
+            {
+                return (byte)MovementClass.Wheeled;
+            }
+
+            if (text == "tracked")
+            {
+                return (byte)MovementClass.Tracked;
+            }
+
+            if (text == "foot")
+            {
+                return (byte)MovementClass.Foot;
+            }
+
+            if (text == "air")
+            {
+                return (byte)MovementClass.Air;
+            }
+
+            throw ScenarioErrors.At(path, "unknown movement class '" + text + "'.");
+        }
+
+        private static void ReadBuildings(JsonValue root, out string[] ids, out string[][] factions, out string[] roles)
         {
             JsonValue buildings = Child(root, "buildings", "buildings.json $.buildings");
             if (buildings.Kind != JsonKind.Object || buildings.ObjectValue.Count < 1)
@@ -448,6 +736,7 @@ namespace Wasteland.Sim.Scenario
             int count = buildings.ObjectValue.Count;
             ids = new string[count];
             factions = new string[count][];
+            roles = new string[count];
             for (int i = 0; i < count; i++)
             {
                 string id = buildings.ObjectValue[i].Name;
@@ -472,9 +761,11 @@ namespace Wasteland.Sim.Scenario
                 ScenarioSort.RequireUnique(allowed, path + ".factions");
                 ids[i] = id;
                 factions[i] = allowed;
+                roles[i] = TextAt(Child(row, "role", path + ".role"), path + ".role");
+                ScenarioText.RequireSnake(roles[i], path + ".role");
             }
 
-            SortBuildings(ids, factions);
+            SortBuildings(ids, factions, roles);
             ScenarioSort.RequireUnique(ids, "buildings.json $.buildings");
         }
 
@@ -582,22 +873,115 @@ namespace Wasteland.Sim.Scenario
             }
         }
 
-        private static void SortBuildings(string[] ids, string[][] factions)
+        private static void SortUnits(
+            string[] ids,
+            string[] factions,
+            int[] tiers,
+            string[] roles,
+            string[] targetClasses,
+            int[] manpower,
+            int[] materiel,
+            int[] fuel,
+            int[] pop,
+            byte[] moveClass,
+            int[] buildTicks,
+            string[] producedAt)
         {
             int[] order = OrderOf(ids);
             string[] sortedIds = new string[ids.Length];
-            string[][] sortedFactions = new string[ids.Length][];
+            string[] sortedFactions = new string[ids.Length];
+            int[] sortedTiers = new int[ids.Length];
+            string[] sortedRoles = new string[ids.Length];
+            string[] sortedTargets = new string[ids.Length];
+            int[] sortedManpower = new int[ids.Length];
+            int[] sortedMateriel = new int[ids.Length];
+            int[] sortedFuel = new int[ids.Length];
+            int[] sortedPop = new int[ids.Length];
+            byte[] sortedMove = new byte[ids.Length];
+            int[] sortedBuild = new int[ids.Length];
+            string[] sortedProduced = new string[ids.Length];
             for (int i = 0; i < order.Length; i++)
             {
-                sortedIds[i] = ids[order[i]];
-                sortedFactions[i] = factions[order[i]];
+                int from = order[i];
+                sortedIds[i] = ids[from];
+                sortedFactions[i] = factions[from];
+                sortedTiers[i] = tiers[from];
+                sortedRoles[i] = roles[from];
+                sortedTargets[i] = targetClasses[from];
+                sortedManpower[i] = manpower[from];
+                sortedMateriel[i] = materiel[from];
+                sortedFuel[i] = fuel[from];
+                sortedPop[i] = pop[from];
+                sortedMove[i] = moveClass[from];
+                sortedBuild[i] = buildTicks[from];
+                sortedProduced[i] = producedAt[from];
             }
 
             for (int i = 0; i < ids.Length; i++)
             {
                 ids[i] = sortedIds[i];
                 factions[i] = sortedFactions[i];
+                tiers[i] = sortedTiers[i];
+                roles[i] = sortedRoles[i];
+                targetClasses[i] = sortedTargets[i];
+                manpower[i] = sortedManpower[i];
+                materiel[i] = sortedMateriel[i];
+                fuel[i] = sortedFuel[i];
+                pop[i] = sortedPop[i];
+                moveClass[i] = sortedMove[i];
+                buildTicks[i] = sortedBuild[i];
+                producedAt[i] = sortedProduced[i];
             }
+        }
+
+        private static int[] ResolveProducedAt(string[] unitIds, string[] producedAt, string[] buildingIds)
+        {
+            int[] index = new int[producedAt.Length];
+            for (int i = 0; i < producedAt.Length; i++)
+            {
+                int building = IndexOf(buildingIds, producedAt[i]);
+                if (building < 0)
+                {
+                    throw ScenarioErrors.At(
+                        "units.json $.units." + unitIds[i] + ".producedAt",
+                        "unknown building '" + producedAt[i] + "'.");
+                }
+
+                index[i] = building;
+            }
+
+            return index;
+        }
+
+        private static void SortBuildings(string[] ids, string[][] factions, string[] roles)
+        {
+            int[] order = OrderOf(ids);
+            string[] sortedIds = new string[ids.Length];
+            string[][] sortedFactions = new string[ids.Length][];
+            string[] sortedRoles = new string[ids.Length];
+            for (int i = 0; i < order.Length; i++)
+            {
+                sortedIds[i] = ids[order[i]];
+                sortedFactions[i] = factions[order[i]];
+                sortedRoles[i] = roles[order[i]];
+            }
+
+            for (int i = 0; i < ids.Length; i++)
+            {
+                ids[i] = sortedIds[i];
+                factions[i] = sortedFactions[i];
+                roles[i] = sortedRoles[i];
+            }
+        }
+
+        private int UnitIndex(string unitId)
+        {
+            if (unitId == null)
+            {
+                throw new ArgumentNullException(nameof(unitId));
+            }
+
+            return IndexOf(_unitIds, unitId);
         }
 
         private static int[] OrderOf(string[] ids)

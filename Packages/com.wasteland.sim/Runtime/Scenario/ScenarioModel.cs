@@ -1,3 +1,4 @@
+#nullable enable
 namespace Wasteland.Sim.Scenario
 {
     /// <summary>
