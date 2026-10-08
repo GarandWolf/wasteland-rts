@@ -63,10 +63,10 @@ namespace Wasteland.Sim.Ai
         public readonly int MaxActiveOrders;
         public readonly int MinGarrisonPerTown;
         public readonly int ManpowerReserveSeconds;
-        public readonly int EconomyBonusPpt;
         public readonly int MaxCandidateGoals;
         public readonly int TaskForceTargetSize;
         public readonly int ReservePpt;
+        public readonly int WorkUnitsPerTick;
 
         public AiPosture Posture;
         public int NextOrderId;
@@ -75,6 +75,7 @@ namespace Wasteland.Sim.Ai
         public int WorkResumeId;
         public int PathRequestsThisTick;
         public int WorkUnitsThisTick;
+        public int DepotCapSkips;
         public bool StrategicDeferred;
         public bool OpeningForceIssued;
         public int HomeTerritoryId;
@@ -106,10 +107,12 @@ namespace Wasteland.Sim.Ai
             int maxActiveOrders,
             int minGarrisonPerTown,
             int manpowerReserveSeconds,
-            int economyBonusPpt,
             int maxCandidateGoals,
             int taskForceTargetSize,
             int reservePpt,
+            int workUnitsPerTick,
+            int maxDepotsPerFaction,
+            int pickedPostCapacity,
             AiPosture posture,
             SimRandom strategyRng,
             SimRandom tacticalRng,
@@ -124,17 +127,23 @@ namespace Wasteland.Sim.Ai
             MaxActiveOrders = maxActiveOrders;
             MinGarrisonPerTown = minGarrisonPerTown;
             ManpowerReserveSeconds = manpowerReserveSeconds;
-            EconomyBonusPpt = economyBonusPpt;
             MaxCandidateGoals = maxCandidateGoals;
             TaskForceTargetSize = taskForceTargetSize;
             ReservePpt = reservePpt;
+            WorkUnitsPerTick = workUnitsPerTick;
+            if (WorkUnitsPerTick < 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(workUnitsPerTick));
+            }
+
             Posture = posture;
             NextOrderId = 1;
             NextBattalionId = factionId * AiConstants.BattalionIdStride + 1;
             Orders = new AiOrder[System.Math.Max(1, maxActiveOrders)];
-            Depots = new AiDepot[16];
-            PickedPostIds = new int[64];
-            PickedGroupIds = new int[64];
+            Depots = new AiDepot[System.Math.Max(1, maxDepotsPerFaction)];
+            int postCap = System.Math.Max(1, pickedPostCapacity);
+            PickedPostIds = new int[postCap];
+            PickedGroupIds = new int[postCap];
             Pending = new AiPendingCommand[AiConstants.PendingCommandCapacity];
             StrategyRng = strategyRng;
             TacticalRng = tacticalRng;
@@ -333,6 +342,7 @@ namespace Wasteland.Sim.Ai
 
         public void HashInto(XxHash64Builder hash)
         {
+            hash.AddInt(DroppedFromLog);
             hash.AddInt(_factions.Length);
             for (int i = 0; i < _factions.Length; i++)
             {
@@ -345,7 +355,6 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.MaxActiveOrders);
                 hash.AddInt(faction.MinGarrisonPerTown);
                 hash.AddInt(faction.ManpowerReserveSeconds);
-                hash.AddInt(faction.EconomyBonusPpt);
                 hash.AddInt(faction.MaxCandidateGoals);
                 hash.AddInt(faction.TaskForceTargetSize);
                 hash.AddInt(faction.ReservePpt);
@@ -364,6 +373,7 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.ManpowerCarry);
                 hash.AddInt(faction.DepotCount);
                 hash.AddInt(faction.PickedPostCount);
+                hash.AddInt(faction.DepotCapSkips);
                 hash.AddInt(faction.PendingCount);
                 hash.AddInt(faction.PendingDropped);
                 hash.AddULong(faction.StrategyRng.State);
@@ -446,7 +456,6 @@ namespace Wasteland.Sim.Ai
                 writer.Write(faction.MaxActiveOrders);
                 writer.Write(faction.MinGarrisonPerTown);
                 writer.Write(faction.ManpowerReserveSeconds);
-                writer.Write(faction.EconomyBonusPpt);
                 writer.Write(faction.MaxCandidateGoals);
                 writer.Write(faction.TaskForceTargetSize);
                 writer.Write(faction.ReservePpt);
@@ -467,6 +476,7 @@ namespace Wasteland.Sim.Ai
                 writer.Write(faction.PickedPostCount);
                 writer.Write(faction.PendingCount);
                 writer.Write(faction.PendingDropped);
+                writer.Write(faction.DepotCapSkips);
                 WriteRng(writer, faction.StrategyRng);
                 WriteRng(writer, faction.TacticalRng);
                 WriteRng(writer, faction.MistakeRng);
@@ -585,6 +595,11 @@ namespace Wasteland.Sim.Ai
                 {
                     throw new InvalidDataException("AI capture tick counts must be >= 0.");
                 }
+
+                if (!IsKnownFactionId(townOwners[i]) || !IsKnownFactionId(captureFactions[i]))
+                {
+                    throw new InvalidDataException("AI faction id is not in this match.");
+                }
             }
 
             if (reader.BaseStream.Position != reader.BaseStream.Length)
@@ -627,7 +642,6 @@ namespace Wasteland.Sim.Ai
             RequireInt32(reader, current.MaxActiveOrders, "MaxActiveOrders");
             RequireInt32(reader, current.MinGarrisonPerTown, "MinGarrisonPerTown");
             RequireInt32(reader, current.ManpowerReserveSeconds, "ManpowerReserveSeconds");
-            RequireInt32(reader, current.EconomyBonusPpt, "EconomyBonusPpt");
             RequireInt32(reader, current.MaxCandidateGoals, "MaxCandidateGoals");
             RequireInt32(reader, current.TaskForceTargetSize, "TaskForceTargetSize");
             RequireInt32(reader, current.ReservePpt, "ReservePpt");
@@ -646,13 +660,28 @@ namespace Wasteland.Sim.Ai
             loaded.NextBattalionId = reader.ReadInt32();
             loaded.Manpower = reader.ReadInt32();
             loaded.ManpowerCarry = reader.ReadInt32();
+            if (loaded.Manpower < 0)
+            {
+                throw new InvalidDataException("AI manpower must be >= 0.");
+            }
+
+            if (loaded.ManpowerCarry < 0)
+            {
+                throw new InvalidDataException("AI manpower carry must be >= 0.");
+            }
             loaded.DepotCount = reader.ReadInt32();
             loaded.PickedPostCount = reader.ReadInt32();
             loaded.PendingCount = reader.ReadInt32();
             loaded.PendingDropped = reader.ReadInt32();
+            loaded.DepotCapSkips = reader.ReadInt32();
             if (loaded.PendingDropped < 0)
             {
                 throw new InvalidDataException("AI PendingDropped is negative.");
+            }
+
+            if (loaded.DepotCapSkips < 0)
+            {
+                throw new InvalidDataException("AI DepotCapSkips is negative.");
             }
 
             loaded.StrategyRng = ReadRng(reader);
@@ -741,6 +770,7 @@ namespace Wasteland.Sim.Ai
             faction.PickedPostCount = loaded.PickedPostCount;
             faction.PendingCount = loaded.PendingCount;
             faction.PendingDropped = loaded.PendingDropped;
+            faction.DepotCapSkips = loaded.DepotCapSkips;
             faction.StrategyRng = loaded.StrategyRng;
             faction.TacticalRng = loaded.TacticalRng;
             faction.MistakeRng = loaded.MistakeRng;
@@ -821,6 +851,7 @@ namespace Wasteland.Sim.Ai
             public int PickedPostCount;
             public int PendingCount;
             public int PendingDropped;
+            public int DepotCapSkips;
             public SimRandom StrategyRng;
             public SimRandom TacticalRng;
             public SimRandom MistakeRng;
@@ -851,7 +882,37 @@ namespace Wasteland.Sim.Ai
         {
             ulong state = reader.ReadUInt64();
             ulong increment = reader.ReadUInt64();
-            return SimRandom.FromPersisted(state, increment);
+            if ((increment & 1UL) == 0UL)
+            {
+                throw new InvalidDataException("AI RNG increment must be odd.");
+            }
+
+            try
+            {
+                return SimRandom.FromPersisted(state, increment);
+            }
+            catch (ArgumentException ex)
+            {
+                throw new InvalidDataException("AI RNG blob is invalid.", ex);
+            }
+        }
+
+        private bool IsKnownFactionId(int factionId)
+        {
+            if (factionId == 0)
+            {
+                return true;
+            }
+
+            for (int i = 0; i < _factions.Length; i++)
+            {
+                if (_factions[i].FactionId == factionId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static void SortByFactionId(AiFactionState[] factions)

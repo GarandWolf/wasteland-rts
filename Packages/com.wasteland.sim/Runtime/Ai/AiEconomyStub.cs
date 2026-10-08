@@ -5,20 +5,27 @@ namespace Wasteland.Sim.Ai
     /// <summary>
     /// AI-owned manpower until the sim owns economy. Rates come from
     /// <c>economy.json</c> as per-minute integers. Accrual is remainder-carry
-    /// on <c>incomeAccrual.intervalTicks</c>. Brutal applies
-    /// <c>EconomyBonusPpt</c> on top of the faction manpower modifier.
+    /// on <c>incomeAccrual.intervalTicks</c>. Difficulty applies
+    /// <c>rules.json</c> <c>difficulty.*.incomeMultiplierPpt</c>. Contested
+    /// holdings pay only when <c>contestedHoldingPaysIncome</c> is true.
     /// </summary>
     public sealed class AiEconomyStub : IAiEconomy
     {
         private readonly AiMapSnapshot _map;
         private readonly AiOwnedState _owned;
         private readonly AiBalanceTables _balance;
+        private readonly ICaptureOccupancyView _occupancy;
 
-        public AiEconomyStub(AiMapSnapshot map, AiOwnedState owned, AiBalanceTables balance)
+        public AiEconomyStub(
+            AiMapSnapshot map,
+            AiOwnedState owned,
+            AiBalanceTables balance,
+            ICaptureOccupancyView occupancy)
         {
             _map = map;
             _owned = owned;
             _balance = balance ?? throw new ArgumentNullException(nameof(balance));
+            _occupancy = occupancy ?? throw new ArgumentNullException(nameof(occupancy));
         }
 
         public int IncomePerMinute(int factionId)
@@ -26,6 +33,7 @@ namespace Wasteland.Sim.Ai
             AiFactionState faction = _owned.GetFaction(factionId);
             AiPersonalityProfile personality = _balance.GetPersonality(faction.PersonalityId);
             int baseIncome = _balance.HqManpowerPerMin(personality.EconomyFactionId);
+            bool contestedPays = _balance.ContestedHoldingPaysIncome;
             for (int i = 0; i < _map.TownCount; i++)
             {
                 if (_owned.TownOwnerAt(i) != factionId)
@@ -33,11 +41,24 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
+                if (!contestedPays)
+                {
+                    AiTownRecord town = _map.TownAt(i);
+                    CaptureZoneOccupancyResult zone = _occupancy.OccupancyOf(
+                        town.XCm,
+                        town.YCm,
+                        _balance.CaptureRadiusCmForClass(town.PopulationClass));
+                    if (zone.Kind == CaptureOccupancyKind.Contested)
+                    {
+                        continue;
+                    }
+                }
+
                 baseIncome += _balance.IncomePerMinForClass(_map.TownAt(i).PopulationClass);
             }
 
             int modified = ApplyPpt(baseIncome, _balance.ManpowerModifierPpt(personality.EconomyFactionId));
-            return ApplyPpt(modified, SimConfig.PptScale + faction.EconomyBonusPpt);
+            return ApplyPpt(modified, _balance.IncomeMultiplierPpt(faction.DifficultyId));
         }
 
         public void AccrueTick(int tick)

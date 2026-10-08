@@ -114,7 +114,6 @@ namespace Wasteland.Sim.Ai
         public readonly int ScoutCadenceTicks;
         public readonly string FogCheat;
         public readonly int MemoryDecayPerCadencePpt;
-        public readonly int EconomyBonusPpt;
         public readonly int BuildSpeedBonusPpt;
         public readonly int VisionRadiusBonusCm;
         public readonly int MicroQuality;
@@ -133,7 +132,6 @@ namespace Wasteland.Sim.Ai
             int scoutCadenceTicks,
             string fogCheat,
             int memoryDecayPerCadencePpt,
-            int economyBonusPpt,
             int buildSpeedBonusPpt,
             int visionRadiusBonusCm,
             int microQuality,
@@ -151,7 +149,6 @@ namespace Wasteland.Sim.Ai
             ScoutCadenceTicks = scoutCadenceTicks;
             FogCheat = fogCheat;
             MemoryDecayPerCadencePpt = memoryDecayPerCadencePpt;
-            EconomyBonusPpt = economyBonusPpt;
             BuildSpeedBonusPpt = buildSpeedBonusPpt;
             VisionRadiusBonusCm = visionRadiusBonusCm;
             MicroQuality = microQuality;
@@ -171,10 +168,10 @@ namespace Wasteland.Sim.Ai
     /// <c>schemaVersion</c> next to <c>dataVersion</c> (AI content is
     /// dataVersion 1; designer pack files are currently dataVersion 6).
     /// Parse requires <c>dataVersion</c> as an int32 — missing or non-integer
-    ///         values are rejected. <see cref="FromDirectory"/> also loads
-        /// <c>rules.json</c> <c>capture</c> (timers, zone radii, fortification,
-        /// decay) and <c>economy.json</c> holding-tier / HQ / faction manpower.
-        /// The rest of <c>rules.json</c> is not read.
+        /// values are rejected. <see cref="FromDirectory"/> also loads
+        /// <c>rules.json</c> capture, supply caps, AI goal ceiling, difficulty
+        /// income multipliers, and <c>economy.json</c> holding-tier / HQ /
+        /// faction manpower plus <c>contestedHoldingPaysIncome</c>.
         /// </summary>
     public sealed partial class AiBalanceTables
     {
@@ -182,6 +179,11 @@ namespace Wasteland.Sim.Ai
         public const string CaptureRuleVillage = "village";
         public const string CaptureRuleTown = "town";
         public const string CaptureRuleCity = "city";
+        public const string RuleIdAiMaxCandidateGoals = "ai.maxCandidateGoals";
+        public const string RuleIdSupplyMaxDepots = "supply.maxDepotsPerFaction";
+        public const string RuleIdSupplyScratch = "supply.connectivityScratchSize";
+        public const string RuleIdWorkUnitsPerTick = "workUnitsPerTick";
+        public const string RuleIdContestedHoldingPaysIncome = "contestedHoldingPaysIncome";
 
         private readonly AiPersonalityProfile[] _personalities;
         private readonly AiDifficultyProfile[] _difficulties;
@@ -189,12 +191,14 @@ namespace Wasteland.Sim.Ai
         private readonly string[] _bindingPersonalityIds;
 
         private readonly ulong _balanceKey;
+        private readonly int _workUnitsPerTick;
         private readonly RulesState _rules;
 
         private AiBalanceTables(
             ulong balanceKey,
             ulong personalityJsonHash,
             ulong difficultyJsonHash,
+            int workUnitsPerTick,
             AiPersonalityProfile[] personalities,
             AiDifficultyProfile[] difficulties,
             int[] bindingFactionIds,
@@ -204,6 +208,7 @@ namespace Wasteland.Sim.Ai
             _balanceKey = balanceKey;
             PersonalityJsonHash = personalityJsonHash;
             DifficultyJsonHash = difficultyJsonHash;
+            _workUnitsPerTick = workUnitsPerTick;
             _personalities = personalities;
             _difficulties = difficulties;
             _bindingFactionIds = bindingFactionIds;
@@ -238,6 +243,47 @@ namespace Wasteland.Sim.Ai
         public bool HasEconomyTable
         {
             get { return _rules.HasEconomy; }
+        }
+
+        public int WorkUnitsPerTick
+        {
+            get { return _workUnitsPerTick; }
+        }
+
+        public int MaxDepotsPerFaction
+        {
+            get
+            {
+                RequireRulesLimits();
+                return _rules.MaxDepotsPerFaction;
+            }
+        }
+
+        public int ConnectivityScratchSize
+        {
+            get
+            {
+                RequireRulesLimits();
+                return _rules.ConnectivityScratchSize;
+            }
+        }
+
+        public int MaxCandidateGoalsCeiling
+        {
+            get
+            {
+                RequireRulesLimits();
+                return _rules.MaxCandidateGoalsCeiling;
+            }
+        }
+
+        public bool ContestedHoldingPaysIncome
+        {
+            get
+            {
+                RequireEconomy();
+                return _rules.ContestedHoldingPaysIncome;
+            }
         }
 
         public int DecayStartsAfterTicks
@@ -323,6 +369,8 @@ namespace Wasteland.Sim.Ai
 
         internal AiBalanceTables WithRules(RulesState rules)
         {
+            RequireCandidateGoalsWithinCeiling(rules);
+            RequireDifficultiesHaveIncomeMultiplier(rules);
             return Clone(_balanceKey, rules);
         }
 
@@ -374,6 +422,25 @@ namespace Wasteland.Sim.Ai
             return LookupEconomy(economyFactionId, _rules.ManpowerModifierPpt);
         }
 
+        public int IncomeMultiplierPpt(string difficultyId)
+        {
+            RequireRulesLimits();
+            if (difficultyId == null)
+            {
+                throw new ArgumentNullException(nameof(difficultyId));
+            }
+
+            for (int i = 0; i < _rules.DifficultyIds.Length; i++)
+            {
+                if (_rules.DifficultyIds[i] == difficultyId)
+                {
+                    return _rules.IncomeMultiplierPpt[i];
+                }
+            }
+
+            throw new FormatException("difficulty." + difficultyId + ".incomeMultiplierPpt");
+        }
+
         private int LookupEconomy(string economyFactionId, int[] values)
         {
             RequireEconomy();
@@ -409,12 +476,21 @@ namespace Wasteland.Sim.Ai
             }
         }
 
+        private void RequireRulesLimits()
+        {
+            if (!_rules.HasLimits)
+            {
+                throw new InvalidOperationException("Balance tables have no rules.json AI/supply limits.");
+            }
+        }
+
         private AiBalanceTables Clone(ulong balanceKey, RulesState rules)
         {
             return new AiBalanceTables(
                 balanceKey,
                 PersonalityJsonHash,
                 DifficultyJsonHash,
+                _workUnitsPerTick,
                 _personalities,
                 _difficulties,
                 _bindingFactionIds,
@@ -510,10 +586,19 @@ namespace Wasteland.Sim.Ai
             RequireUniqueBindingFactionIds(bindingFactionIds);
             RequireBindingsReferencePersonalities(bindingPersonalityIds, personalities);
 
+            int workUnitsPerTick = JsonUtil.Int32(
+                JsonUtil.Field(difficultyRoot, RuleIdWorkUnitsPerTick),
+                RuleIdWorkUnitsPerTick);
+            if (workUnitsPerTick < 1)
+            {
+                throw new FormatException(RuleIdWorkUnitsPerTick + " must be >= 1.");
+            }
+
             return new AiBalanceTables(
                 0UL,
                 HashUtf8(personalitiesJson),
                 HashUtf8(difficultyJson),
+                workUnitsPerTick,
                 personalities,
                 difficulties,
                 bindingFactionIds,
@@ -603,6 +688,63 @@ namespace Wasteland.Sim.Ai
                 throw new FormatException("decayTicksPerTick must be >= 1.");
             }
 
+            JsonValue supply = JsonUtil.Field(root, "supply");
+            rules.MaxDepotsPerFaction = JsonUtil.Int32(
+                JsonUtil.Field(supply, "maxDepotsPerFaction"),
+                RuleIdSupplyMaxDepots);
+            if (rules.MaxDepotsPerFaction < 1)
+            {
+                throw new FormatException(RuleIdSupplyMaxDepots + " must be >= 1.");
+            }
+
+            rules.ConnectivityScratchSize = JsonUtil.Int32(
+                JsonUtil.Field(supply, "connectivityScratchSize"),
+                RuleIdSupplyScratch);
+            if (rules.ConnectivityScratchSize < rules.MaxDepotsPerFaction)
+            {
+                throw new FormatException(
+                    RuleIdSupplyScratch + " must be >= " + RuleIdSupplyMaxDepots + ".");
+            }
+
+            JsonValue ai = JsonUtil.Field(root, "ai");
+            rules.MaxCandidateGoalsCeiling = JsonUtil.Int32(
+                JsonUtil.Field(ai, "maxCandidateGoals"),
+                RuleIdAiMaxCandidateGoals);
+            if (rules.MaxCandidateGoalsCeiling < 1)
+            {
+                throw new FormatException(RuleIdAiMaxCandidateGoals + " must be >= 1.");
+            }
+
+            JsonValue difficulty = JsonUtil.Field(root, "difficulty");
+            if (difficulty.Kind != JsonKind.Object)
+            {
+                throw new FormatException("difficulty must be an object.");
+            }
+
+            List<JsonField> difficultyFields = difficulty.ObjectValue;
+            rules.DifficultyIds = new string[difficultyFields.Count];
+            rules.IncomeMultiplierPpt = new int[difficultyFields.Count];
+            for (int i = 0; i < difficultyFields.Count; i++)
+            {
+                string id = difficultyFields[i].Name;
+                JsonValue row = difficultyFields[i].Value;
+                string key = "difficulty." + id + ".incomeMultiplierPpt";
+                if (!JsonUtil.TryField(row, "incomeMultiplierPpt", out JsonValue mul))
+                {
+                    throw new FormatException(key);
+                }
+
+                int ppt = JsonUtil.Int32(mul, key);
+                if (ppt < 1)
+                {
+                    throw new FormatException(key + " must be >= 1.");
+                }
+
+                rules.DifficultyIds[i] = id;
+                rules.IncomeMultiplierPpt[i] = ppt;
+            }
+
+            rules.HasLimits = true;
             return rules;
         }
 
@@ -714,6 +856,9 @@ namespace Wasteland.Sim.Ai
             rules.EconomyFactionIds = ids;
             rules.HqManpowerPerMin = hqManpower;
             rules.ManpowerModifierPpt = modifier;
+            rules.ContestedHoldingPaysIncome = JsonUtil.Bool(
+                JsonUtil.Field(root, RuleIdContestedHoldingPaysIncome),
+                RuleIdContestedHoldingPaysIncome);
         }
 
         private static int RequireNamedPpt(JsonValue row, string key)
@@ -893,6 +1038,12 @@ namespace Wasteland.Sim.Ai
                 throw new FormatException("maxActiveOrders must be >= 1.");
             }
 
+            int maxCandidateGoals = JsonUtil.Int32(JsonUtil.Field(row, "maxCandidateGoals"), "maxCandidateGoals");
+            if (maxCandidateGoals < 1)
+            {
+                throw new FormatException("maxCandidateGoals must be >= 1.");
+            }
+
             return new AiDifficultyProfile(
                 JsonUtil.String(JsonUtil.Field(row, "id"), "id"),
                 reaction,
@@ -901,14 +1052,13 @@ namespace Wasteland.Sim.Ai
                 JsonUtil.Int32(JsonUtil.Field(row, "scoutCadenceTicks"), "scoutCadenceTicks"),
                 fogCheat,
                 RequirePpt(row, "memoryDecayPerCadencePpt"),
-                RequirePpt(row, "economyBonusPpt"),
                 RequirePpt(row, "buildSpeedBonusPpt"),
                 JsonUtil.Int32(JsonUtil.Field(row, "visionRadiusBonusCm"), "visionRadiusBonusCm"),
                 JsonUtil.Int32(JsonUtil.Field(row, "microQuality"), "microQuality"),
                 RequirePpt(row, "mistakeRatePpt"),
                 RequirePpt(row, "retreatThresholdMulPpt"),
                 maxActiveOrders,
-                JsonUtil.Int32(JsonUtil.Field(row, "maxCandidateGoals"), "maxCandidateGoals"),
+                maxCandidateGoals,
                 JsonUtil.Int32(JsonUtil.Field(row, "manpowerReserveSeconds"), "manpowerReserveSeconds"),
                 RequireManpowerCost(row));
         }
@@ -955,6 +1105,49 @@ namespace Wasteland.Sim.Ai
             }
 
             return value;
+        }
+
+        private void RequireCandidateGoalsWithinCeiling(RulesState rules)
+        {
+            if (rules == null || !rules.HasLimits)
+            {
+                return;
+            }
+
+            for (int i = 0; i < _difficulties.Length; i++)
+            {
+                if (_difficulties[i].MaxCandidateGoals > rules.MaxCandidateGoalsCeiling)
+                {
+                    throw new FormatException(RuleIdAiMaxCandidateGoals);
+                }
+            }
+        }
+
+        private void RequireDifficultiesHaveIncomeMultiplier(RulesState rules)
+        {
+            if (rules == null || !rules.HasLimits)
+            {
+                return;
+            }
+
+            for (int i = 0; i < _difficulties.Length; i++)
+            {
+                string id = _difficulties[i].Id;
+                bool found = false;
+                for (int d = 0; d < rules.DifficultyIds.Length; d++)
+                {
+                    if (rules.DifficultyIds[d] == id)
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    throw new FormatException("difficulty." + id + ".incomeMultiplierPpt");
+                }
+            }
         }
 
         private static void RequireUniquePersonalityIds(AiPersonalityProfile[] rows)
@@ -1078,6 +1271,13 @@ namespace Wasteland.Sim.Ai
             public string[] EconomyFactionIds = Array.Empty<string>();
             public int[] HqManpowerPerMin = Array.Empty<int>();
             public int[] ManpowerModifierPpt = Array.Empty<int>();
+            public bool ContestedHoldingPaysIncome;
+            public bool HasLimits;
+            public int MaxDepotsPerFaction;
+            public int ConnectivityScratchSize;
+            public int MaxCandidateGoalsCeiling;
+            public string[] DifficultyIds = Array.Empty<string>();
+            public int[] IncomeMultiplierPpt = Array.Empty<int>();
 
             public RulesState Clone()
             {
@@ -1096,6 +1296,13 @@ namespace Wasteland.Sim.Ai
                 copy.EconomyFactionIds = (string[])EconomyFactionIds.Clone();
                 copy.HqManpowerPerMin = (int[])HqManpowerPerMin.Clone();
                 copy.ManpowerModifierPpt = (int[])ManpowerModifierPpt.Clone();
+                copy.ContestedHoldingPaysIncome = ContestedHoldingPaysIncome;
+                copy.HasLimits = HasLimits;
+                copy.MaxDepotsPerFaction = MaxDepotsPerFaction;
+                copy.ConnectivityScratchSize = ConnectivityScratchSize;
+                copy.MaxCandidateGoalsCeiling = MaxCandidateGoalsCeiling;
+                copy.DifficultyIds = (string[])DifficultyIds.Clone();
+                copy.IncomeMultiplierPpt = (int[])IncomeMultiplierPpt.Clone();
                 return copy;
             }
         }

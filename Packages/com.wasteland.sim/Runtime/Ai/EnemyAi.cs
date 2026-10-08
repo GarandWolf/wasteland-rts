@@ -30,8 +30,8 @@ namespace Wasteland.Sim.Ai
         private readonly ulong _adjacencyHash;
         private readonly int _commandDelayTicks;
         private readonly List<int> _idScratch = new List<int>();
-        private readonly Candidate[] _candidates = new Candidate[64];
-        private readonly int[] _networkScratch = new int[32];
+        private readonly Candidate[] _candidates;
+        private readonly int[] _networkScratch;
         private readonly AiRoadSupply _roadSupply = new AiRoadSupply();
         private bool _shutdown;
         private bool _homesSeeded;
@@ -63,7 +63,7 @@ namespace Wasteland.Sim.Ai
             _balance = balance;
             _map = map;
             _owned = owned;
-            _economy = new AiEconomyStub(map, owned, balance);
+            _economy = new AiEconomyStub(map, owned, balance, occupancy);
             _homes = new AiHomeSeeder();
             _difficulty = difficulty;
             _matchSeed = matchSeed;
@@ -71,6 +71,8 @@ namespace Wasteland.Sim.Ai
             _mapKey = map.MapKey;
             _commandDelayTicks = commands.CommandDelayTicks;
             _adjacencyHash = HashAdjacency(map.Adjacency);
+            _candidates = new Candidate[System.Math.Max(1, difficulty.MaxCandidateGoals)];
+            _networkScratch = new int[balance.ConnectivityScratchSize];
             _homes.Seed(_owned, _map);
             _homesSeeded = true;
         }
@@ -118,6 +120,16 @@ namespace Wasteland.Sim.Ai
         public int StrategicSliceRuns
         {
             get { return _strategicSliceRuns; }
+        }
+
+        internal int NetworkScratchCapacity
+        {
+            get { return _networkScratch.Length; }
+        }
+
+        internal int CandidateCapacity
+        {
+            get { return _candidates.Length; }
         }
 
         public static EnemyAi MatchInit(
@@ -217,10 +229,12 @@ namespace Wasteland.Sim.Ai
                     difficulty.MaxActiveOrders,
                     personality.MinGarrisonPerTown,
                     difficulty.ManpowerReserveSeconds,
-                    difficulty.EconomyBonusPpt,
                     difficulty.MaxCandidateGoals,
                     personality.TaskForceTargetSize,
                     personality.ReservePpt,
+                    balance.WorkUnitsPerTick,
+                    balance.MaxDepotsPerFaction,
+                    map.ChokepointCount,
                     personality.DefaultPosture,
                     SeedRng(factionStream, AiConstants.StreamStrategy),
                     SeedRng(factionStream, AiConstants.StreamTactical),
@@ -265,7 +279,7 @@ namespace Wasteland.Sim.Ai
                 faction.PathRequestsThisTick = 0;
                 faction.WorkUnitsThisTick = 0;
 
-                if (workUnits >= AiConstants.AiWorkUnitsPerTick)
+                if (workUnits >= _balance.WorkUnitsPerTick)
                 {
                     faction.WorkResumeId = faction.FactionId;
                     continue;
@@ -935,7 +949,7 @@ namespace Wasteland.Sim.Ai
             int cap = faction.MaxCandidateGoals;
             if (cap > _candidates.Length)
             {
-                cap = _candidates.Length;
+                throw new InvalidOperationException(AiBalanceTables.RuleIdAiMaxCandidateGoals);
             }
 
             AiPersonalityProfile personality = _balance.GetPersonality(faction.PersonalityId);
@@ -1100,6 +1114,7 @@ namespace Wasteland.Sim.Ai
 
                     if (faction.DepotCount >= faction.Depots.Length)
                     {
+                        faction.DepotCapSkips++;
                         continue;
                     }
 
