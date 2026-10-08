@@ -190,9 +190,10 @@ namespace Wasteland.Sim.Tests
             AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
             Assert.True(host.Ai.Seats.SeatAt(0).HasAuthoredStartingUnits);
             Assert.True(host.Ai.Seats.SeatAt(1).HasAuthoredStartingUnits);
-            Assert.Equal(0, host.World.BattalionCount);
+            const int authoredCount = 10;
+            Assert.Equal(authoredCount, host.World.BattalionCount);
             host.Run(30);
-            Assert.Equal(0, host.World.BattalionCount);
+            Assert.Equal(authoredCount, host.World.BattalionCount);
             host.Shutdown();
         }
 
@@ -369,9 +370,8 @@ namespace Wasteland.Sim.Tests
             }
         }
 
-        // Compact now marches on the unowned prize, so both sides occupy The
-        // Dalles inside 10k and the capture stays contested (owner 0). Arrival
-        // is asserted in GorgeTimingLoggerTests.
+        // Compact marches on the unowned prize. With authored starting units
+        // both sides can occupy The Dalles inside 10k; owner is sampled here.
         private static void AssertDallesOwnerAfterSerialProduction(AiMatchHost host)
         {
             int index = host.Ai.Map.IndexOfTown(host.Ai.Map.TheDallesTownId);

@@ -28,6 +28,12 @@ namespace Wasteland.Sim.World
         /// <summary>Authored auto-research order from the scenario. Empty when the seat has none.</summary>
         public readonly ScenarioAutoResearch[] AutoResearch;
 
+        /// <summary>
+        /// Authored opening force. Each count is one full-strength battalion
+        /// spawned at the HQ when the seat binds. Empty when the seat has none.
+        /// </summary>
+        public readonly ScenarioUnitCount[] StartingUnits;
+
         public SeatSetup(
             int factionId,
             int slot,
@@ -78,6 +84,43 @@ namespace Wasteland.Sim.World
             int popCap,
             string[] raisableUnits,
             ScenarioAutoResearch[] autoResearch)
+            : this(
+                factionId,
+                slot,
+                factionKey,
+                homeTownId,
+                hqXCm,
+                hqYCm,
+                currentTier,
+                tierResearchCompleteTick,
+                manpower,
+                materials,
+                fuel,
+                fuelEnabled,
+                popCap,
+                raisableUnits,
+                autoResearch,
+                Array.Empty<ScenarioUnitCount>())
+        {
+        }
+
+        public SeatSetup(
+            int factionId,
+            int slot,
+            string factionKey,
+            int homeTownId,
+            int hqXCm,
+            int hqYCm,
+            int currentTier,
+            int tierResearchCompleteTick,
+            int manpower,
+            int materials,
+            int fuel,
+            bool fuelEnabled,
+            int popCap,
+            string[] raisableUnits,
+            ScenarioAutoResearch[] autoResearch,
+            ScenarioUnitCount[] startingUnits)
         {
             if (factionKey == null)
             {
@@ -92,6 +135,11 @@ namespace Wasteland.Sim.World
             if (autoResearch == null)
             {
                 throw new ArgumentNullException(nameof(autoResearch));
+            }
+
+            if (startingUnits == null)
+            {
+                throw new ArgumentNullException(nameof(startingUnits));
             }
 
             if (popCap < 0)
@@ -114,6 +162,7 @@ namespace Wasteland.Sim.World
             PopCap = popCap;
             RaisableUnits = raisableUnits;
             AutoResearch = autoResearch;
+            StartingUnits = startingUnits;
         }
     }
 

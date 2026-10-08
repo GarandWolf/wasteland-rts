@@ -240,10 +240,10 @@ namespace Wasteland.Sim.World
             seat.Materials = setup.Materials;
             seat.Fuel = setup.Fuel;
             seat.FuelEnabled = setup.FuelEnabled;
-            seat.PopUsed = 0;
             seat.PopCap = setup.PopCap;
             seat.Raisable = raisable;
             seat.Lanes = new List<ProductionLane>();
+            seat.PopUsed = SpawnStartingUnits(seat, setup.StartingUnits);
 
             int insertAt = _seats.Count;
             for (int i = 0; i < _seats.Count; i++)
@@ -792,6 +792,49 @@ namespace Wasteland.Sim.World
             }
         }
 
+        /// <summary>
+        /// One full-strength battalion per authored count, at the seat HQ.
+        /// Catalog identity supplies unit index, move class, and speed.
+        /// Pop is counted. Raise cost is not charged.
+        /// </summary>
+        private int SpawnStartingUnits(SeatState seat, ScenarioUnitCount[] units)
+        {
+            if (units == null)
+            {
+                throw new ArgumentNullException("setup");
+            }
+
+            int pop = 0;
+            for (int i = 0; i < units.Length; i++)
+            {
+                string unitId = units[i].UnitId;
+                int count = units[i].Count;
+                if (unitId == null || !_catalog.TryGetUnitIndex(unitId, out int unitIndex))
+                {
+                    throw new ArgumentException("Starting unit is not in the catalog.", "setup");
+                }
+
+                if (count < 1)
+                {
+                    throw new ArgumentOutOfRangeException("setup", "Starting unit count must be >= 1.");
+                }
+
+                int popEach = _catalog.UnitPopAt(unitIndex);
+                for (int n = 0; n < count; n++)
+                {
+                    InsertCatalogBattalion(
+                        AllocateBattalionId(),
+                        seat.FactionId,
+                        seat.HqXCm,
+                        seat.HqYCm,
+                        unitIndex);
+                    pop = checked(pop + popEach);
+                }
+            }
+
+            return pop;
+        }
+
         private void SpawnRaised(SeatState seat, ProductionItem item)
         {
             if (_catalog == null || IsBattalionIdTaken(item.BattalionId))
@@ -799,19 +842,29 @@ namespace Wasteland.Sim.World
                 return;
             }
 
-            MovementClass moveClass = _catalog.UnitMoveClassAt(item.UnitIndex);
+            InsertCatalogBattalion(item.BattalionId, seat.FactionId, seat.HqXCm, seat.HqYCm, item.UnitIndex);
+
+            if (item.RallyXCm != seat.HqXCm || item.RallyYCm != seat.HqYCm)
+            {
+                ApplyMove(SimCommand.Move(Tick, seat.FactionId, item.BattalionId, item.RallyXCm, item.RallyYCm));
+            }
+        }
+
+        private void InsertCatalogBattalion(int battalionId, int ownerId, int xCm, int yCm, int unitIndex)
+        {
+            MovementClass moveClass = _catalog.UnitMoveClassAt(unitIndex);
             SimBattalion battalion = new SimBattalion
             {
-                Id = item.BattalionId,
-                OwnerId = seat.FactionId,
-                PositionXCm = seat.HqXCm,
-                PositionYCm = seat.HqYCm,
+                Id = battalionId,
+                OwnerId = ownerId,
+                PositionXCm = xCm,
+                PositionYCm = yCm,
                 TargetXCm = 0,
                 TargetYCm = 0,
                 SpeedCmPerSecond = _catalog.SpeedCmPerSecond(moveClass),
                 StrengthPpt = SimConfig.PptScale,
                 HasTarget = false,
-                UnitIndex = item.UnitIndex,
+                UnitIndex = unitIndex,
                 MoveClass = moveClass,
                 PathIndex = 0,
                 PathCount = 0,
@@ -830,9 +883,9 @@ namespace Wasteland.Sim.World
 
             SimUnit unit = new SimUnit
             {
-                Id = item.BattalionId,
-                BattalionId = item.BattalionId,
-                OwnerId = seat.FactionId
+                Id = battalionId,
+                BattalionId = battalionId,
+                OwnerId = ownerId
             };
             int unitAt = _units.BinarySearch(unit, UnitIdComparer.Instance);
             if (unitAt < 0)
@@ -842,12 +895,7 @@ namespace Wasteland.Sim.World
 
             _units.Insert(unitAt, unit);
             RebuildUnitIndex();
-            Emit(SimEventKind.BattalionSpawned, item.BattalionId, seat.FactionId);
-
-            if (item.RallyXCm != seat.HqXCm || item.RallyYCm != seat.HqYCm)
-            {
-                ApplyMove(SimCommand.Move(Tick, seat.FactionId, item.BattalionId, item.RallyXCm, item.RallyYCm));
-            }
+            Emit(SimEventKind.BattalionSpawned, battalionId, ownerId);
         }
 
         private void IntegrateMovement()
