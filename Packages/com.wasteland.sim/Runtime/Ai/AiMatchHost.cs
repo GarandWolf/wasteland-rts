@@ -147,6 +147,7 @@ namespace Wasteland.Sim.Ai
             IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
             BindMvpSeats(world, ai, copy);
+            BindMvpRoads(world);
             return new AiMatchHost(world, ai, sink, copy);
         }
 
@@ -192,6 +193,7 @@ namespace Wasteland.Sim.Ai
             IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
             BindMvpSeats(world, ai, copy);
+            BindMvpRoads(world);
             ForwardingAiCommandSink? forwarding = ai.AiCommands as ForwardingAiCommandSink;
             if (forwarding != null)
             {
@@ -235,16 +237,8 @@ namespace Wasteland.Sim.Ai
         {
             string balanceDir = FindBalanceDirectory();
             BalanceCatalog catalog = BalanceCatalog.LoadFromDirectory(balanceDir);
-            string mapName = SimScenario.ExpectedWrmbFileName(MvpMapFileId);
-            DirectoryInfo balanceInfo = new DirectoryInfo(balanceDir);
-            DirectoryInfo? dataDir = balanceInfo.Parent;
-            DirectoryInfo? root = dataDir == null ? null : dataDir.Parent;
-            if (root == null)
-            {
-                throw new DirectoryNotFoundException(balanceDir);
-            }
-
-            string mapPath = Path.Combine(root.FullName, "data", "golden", mapName);
+            string mapPath = MvpMapPath(balanceDir);
+            string mapName = Path.GetFileName(mapPath);
             byte[] mapBytes = File.ReadAllBytes(mapPath);
             string scenarioPath = Path.Combine(balanceDir, "scenarios", MvpScenarioId + ".json");
             SimScenario scenario = SimScenario.Load(
@@ -288,6 +282,55 @@ namespace Wasteland.Sim.Ai
                     scenarioSeat.AutoResearch,
                     scenarioSeat.StartingUnits));
             }
+        }
+
+        /// <summary>
+        /// Move follows the frozen marsh road graph. Without this, ApplyMove
+        /// clears the path and walks a straight line to the town point.
+        /// </summary>
+        private static void BindMvpRoads(SimWorld world)
+        {
+            string mapPath = MvpMapPath(FindBalanceDirectory());
+            byte[] mapBlob = File.ReadAllBytes(mapPath);
+            string? goldenDir = Path.GetDirectoryName(mapPath);
+            if (goldenDir == null)
+            {
+                throw new DirectoryNotFoundException(mapPath);
+            }
+
+            string terrainPath = Path.Combine(goldenDir, TerrainSiblingFileName(Path.GetFileName(mapPath)));
+            byte[] terrainBlob = File.ReadAllBytes(terrainPath);
+            MovementService movement = MovementService.Create(mapBlob, terrainBlob, MovementTables.Default());
+            world.BindRoads(movement, Wrmb.ReadRoadGraph(mapBlob));
+        }
+
+        private static string MvpMapPath(string balanceDir)
+        {
+            string mapName = SimScenario.ExpectedWrmbFileName(MvpMapFileId);
+            DirectoryInfo balanceInfo = new DirectoryInfo(balanceDir);
+            DirectoryInfo? dataDir = balanceInfo.Parent;
+            DirectoryInfo? root = dataDir == null ? null : dataDir.Parent;
+            if (root == null)
+            {
+                throw new DirectoryNotFoundException(balanceDir);
+            }
+
+            return Path.Combine(root.FullName, "data", "golden", mapName);
+        }
+
+        /// <summary>
+        /// <c>golden-ci-columbia-gorge-100.v1-marsh.wrmb</c> becomes
+        /// <c>golden-ci-columbia-gorge-100.terrain.v1-marsh.wrmb</c>.
+        /// </summary>
+        private static string TerrainSiblingFileName(string mapFileName)
+        {
+            int dot = mapFileName.IndexOf('.');
+            if (dot <= 0)
+            {
+                throw new InvalidDataException("MVP map file name has no version suffix.");
+            }
+
+            return mapFileName.Substring(0, dot) + ".terrain" + mapFileName.Substring(dot);
         }
 
         private static bool TryMvpSeat(SimScenario scenario, int factionId, out ScenarioSeat seat)

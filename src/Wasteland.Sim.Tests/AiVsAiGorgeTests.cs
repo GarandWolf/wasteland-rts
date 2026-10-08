@@ -110,7 +110,7 @@ namespace Wasteland.Sim.Tests
             }
 
             Assert.True(atId != 0, "compact_at_battalion should have spawned by tick 2100.");
-            Assert.False(at.HasTarget && at.TargetXCm == dalles.XCm && at.TargetYCm == dalles.YCm);
+            Assert.False(Targeting(at, dalles));
             long dx = (long)at.PositionXCm - hood.XCm;
             long dy = (long)at.PositionYCm - hood.YCm;
             const long homeRadiusCm = 500000;
@@ -128,6 +128,7 @@ namespace Wasteland.Sim.Tests
             AssertPrizeForceStaysOnPrize(host, AiConstants.DefaultAiFactionB, 2, false);
             host.Run(700);
             AssertPrizeForceStaysOnPrize(host, AiConstants.DefaultAiFactionB, 2, true);
+            AssertPrizeMarchUsesRoads(host, AiConstants.DefaultAiFactionB);
             host.Shutdown();
         }
 
@@ -139,6 +140,7 @@ namespace Wasteland.Sim.Tests
             AiFactionState remnant = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA);
             Assert.Equal(host.Ai.Map.TheDallesTownId, remnant.AttackTargetTownId);
             AssertPrizeForceStaysOnPrize(host, AiConstants.DefaultAiFactionA, 2, true);
+            AssertPrizeMarchUsesRoads(host, AiConstants.DefaultAiFactionA);
             host.Run(2120);
             Assert.Equal(host.Ai.Map.TheDallesTownId, remnant.AttackTargetTownId);
             AssertPrizeForceStaysOnPrize(host, AiConstants.DefaultAiFactionA, 2, true);
@@ -461,6 +463,33 @@ namespace Wasteland.Sim.Tests
             }
         }
 
+        private static void AssertPrizeMarchUsesRoads(AiMatchHost host, int factionId)
+        {
+            Assert.True(host.Ai.Map.TryGetTown(host.Ai.Map.TheDallesTownId, out AiTownRecord dalles));
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            int onRoad = 0;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.OwnerId != factionId || !Targeting(battalion, dalles))
+                {
+                    continue;
+                }
+
+                Assert.True(battalion.PathCount > 0, "prize Move must follow BindRoads (PathCount > 0)");
+                Assert.False(
+                    battalion.PathCount == 1
+                    && battalion.PathXCm != null
+                    && battalion.PathYCm != null
+                    && battalion.PathXCm[0] == dalles.XCm
+                    && battalion.PathYCm[0] == dalles.YCm,
+                    "prize Move must not be a single straight segment");
+                onRoad++;
+            }
+
+            Assert.True(onRoad >= 1, "no prize battalion on a road path to The Dalles");
+        }
+
         private static int AssertNotStolen(
             AiMatchHost host,
             int battalionId,
@@ -488,9 +517,21 @@ namespace Wasteland.Sim.Tests
 
         private static bool Targeting(SimBattalion battalion, AiTownRecord town)
         {
-            return battalion.HasTarget
-                && battalion.TargetXCm == town.XCm
-                && battalion.TargetYCm == town.YCm;
+            if (!battalion.HasTarget)
+            {
+                return false;
+            }
+
+            if (battalion.PathCount > 0 && battalion.PathXCm != null && battalion.PathYCm != null)
+            {
+                int last = battalion.PathCount - 1;
+                if (last < battalion.PathXCm.Length && last < battalion.PathYCm.Length)
+                {
+                    return battalion.PathXCm[last] == town.XCm && battalion.PathYCm[last] == town.YCm;
+                }
+            }
+
+            return battalion.TargetXCm == town.XCm && battalion.TargetYCm == town.YCm;
         }
 
         private static bool InHome(SimBattalion battalion, AiTownRecord home)

@@ -368,6 +368,29 @@ namespace Wasteland.Sim.Tests
             faction.RejectBackoffUntilTick = int.MaxValue;
         }
 
+        /// <summary>
+        /// Resubmitting the same exit point every tick rebuilds the road path
+        /// from the nearest node and pins the battalion on the first leg.
+        /// </summary>
+        private static bool RoadOrDirectTarget(SimBattalion battalion, int xCm, int yCm)
+        {
+            if (!battalion.HasTarget)
+            {
+                return false;
+            }
+
+            if (battalion.PathCount > 0 && battalion.PathXCm != null && battalion.PathYCm != null)
+            {
+                int last = battalion.PathCount - 1;
+                if (last < battalion.PathXCm.Length && last < battalion.PathYCm.Length)
+                {
+                    return battalion.PathXCm[last] == xCm && battalion.PathYCm[last] == yCm;
+                }
+            }
+
+            return battalion.TargetXCm == xCm && battalion.TargetYCm == yCm;
+        }
+
         private static void EvacuateFactionFromTown(AiMatchHost host, int factionId, AiTownRecord town)
         {
             LoggingCommandSink sink = (LoggingCommandSink)host.Ai.Commands;
@@ -389,12 +412,19 @@ namespace Wasteland.Sim.Tests
                     continue;
                 }
 
+                int destX = town.XCm + 8_000_000;
+                int destY = town.YCm + 8_000_000;
+                if (RoadOrDirectTarget(battalion, destX, destY))
+                {
+                    continue;
+                }
+
                 host.World.Submit(SimCommand.Move(
                     host.Tick,
                     factionId,
                     ids[i],
-                    town.XCm + 8_000_000,
-                    town.YCm + 8_000_000));
+                    destX,
+                    destY));
             }
         }
 
