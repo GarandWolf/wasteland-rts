@@ -135,10 +135,13 @@ namespace Wasteland.Sim.Tests
         public void RemnantPrizeForce_IsNotReassignedToClaimWhilePrizeUncaptured()
         {
             AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
-            host.Run(2200);
+            host.Run(80);
             AiFactionState remnant = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA);
             Assert.Equal(host.Ai.Map.TheDallesTownId, remnant.AttackTargetTownId);
-            AssertPrizeForceStaysOnPrize(host, AiConstants.DefaultAiFactionA, 3, true);
+            AssertPrizeForceStaysOnPrize(host, AiConstants.DefaultAiFactionA, 2, true);
+            host.Run(2120);
+            Assert.Equal(host.Ai.Map.TheDallesTownId, remnant.AttackTargetTownId);
+            AssertPrizeForceStaysOnPrize(host, AiConstants.DefaultAiFactionA, 2, true);
             host.Shutdown();
         }
 
