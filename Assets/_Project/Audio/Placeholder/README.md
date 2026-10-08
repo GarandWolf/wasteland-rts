@@ -1,6 +1,6 @@
 # MVP placeholder audio
 
-These are placeholder sounds for MVP spec §11 (`../mvp-placeholder-presentation-spec.md` v1.1). All sources are CC0. For sources, licences and edits, see `ATTRIBUTION.md`. The tone is grounded military: a field radio, boots, steel, a snare drum, a funeral bell and a solo bugle-style trumpet. There is no music bed (music is out of MVP, §12).
+These are placeholder sounds for MVP spec §11 (MVP placeholder presentation spec v1.2). All sources are CC0. For sources, licences and edits, see `ATTRIBUTION.md`. The tone is grounded military: a field radio, boots, steel, a snare drum, a funeral bell and a solo bugle-style trumpet. There is no music bed (music is out of MVP, §12).
 
 All files are 48 kHz, 16-bit PCM WAV, with sample peaks at -1 dBFS. Balancing levels in the mixer is left to the game side.
 
@@ -18,8 +18,9 @@ All files are 48 kHz, 16-bit PCM WAV, with sample peaks at -1 dBFS. Balancing le
 | `draw_stinger.wav` | Draw screen (both HQs fall on the same tick) | 3.10 s | stereo | The lose stinger cut short and faded, per spec |
 
 ## Folder layout
-- `_sources/` holds the original downloads, kept as downloaded: Kenney UI Audio zip, Freesound HQ previews, and page snapshots as proof of licence.
-- `_tools/build.py` rebuilds all 10 WAVs from `_sources/` (needs ffmpeg with soxr, Python 3 and numpy). Run it with `python3 _tools/build.py`.
-- `SHA256SUMS` holds checksums of the 10 output WAVs.
+The sources and the build script live outside `Assets/`, in `art-sources/audio/placeholder/`, so Unity doesn't import them.
+- `art-sources/audio/placeholder/_sources/` holds the original downloads, kept as downloaded: Kenney UI Audio zip, Freesound HQ previews, and page snapshots as proof of licence.
+- `art-sources/audio/placeholder/_tools/build.py` rebuilds all 10 WAVs from those sources straight into this folder (needs ffmpeg with soxr, Python 3 and numpy). Run it from the repo root with `python3 art-sources/audio/placeholder/_tools/build.py`.
+- `art-sources/audio/placeholder/SHA256SUMS` holds checksums of the 10 WAVs in this folder.
 
 Placeholder only. Replace these before release, or at minimum swap the Freesound previews for the lossless originals (see `ATTRIBUTION.md`).
