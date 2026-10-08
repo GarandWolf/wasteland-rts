@@ -23,6 +23,16 @@ Owner: Game Designer. Status: draft for the Lead's sim tests. Design only; nothi
 
 `matchRules`: `victory` `"capture_enemy_hq_territory"`, `territoryOwnershipRule` `"hold_seat"`, `simultaneousHqLoss` `"draw"`, `fuelEnabled` false.
 
+Seat-to-seat road distances on the pinned marsh map (Map Pipeline output, cheapest path over the road graph):
+
+| Route | Road-mi |
+|---|---|
+| Goldendale – The Dalles | 33.0 |
+| Hood River – The Dalles | 21.2 |
+| Goldendale – Hood River | 44.4 |
+
+The node-to-node distances in §3 are shortest paths by `REDG.lengthCm` between the named road nodes. On that measure Goldendale node 953 – The Dalles node 499 is 5272961 cm (32.8 road-mi), which is also the value in `territory-roads.v1-marsh.json` and the designer sim; see open question 9.
+
 A seat's **HQ holding** is the seat place of its `homeTerritoryKey` (Goldendale town 33 for the Remnant, Hood River town 26 for the Compact).
 
 ## 1. Win, loss and draw (§2)
@@ -123,5 +133,6 @@ The §5 timeline estimates live in `data/design/mvp_targets.json` (ticks, tolera
 4. **Cost on rejection.** Is the 200 materiel charged at issue or at execute, and is it refunded if `BuildDepot` is rejected at execute?
 5. **Range boundary.** "Inside range" is assumed to be road distance ≤ range (as in `supply.py`). Spacing is ≥ 804670 to pass.
 6. **Route usability.** All distances assume every edge is usable. With enemy-controlled nodes on the route (`edgeUnusableWhen`), connection and spacing distances can grow; tests should state the ownership of every node on the route.
-7. **`compact_militia_complete` target.** §5 gives "Compact militia / AT: 3:15 / 4:45" without saying which militia. In the designer sim (old Settler build order, rifles ×4 first) 3:15 is the second raised militia; the first is at 2:21. The real AI's build order differs from the designer sim (§6.5), so the Compact production targets are expected to move and are not marked `core`.
+7. **`compact_militia` target.** §5 gives "Compact militia / AT: 3:15 / 4:45" without saying which militia. In the designer sim (old Settler build order, rifles ×4 first) 3:15 is the second raised militia; the first is at 2:21. The real AI's build order differs from the designer sim (§6.5), so the Compact production targets are expected to move and are not marked `core`.
 8. **Approximate targets.** The forward depot (about 10:39) and the HQ win (about 20:51, a lower bound against a passive Compact) are on the `remnant_commit` line only. The HQ win assumes the commit line, as in the sheet's `hq_win.py` run.
+9. **Goldendale – The Dalles distance.** Map Pipeline gives 33.0 road-mi (cheapest path). The designer sim uses `seatRoadCm` 5272961 cm (32.8 road-mi) from `territory-roads.v1-marsh.json`, and the shortest path by `REDG.lengthCm` between seat nodes 953 and 499 gives the same. Hood River – The Dalles (21.2) and Goldendale – Hood River (44.4) agree. Which measure should the targets and tests use? No number here was changed for this.

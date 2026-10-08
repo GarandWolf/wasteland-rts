@@ -5,13 +5,18 @@
   "source": "Designer MVP rules sheet (Oct 8 2026), section 5 'Expected timeline' (designer-sim estimates, not real-sim results) and section 7 step 2 (15 s tolerance). Scenario data/balance/scenarios/columbia_gorge_100mi_mvp.json on main b9e53fc, Normal difficulty.",
   "ticksPerSecond": 20,
   "defaultToleranceTicks": 300,
+  "sides": {
+    "remnant": "remnant_command (seat slot 0, player, Goldendale)",
+    "compact": "homestead_compact (seat slot 1, AI, Hood River)"
+  },
   "lines": {
     "baseline": "Compact takes The Dalles at 8:30. The Remnant keeps its third motor rifle battalion at home.",
     "remnant_commit": "The Remnant commits its third motor rifle battalion to The Dalles, takes it at 8:02, builds the forward depot at node 614 and drives on Hood River."
   },
   "targets": [
     {
-      "id": "compact_reaches_the_dalles",
+      "id": "compact_dalles_arrive",
+      "side": "compact",
       "description": "First Compact battalion arrives in The Dalles (territory 4, key 0x10000000B3787512). Manpower-gated, so the same in both lines.",
       "tick": 4560,
       "clock": "3:48",
@@ -23,7 +28,21 @@
       "core": true
     },
     {
-      "id": "compact_captures_the_dalles",
+      "id": "remnant_dalles_arrive",
+      "side": "remnant",
+      "description": "First Remnant group (2 motor rifles + recon) arrives in The Dalles. Not in the rules sheet 5 table: from the designer sim (mvp/mvp_estimate.py 'Remnant arr 4:19', road distance Goldendale-The Dalles 5272961 cm from territory-roads.v1-marsh.json). See the PR's open question on 33.0 vs 32.8 road-mi.",
+      "tick": 5180,
+      "clock": "4:19",
+      "toleranceTicks": 300,
+      "lines": [
+        "baseline",
+        "remnant_commit"
+      ],
+      "core": false
+    },
+    {
+      "id": "compact_dalles_capture",
+      "side": "compact",
       "description": "Compact completes the capture of The Dalles (baseline line: the Remnant does not commit a third rifle battalion).",
       "tick": 10200,
       "clock": "8:30",
@@ -34,7 +53,8 @@
       "core": true
     },
     {
-      "id": "remnant_captures_the_dalles",
+      "id": "remnant_dalles_capture_commit",
+      "side": "remnant",
       "description": "Remnant completes the capture of The Dalles (commit line: the Remnant commits its third motor rifle battalion).",
       "tick": 9640,
       "clock": "8:02",
@@ -45,7 +65,8 @@
       "core": true
     },
     {
-      "id": "remnant_tier2_complete",
+      "id": "remnant_tier2",
+      "side": "remnant",
       "description": "Remnant Tier II research completes (autoResearch tier2, notBeforeTick 1200, researchTicks 1800).",
       "tick": 3020,
       "clock": "2:31",
@@ -57,7 +78,8 @@
       "core": true
     },
     {
-      "id": "remnant_armoured_1_complete",
+      "id": "remnant_armour_1",
+      "side": "remnant",
       "description": "First raised remnant_armoured_battalion completes.",
       "tick": 4240,
       "clock": "3:32",
@@ -69,7 +91,8 @@
       "core": true
     },
     {
-      "id": "remnant_armoured_2_complete",
+      "id": "remnant_armour_2",
+      "side": "remnant",
       "description": "Second raised remnant_armoured_battalion completes.",
       "tick": 5440,
       "clock": "4:32",
@@ -81,7 +104,8 @@
       "core": true
     },
     {
-      "id": "remnant_mech_1_complete",
+      "id": "remnant_mech_1",
+      "side": "remnant",
       "description": "First raised remnant_mech_battalion completes.",
       "tick": 6340,
       "clock": "5:17",
@@ -93,7 +117,8 @@
       "core": false
     },
     {
-      "id": "remnant_armoured_3_complete",
+      "id": "remnant_armour_3",
+      "side": "remnant",
       "description": "Third raised remnant_armoured_battalion completes.",
       "tick": 8980,
       "clock": "7:29",
@@ -105,7 +130,8 @@
       "core": false
     },
     {
-      "id": "remnant_mech_2_complete",
+      "id": "remnant_mech_2",
+      "side": "remnant",
       "description": "Second raised remnant_mech_battalion completes; the strike group (3 armour + 2 mech + 2 rifles) is ready.",
       "tick": 10280,
       "clock": "8:34",
@@ -117,7 +143,8 @@
       "core": false
     },
     {
-      "id": "compact_militia_complete",
+      "id": "compact_militia",
+      "side": "compact",
       "description": "Compact militia completion from the rules sheet 5 row 'Compact militia / AT' (MVP estimate 3:15). See the open question in docs/design/mvp-acceptance.md.",
       "tick": 3900,
       "clock": "3:15",
@@ -129,7 +156,8 @@
       "core": false
     },
     {
-      "id": "compact_at_1_complete",
+      "id": "compact_at_1",
+      "side": "compact",
       "description": "First raised compact_at_battalion completes (rules sheet 5 row 'Compact militia / AT', MVP estimate 4:45).",
       "tick": 5700,
       "clock": "4:45",
@@ -141,7 +169,8 @@
       "core": false
     },
     {
-      "id": "remnant_forward_depot_complete",
+      "id": "remnant_forward_depot",
+      "side": "remnant",
       "description": "Remnant forward supply_depot at road node 614 (The Dalles) completes. The sheet gives this as 'about 10:39' on the commit line.",
       "tick": 12780,
       "clock": "10:39",
@@ -152,7 +181,8 @@
       "core": false
     },
     {
-      "id": "remnant_strike_group_arrives_hood_river",
+      "id": "remnant_hq_arrive",
+      "side": "remnant",
       "description": "Remnant strike group arrives at Hood River after the 44.4 road-mile tracked drive.",
       "tick": 19680,
       "clock": "16:24",
@@ -163,7 +193,8 @@
       "core": false
     },
     {
-      "id": "remnant_captures_hood_river",
+      "id": "remnant_hq_win",
+      "side": "remnant",
       "description": "Remnant captures the Compact HQ holding at Hood River: Remnant win. Lower bound against a passive Compact with no counterattack.",
       "tick": 25020,
       "clock": "20:51",

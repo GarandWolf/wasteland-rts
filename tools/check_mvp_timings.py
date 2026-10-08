@@ -15,15 +15,15 @@ RUN LOG FORMAT (JSON lines, for the headless runner to emit)
     - "tick" is the sim tick (20 ticks per second) at which the event happened. It must be an
       integer >= 0 (not a float, not a bool).
     - "event" is a target id from data/design/mvp_targets.json, for example
-      "compact_reaches_the_dalles" or "remnant_captures_hood_river".
+      "compact_dalles_arrive" or "remnant_hq_win".
     - Any other fields (seat, faction, nodeId, ...) are allowed and ignored.
     - Events that are not target ids are allowed and ignored (they are counted in the summary).
     - If an event id appears more than once, the FIRST occurrence (lowest line number) is used.
     Example:
-        {"tick": 4560, "event": "compact_reaches_the_dalles", "seat": 1}
+        {"tick": 4560, "event": "compact_dalles_arrive", "seat": 1}
 
 TARGETS
-    Each target has an id, a tick, a toleranceTicks and the list of run "lines" it applies to.
+    Each target has an id, a side ("remnant" or "compact"), a tick, a toleranceTicks and the list of run "lines" it applies to.
     --line picks which run the log came from (default "baseline"); only targets whose "lines"
     contain it are checked. --core-only checks only the targets marked "core": true (the events
     named in the rules sheet's tuning plan, section 7 step 2).
@@ -73,9 +73,11 @@ def load_targets(path):
         where = "targets %s: targets[%d]" % (path, i)
         if not isinstance(t, dict):
             raise InputError(where + ": expected an object")
-        for key in ("id", "tick", "toleranceTicks", "lines"):
+        for key in ("id", "side", "tick", "toleranceTicks", "lines"):
             if key not in t:
                 raise InputError(where + ": missing '%s'" % key)
+        if not isinstance(t["side"], str) or not t["side"]:
+            raise InputError(where + ": 'side' must be a non-empty string")
         if not isinstance(t["id"], str) or not t["id"]:
             raise InputError(where + ": 'id' must be a non-empty string")
         if t["id"] in seen:
@@ -137,14 +139,14 @@ def main(argv=None):
     ids = {t["id"] for t in doc["targets"]}
     ignored = sorted(e for e in events if e not in ids)
 
-    header = ("RESULT", "TARGET ID", "TARGET", "LOGGED", "DRIFT", "TOL")
+    header = ("RESULT", "SIDE", "TARGET ID", "TARGET", "LOGGED", "DRIFT", "TOL")
     rows = []
     failures = 0
     for t in checked:
         tol = t["toleranceTicks"]
         target = "%d (%s)" % (t["tick"], clock(t["tick"], tps))
         if t["id"] not in events:
-            rows.append(("MISSING", t["id"], target, "-", "-", str(tol)))
+            rows.append(("MISSING", t["side"], t["id"], target, "-", "-", str(tol)))
             failures += 1
             continue
         tick = events[t["id"]][0]
@@ -152,7 +154,7 @@ def main(argv=None):
         ok = abs(drift) <= tol
         if not ok:
             failures += 1
-        rows.append(("PASS" if ok else "DRIFT", t["id"], target, "%d (%s)" % (tick, clock(tick, tps)),
+        rows.append(("PASS" if ok else "DRIFT", t["side"], t["id"], target, "%d (%s)" % (tick, clock(tick, tps)),
                      "%+d (%s)" % (drift, clock(drift, tps)), str(tol)))
 
     widths = [max(len(r[i]) for r in [header] + rows) for i in range(len(header))]
