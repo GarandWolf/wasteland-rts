@@ -23,6 +23,8 @@ namespace Wasteland.Sim.Scenario
         private readonly int[] _unitFuel;
         private readonly int[] _unitPop;
         private readonly byte[] _unitMoveClass;
+        private readonly int[] _unitBuildTicks;
+        private readonly int[] _unitProducedAt;
         private readonly string[] _buildingIds;
         private readonly string[][] _buildingFactions;
         private readonly string[] _buildingRoles;
@@ -47,6 +49,8 @@ namespace Wasteland.Sim.Scenario
             int[] unitFuel,
             int[] unitPop,
             byte[] unitMoveClass,
+            int[] unitBuildTicks,
+            int[] unitProducedAt,
             string[] buildingIds,
             string[][] buildingFactions,
             string[] buildingRoles,
@@ -70,6 +74,8 @@ namespace Wasteland.Sim.Scenario
             _unitFuel = unitFuel;
             _unitPop = unitPop;
             _unitMoveClass = unitMoveClass;
+            _unitBuildTicks = unitBuildTicks;
+            _unitProducedAt = unitProducedAt;
             _buildingIds = buildingIds;
             _buildingFactions = buildingFactions;
             _buildingRoles = buildingRoles;
@@ -178,6 +184,8 @@ namespace Wasteland.Sim.Scenario
             int[] unitFuel;
             int[] unitPop;
             byte[] unitMoveClass;
+            int[] unitBuildTicks;
+            string[] unitProducedAt;
             ReadUnits(
                 unitsRoot,
                 out unitIds,
@@ -189,11 +197,14 @@ namespace Wasteland.Sim.Scenario
                 out unitMateriel,
                 out unitFuel,
                 out unitPop,
-                out unitMoveClass);
+                out unitMoveClass,
+                out unitBuildTicks,
+                out unitProducedAt);
             string[] buildingIds;
             string[][] buildingFactions;
             string[] buildingRoles;
             ReadBuildings(buildingsRoot, out buildingIds, out buildingFactions, out buildingRoles);
+            int[] unitProducedAtIndex = ResolveProducedAt(unitIds, unitProducedAt, buildingIds);
             string[] techIds = ReadTech(rulesRoot);
             int[] speedCmPerTick = ReadSpeeds(rulesRoot);
             string[] personalityIds;
@@ -213,6 +224,8 @@ namespace Wasteland.Sim.Scenario
                 unitFuel,
                 unitPop,
                 unitMoveClass,
+                unitBuildTicks,
+                unitProducedAtIndex,
                 buildingIds,
                 buildingFactions,
                 buildingRoles,
@@ -380,6 +393,16 @@ namespace Wasteland.Sim.Scenario
         internal int UnitPopAt(int index)
         {
             return _unitPop[index];
+        }
+
+        internal int UnitBuildTicksAt(int index)
+        {
+            return _unitBuildTicks[index];
+        }
+
+        internal int UnitProducedAtIndex(int index)
+        {
+            return _unitProducedAt[index];
         }
 
         internal MovementClass UnitMoveClassAt(int index)
@@ -610,7 +633,9 @@ namespace Wasteland.Sim.Scenario
             out int[] materiel,
             out int[] fuel,
             out int[] pop,
-            out byte[] moveClass)
+            out byte[] moveClass,
+            out int[] buildTicks,
+            out string[] producedAt)
         {
             JsonValue units = Child(root, "units", "units.json $.units");
             if (units.Kind != JsonKind.Object || units.ObjectValue.Count < 1)
@@ -629,6 +654,8 @@ namespace Wasteland.Sim.Scenario
             fuel = new int[count];
             pop = new int[count];
             moveClass = new byte[count];
+            buildTicks = new int[count];
+            producedAt = new string[count];
             for (int i = 0; i < count; i++)
             {
                 string id = units.ObjectValue[i].Name;
@@ -651,9 +678,12 @@ namespace Wasteland.Sim.Scenario
                 moveClass[i] = ParseMoveClass(
                     TextAt(Child(row, "movementClass", path + ".movementClass"), path + ".movementClass"),
                     path + ".movementClass");
+                buildTicks[i] = IntAt(Child(row, "buildTicks", path + ".buildTicks"), path + ".buildTicks", 0);
+                producedAt[i] = TextAt(Child(row, "producedAt", path + ".producedAt"), path + ".producedAt");
+                ScenarioText.RequireSnake(producedAt[i], path + ".producedAt");
             }
 
-            SortUnits(ids, factions, tiers, roles, targetClasses, manpower, materiel, fuel, pop, moveClass);
+            SortUnits(ids, factions, tiers, roles, targetClasses, manpower, materiel, fuel, pop, moveClass, buildTicks, producedAt);
             ScenarioSort.RequireUnique(ids, "units.json $.units");
         }
 
@@ -853,7 +883,9 @@ namespace Wasteland.Sim.Scenario
             int[] materiel,
             int[] fuel,
             int[] pop,
-            byte[] moveClass)
+            byte[] moveClass,
+            int[] buildTicks,
+            string[] producedAt)
         {
             int[] order = OrderOf(ids);
             string[] sortedIds = new string[ids.Length];
@@ -866,6 +898,8 @@ namespace Wasteland.Sim.Scenario
             int[] sortedFuel = new int[ids.Length];
             int[] sortedPop = new int[ids.Length];
             byte[] sortedMove = new byte[ids.Length];
+            int[] sortedBuild = new int[ids.Length];
+            string[] sortedProduced = new string[ids.Length];
             for (int i = 0; i < order.Length; i++)
             {
                 int from = order[i];
@@ -879,6 +913,8 @@ namespace Wasteland.Sim.Scenario
                 sortedFuel[i] = fuel[from];
                 sortedPop[i] = pop[from];
                 sortedMove[i] = moveClass[from];
+                sortedBuild[i] = buildTicks[from];
+                sortedProduced[i] = producedAt[from];
             }
 
             for (int i = 0; i < ids.Length; i++)
@@ -893,7 +929,28 @@ namespace Wasteland.Sim.Scenario
                 fuel[i] = sortedFuel[i];
                 pop[i] = sortedPop[i];
                 moveClass[i] = sortedMove[i];
+                buildTicks[i] = sortedBuild[i];
+                producedAt[i] = sortedProduced[i];
             }
+        }
+
+        private static int[] ResolveProducedAt(string[] unitIds, string[] producedAt, string[] buildingIds)
+        {
+            int[] index = new int[producedAt.Length];
+            for (int i = 0; i < producedAt.Length; i++)
+            {
+                int building = IndexOf(buildingIds, producedAt[i]);
+                if (building < 0)
+                {
+                    throw ScenarioErrors.At(
+                        "units.json $.units." + unitIds[i] + ".producedAt",
+                        "unknown building '" + producedAt[i] + "'.");
+                }
+
+                index[i] = building;
+            }
+
+            return index;
         }
 
         private static void SortBuildings(string[] ids, string[][] factions, string[] roles)

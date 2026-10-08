@@ -144,4 +144,22 @@ namespace Wasteland.Sim.World
             StrengthPpt = strengthPpt;
         }
     }
+
+    /// <summary>
+    /// One raise sitting in a seat's production queue. <see cref="UnitId"/> is the
+    /// balance id. The battalion spawns at <see cref="CompleteTick"/>.
+    /// </summary>
+    public readonly struct ProductionQueueItem
+    {
+        public readonly string UnitId;
+        public readonly int StartTick;
+        public readonly int CompleteTick;
+
+        public ProductionQueueItem(string unitId, int startTick, int completeTick)
+        {
+            UnitId = unitId ?? string.Empty;
+            StartTick = startTick;
+            CompleteTick = completeTick;
+        }
+    }
 }

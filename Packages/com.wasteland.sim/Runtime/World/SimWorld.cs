@@ -27,10 +27,12 @@ namespace Wasteland.Sim.World
         private readonly CommandQueue _commands = new CommandQueue();
         private readonly List<SimEvent> _events = new List<SimEvent>();
         private readonly List<SimCommand> _hashCommands = new List<SimCommand>();
+        private readonly List<SimCommand> _reservedScan = new List<SimCommand>();
         private readonly List<SeatState> _seats = new List<SeatState>();
         private BalanceCatalog _catalog;
         private MovementService _movement;
         private RoadGraph _roads;
+        private int _nextBattalionId = 1;
         private SimRandom _rng;
         private readonly ulong _seed;
         private readonly int _commandDelayTicks;
@@ -129,7 +131,29 @@ namespace Wasteland.Sim.World
             _nextSequenceByIssuer[command.IssuerId] = sequence + 1;
             SimCommand stamped = command.WithSchedule(executeTick, sequence);
             _commands.Enqueue(stamped);
+            if (stamped.Kind == CommandKind.SpawnBattalion || stamped.Kind == CommandKind.RaiseBattalion)
+            {
+                NoteBattalionId(stamped.BattalionId);
+            }
+
             return stamped;
+        }
+
+        /// <summary>
+        /// Next battalion id. Monotonic, always above every live battalion, pending
+        /// production job, and queued spawn or raise. Stored in sim state.
+        /// </summary>
+        public int AllocateBattalionId()
+        {
+            int highest = HighestReservedBattalionId();
+            if (_nextBattalionId <= highest)
+            {
+                _nextBattalionId = highest + 1;
+            }
+
+            int id = _nextBattalionId;
+            _nextBattalionId++;
+            return id;
         }
 
         /// <summary>
@@ -204,6 +228,7 @@ namespace Wasteland.Sim.World
             seat.PopUsed = 0;
             seat.PopCap = setup.PopCap;
             seat.Raisable = raisable;
+            seat.Lanes = new List<ProductionLane>();
 
             int insertAt = _seats.Count;
             for (int i = 0; i < _seats.Count; i++)
@@ -219,7 +244,15 @@ namespace Wasteland.Sim.World
         }
 
         /// <summary>
-        /// Resolve <paramref name="unitId"/> to a catalog index and queue a raise.
+        /// Allocate a battalion id, then queue a raise. The rally is not the spawn position.
+        /// </summary>
+        public SimCommand SubmitRaiseBattalion(int factionId, string unitId, int rallyXCm, int rallyYCm)
+        {
+            return SubmitRaiseBattalion(factionId, AllocateBattalionId(), unitId, rallyXCm, rallyYCm);
+        }
+
+        /// <summary>
+        /// Queue a raise with an explicit battalion id. Replays and tests use this.
         /// The rally is not the spawn position.
         /// </summary>
         public SimCommand SubmitRaiseBattalion(int factionId, int battalionId, string unitId, int rallyXCm, int rallyYCm)
@@ -231,6 +264,17 @@ namespace Wasteland.Sim.World
             }
 
             return Submit(SimCommand.RaiseBattalion(Tick, factionId, battalionId, unitIndex, rallyXCm, rallyYCm));
+        }
+
+        internal int FuelOf(int factionId)
+        {
+            int index = FindSeat(factionId);
+            if (index < 0)
+            {
+                return 0;
+            }
+
+            return _seats[index].Fuel;
         }
 
         public bool TryGetSeat(int factionId, out SeatView view)
@@ -256,6 +300,46 @@ namespace Wasteland.Sim.World
                 seat.PopUsed,
                 seat.PopCap,
                 VisibleStrength(factionId));
+            return true;
+        }
+
+        /// <summary>
+        /// Pending raises for the seat, ordered by producedAt building then FIFO.
+        /// Each item is the balance unit id, the tick production starts, and the tick it spawns.
+        /// </summary>
+        public bool TryCopyProductionQueue(int factionId, List<ProductionQueueItem> into)
+        {
+            if (into == null)
+            {
+                throw new ArgumentNullException(nameof(into));
+            }
+
+            into.Clear();
+            int index = FindSeat(factionId);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            SeatState seat = _seats[index];
+            if (seat.Lanes == null || _catalog == null)
+            {
+                return true;
+            }
+
+            for (int lane = 0; lane < seat.Lanes.Count; lane++)
+            {
+                List<ProductionItem> items = seat.Lanes[lane].Items;
+                for (int i = 0; i < items.Count; i++)
+                {
+                    ProductionItem item = items[i];
+                    into.Add(new ProductionQueueItem(
+                        _catalog.UnitIdAt(item.UnitIndex),
+                        item.StartTick,
+                        item.CompleteTick));
+                }
+            }
+
             return true;
         }
 
@@ -315,6 +399,7 @@ namespace Wasteland.Sim.World
         {
             AdvanceResearch();
             ApplyCommands(Tick);
+            CompleteProduction();
         }
 
         public ulong Step()
@@ -331,6 +416,7 @@ namespace Wasteland.Sim.World
             hash.AddInt(Tick);
             hash.AddULong(_seed);
             hash.AddInt(_commandDelayTicks);
+            hash.AddInt(_nextBattalionId);
             hash.AddULong(_rng.State);
             hash.AddULong(_rng.Increment);
             hash.AddInt(_battalions.Count);
@@ -394,6 +480,25 @@ namespace Wasteland.Sim.World
                 for (int r = 0; r < raisableCount; r++)
                 {
                     hash.AddInt(seat.Raisable[r]);
+                }
+
+                int laneCount = seat.Lanes == null ? 0 : seat.Lanes.Count;
+                hash.AddInt(laneCount);
+                for (int lane = 0; lane < laneCount; lane++)
+                {
+                    ProductionLane production = seat.Lanes[lane];
+                    hash.AddInt(production.BuildingIndex);
+                    hash.AddInt(production.Items.Count);
+                    for (int itemIndex = 0; itemIndex < production.Items.Count; itemIndex++)
+                    {
+                        ProductionItem item = production.Items[itemIndex];
+                        hash.AddInt(item.UnitIndex);
+                        hash.AddInt(item.BattalionId);
+                        hash.AddInt(item.StartTick);
+                        hash.AddInt(item.CompleteTick);
+                        hash.AddInt(item.RallyXCm);
+                        hash.AddInt(item.RallyYCm);
+                    }
                 }
             }
 
@@ -550,7 +655,7 @@ namespace Wasteland.Sim.World
                 return;
             }
 
-            if (_battalionIndexById.ContainsKey(command.BattalionId))
+            if (IsBattalionIdTaken(command.BattalionId))
             {
                 Reject(command, CommandRejectReason.DuplicateBattalion, 0, 0);
                 return;
@@ -615,11 +720,66 @@ namespace Wasteland.Sim.World
             seat.PopUsed += popCost;
             _seats[seatIndex] = seat;
 
-            MovementClass moveClass = _catalog.UnitMoveClassAt(unitIndex);
+            int buildTicks = _catalog.UnitBuildTicksAt(unitIndex);
+            int buildingIndex = _catalog.UnitProducedAtIndex(unitIndex);
+            ProductionLane lane = LaneFor(seat, buildingIndex);
+            int start = Tick;
+            if (lane.Items.Count > 0)
+            {
+                int previousComplete = lane.Items[lane.Items.Count - 1].CompleteTick;
+                if (previousComplete > start)
+                {
+                    start = previousComplete;
+                }
+            }
+
+            int complete = checked(start + buildTicks);
+            ProductionItem job = new ProductionItem();
+            job.UnitIndex = unitIndex;
+            job.BattalionId = command.BattalionId;
+            job.StartTick = start;
+            job.CompleteTick = complete;
+            job.RallyXCm = command.Arg1;
+            job.RallyYCm = command.Arg2;
+            lane.Items.Add(job);
+            Emit(SimEventKind.BattalionRaiseStarted, command.BattalionId, command.IssuerId, start, complete);
+        }
+
+        private void CompleteProduction()
+        {
+            for (int s = 0; s < _seats.Count; s++)
+            {
+                SeatState seat = _seats[s];
+                if (seat.Lanes == null)
+                {
+                    continue;
+                }
+
+                for (int laneIndex = 0; laneIndex < seat.Lanes.Count; laneIndex++)
+                {
+                    ProductionLane lane = seat.Lanes[laneIndex];
+                    while (lane.Items.Count > 0 && lane.Items[0].CompleteTick <= Tick)
+                    {
+                        ProductionItem item = lane.Items[0];
+                        lane.Items.RemoveAt(0);
+                        SpawnRaised(seat, item);
+                    }
+                }
+            }
+        }
+
+        private void SpawnRaised(SeatState seat, ProductionItem item)
+        {
+            if (_catalog == null || IsBattalionIdTaken(item.BattalionId))
+            {
+                return;
+            }
+
+            MovementClass moveClass = _catalog.UnitMoveClassAt(item.UnitIndex);
             SimBattalion battalion = new SimBattalion
             {
-                Id = command.BattalionId,
-                OwnerId = command.IssuerId,
+                Id = item.BattalionId,
+                OwnerId = seat.FactionId,
                 PositionXCm = seat.HqXCm,
                 PositionYCm = seat.HqYCm,
                 TargetXCm = 0,
@@ -627,7 +787,7 @@ namespace Wasteland.Sim.World
                 SpeedCmPerSecond = _catalog.SpeedCmPerSecond(moveClass),
                 StrengthPpt = SimConfig.PptScale,
                 HasTarget = false,
-                UnitIndex = unitIndex,
+                UnitIndex = item.UnitIndex,
                 MoveClass = moveClass,
                 PathIndex = 0,
                 PathCount = 0,
@@ -646,9 +806,9 @@ namespace Wasteland.Sim.World
 
             SimUnit unit = new SimUnit
             {
-                Id = command.BattalionId,
-                BattalionId = command.BattalionId,
-                OwnerId = command.IssuerId
+                Id = item.BattalionId,
+                BattalionId = item.BattalionId,
+                OwnerId = seat.FactionId
             };
             int unitAt = _units.BinarySearch(unit, UnitIdComparer.Instance);
             if (unitAt < 0)
@@ -658,14 +818,11 @@ namespace Wasteland.Sim.World
 
             _units.Insert(unitAt, unit);
             RebuildUnitIndex();
-            Emit(SimEventKind.BattalionSpawned, command.BattalionId, command.IssuerId);
+            Emit(SimEventKind.BattalionSpawned, item.BattalionId, seat.FactionId);
 
-            int liveIndex = _battalionIndexById[command.BattalionId];
-            SimBattalion live = _battalions[liveIndex];
-            if (command.Arg1 != live.PositionXCm || command.Arg2 != live.PositionYCm)
+            if (item.RallyXCm != seat.HqXCm || item.RallyYCm != seat.HqYCm)
             {
-                SimCommand move = SimCommand.Move(command.IssuedTick, command.IssuerId, command.BattalionId, command.Arg1, command.Arg2);
-                ApplyMove(move);
+                ApplyMove(SimCommand.Move(Tick, seat.FactionId, item.BattalionId, item.RallyXCm, item.RallyYCm));
             }
         }
 
@@ -812,6 +969,7 @@ namespace Wasteland.Sim.World
             battalion.PathYCm = null;
         }
 
+        // TODO: replace this linear scan with a spatial index when maps get large.
         private int NearestNodeId(int xCm, int yCm)
         {
             int bestIndex = 0;
@@ -846,6 +1004,120 @@ namespace Wasteland.Sim.World
                     _seats[i] = seat;
                 }
             }
+        }
+
+        private void NoteBattalionId(int id)
+        {
+            if (id >= _nextBattalionId)
+            {
+                _nextBattalionId = checked(id + 1);
+            }
+        }
+
+        private int HighestReservedBattalionId()
+        {
+            int highest = 0;
+            for (int i = 0; i < _battalions.Count; i++)
+            {
+                if (_battalions[i].Id > highest)
+                {
+                    highest = _battalions[i].Id;
+                }
+            }
+
+            for (int s = 0; s < _seats.Count; s++)
+            {
+                List<ProductionLane> lanes = _seats[s].Lanes;
+                if (lanes == null)
+                {
+                    continue;
+                }
+
+                for (int lane = 0; lane < lanes.Count; lane++)
+                {
+                    List<ProductionItem> items = lanes[lane].Items;
+                    for (int i = 0; i < items.Count; i++)
+                    {
+                        if (items[i].BattalionId > highest)
+                        {
+                            highest = items[i].BattalionId;
+                        }
+                    }
+                }
+            }
+
+            _commands.CopyTo(_reservedScan);
+            for (int i = 0; i < _reservedScan.Count; i++)
+            {
+                SimCommand command = _reservedScan[i];
+                if (command.Kind != CommandKind.SpawnBattalion && command.Kind != CommandKind.RaiseBattalion)
+                {
+                    continue;
+                }
+
+                if (command.BattalionId > highest)
+                {
+                    highest = command.BattalionId;
+                }
+            }
+
+            return highest;
+        }
+
+        private bool IsBattalionIdTaken(int id)
+        {
+            if (_battalionIndexById.ContainsKey(id))
+            {
+                return true;
+            }
+
+            for (int s = 0; s < _seats.Count; s++)
+            {
+                List<ProductionLane> lanes = _seats[s].Lanes;
+                if (lanes == null)
+                {
+                    continue;
+                }
+
+                for (int lane = 0; lane < lanes.Count; lane++)
+                {
+                    List<ProductionItem> items = lanes[lane].Items;
+                    for (int i = 0; i < items.Count; i++)
+                    {
+                        if (items[i].BattalionId == id)
+                        {
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private static ProductionLane LaneFor(SeatState seat, int buildingIndex)
+        {
+            List<ProductionLane> lanes = seat.Lanes;
+            for (int i = 0; i < lanes.Count; i++)
+            {
+                if (lanes[i].BuildingIndex == buildingIndex)
+                {
+                    return lanes[i];
+                }
+
+                if (lanes[i].BuildingIndex > buildingIndex)
+                {
+                    ProductionLane lane = new ProductionLane();
+                    lane.BuildingIndex = buildingIndex;
+                    lanes.Insert(i, lane);
+                    return lane;
+                }
+            }
+
+            ProductionLane created = new ProductionLane();
+            created.BuildingIndex = buildingIndex;
+            lanes.Add(created);
+            return created;
         }
 
         private int FindSeat(int factionId)
@@ -981,6 +1253,23 @@ namespace Wasteland.Sim.World
             public int PopUsed;
             public int PopCap;
             public int[] Raisable;
+            public List<ProductionLane> Lanes;
+        }
+
+        private struct ProductionItem
+        {
+            public int UnitIndex;
+            public int BattalionId;
+            public int StartTick;
+            public int CompleteTick;
+            public int RallyXCm;
+            public int RallyYCm;
+        }
+
+        private sealed class ProductionLane
+        {
+            public int BuildingIndex;
+            public readonly List<ProductionItem> Items = new List<ProductionItem>();
         }
 
         private sealed class UnitIdComparer : IComparer<SimUnit>
