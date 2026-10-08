@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Reflection;
 using System.Text;
+using System.Text.Json.Nodes;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Random;
 using Wasteland.Sim.Scenario;
@@ -33,13 +34,15 @@ namespace Wasteland.Sim.Tests
         [Fact]
         public void FromDirectory_RealDocumentMissingOneRole_ThrowsAndNamesBuilding()
         {
-            string json = BalanceLoad.ReadBuildingsJson();
             const string buildingId = "supply_depot";
-            string needle = "\"" + buildingId + "\": {\n      \"category\": \"economy\",\n      \"role\": \"supply_depot\",";
-            Assert.Contains(needle, json);
-            string mutated = json.Replace(
-                needle,
-                "\"" + buildingId + "\": {\n      \"category\": \"economy\",");
+            JsonNode root = JsonNode.Parse(BalanceLoad.ReadBuildingsJson())
+                ?? throw new InvalidOperationException("buildings.json parsed to null.");
+            JsonObject buildings = root["buildings"]?.AsObject()
+                ?? throw new InvalidOperationException("buildings.json missing buildings.");
+            JsonObject depot = buildings[buildingId]?.AsObject()
+                ?? throw new InvalidOperationException("buildings.json missing " + buildingId + ".");
+            Assert.True(depot.Remove("role"));
+            string mutated = root.ToJsonString();
             FormatException ex = Assert.Throws<FormatException>(() =>
                 AiBalanceTables.FromDirectory(
                     BalanceLoad.DirectoryPath(),

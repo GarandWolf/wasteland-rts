@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text;
 using Wasteland.Sim.Ai;
@@ -44,6 +45,15 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(
                 AiBalanceTablesTests.ExpectedAiOwnedBalanceKey,
                 0xE7008C30BE1FC2F0UL);
+        }
+
+        [Fact]
+        public void HomeTown_MissingTown_ThrowsNamingTheId()
+        {
+            AiMvpAttackTests.Harness harness = CompactHarness();
+            harness.Faction.HomeTownId = 999;
+            InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() => HomeTown(harness));
+            Assert.Contains("999", ex.Message);
         }
 
         [Fact]
@@ -227,7 +237,8 @@ namespace Wasteland.Sim.Tests
                 }
             }
 
-            return default;
+            throw new InvalidOperationException(
+                "missing home town id=" + harness.Faction.HomeTownId);
         }
 
         private static void DropFirstRole(List<AiBattalionPin> pins, IAiUnitCatalog catalog, string role)
