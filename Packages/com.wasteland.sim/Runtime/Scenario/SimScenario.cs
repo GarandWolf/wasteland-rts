@@ -3,11 +3,12 @@ using System;
 namespace Wasteland.Sim.Scenario
 {
     /// <summary>
-    /// Immutable scenario loaded from strict integer JSON. Seat catalogs and
-    /// derived rows are stored in id or stable-key order. <see cref="ContentHash"/>
-    /// is xxHash64 over that order. <see cref="MapFileSha256"/> is the SHA-256
-    /// of the main map file that was checked at load. Callers must not write
-    /// the returned arrays.
+    /// Immutable scenario loaded from strict integer JSON. Seat id lists keep
+    /// the order written in the file. Derived territories are stored in stable-key
+    /// order. <see cref="ContentHash"/> is xxHash64 over that stored order.
+    /// <see cref="MapFileSha256"/> is the SHA-256 of the main map file that was
+    /// checked at load. A Git LFS pointer is rejected as <see cref="LfsNotPulledException"/>
+    /// before any hash compare. Callers must not write the returned arrays.
     /// </summary>
     public sealed class SimScenario
     {
@@ -124,7 +125,7 @@ namespace Wasteland.Sim.Scenario
 
             for (int i = 0; i < Seats.Length; i++)
             {
-                if (Seats[i].FactionId == factionId)
+                if (Seats[i].Faction == factionId)
                 {
                     seat = Seats[i];
                     return true;

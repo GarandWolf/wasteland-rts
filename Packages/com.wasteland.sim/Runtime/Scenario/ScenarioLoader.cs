@@ -56,6 +56,11 @@ namespace Wasteland.Sim.Scenario
                 throw new ArgumentException("Map file name is required.", nameof(mapFileName));
             }
 
+            if (IsLfsPointer(mapFileBytes))
+            {
+                throw new LfsNotPulledException(actualName);
+            }
+
             Draft draft = Parse(scenarioJson);
             if (draft.Id != expectedScenarioId)
             {
@@ -678,7 +683,7 @@ namespace Wasteland.Sim.Scenario
 
                 for (int j = 0; j < i; j++)
                 {
-                    if (seats[j].FactionId == row.FactionId)
+                    if (seats[j].Faction == row.FactionId)
                     {
                         throw ScenarioErrors.At(row.Path + ".faction", "duplicate faction '" + row.FactionId + "'.");
                     }
@@ -727,15 +732,15 @@ namespace Wasteland.Sim.Scenario
                     throw ScenarioErrors.At(row.Path + ".homeTerritoryKey", "home territory does not match the map.");
                 }
 
-                string[] buildings = SortIds(row.Buildings, row.Path + ".startingBuildings");
-                string[] raisable = SortIds(row.Raisable, row.Path + ".raisableUnits");
-                string[] buildable = SortIds(row.Buildable, row.Path + ".buildableBuildings");
+                string[] buildings = CopyIds(row.Buildings, row.Path + ".startingBuildings");
+                string[] raisable = CopyIds(row.Raisable, row.Path + ".raisableUnits");
+                string[] buildable = CopyIds(row.Buildable, row.Path + ".buildableBuildings");
                 RequireBuildings(balance, row.FactionId, row.Buildings);
                 RequireBuildings(balance, row.FactionId, row.Buildable);
-                ScenarioUnitCount[] units = SortUnits(row.Units);
+                ScenarioUnitCount[] units = CopyUnits(row.Units);
                 RequireUnits(balance, row.FactionId, row.Units);
-                RequireUnits(balance, row.FactionId, IdsOf(raisable, row.Raisable));
-                ScenarioAutoResearch[] research = SortResearch(row.Research);
+                RequireUnitIds(balance, row.FactionId, row.Raisable);
+                ScenarioAutoResearch[] research = CopyResearch(row.Research);
                 RequireTech(balance, row.Research);
                 ScenarioHolding[] holdings = ResolveHoldings(row, map, derived);
                 bool holdsHome = false;
@@ -756,7 +761,7 @@ namespace Wasteland.Sim.Scenario
                     row.Slot,
                     row.FactionId,
                     row.Controller,
-                    row.PersonalityId,
+                    row.Controller == ScenarioController.Ai ? row.PersonalityId : null,
                     row.HomeKey,
                     home.TerritoryId,
                     home.SeatTownId,
@@ -964,99 +969,76 @@ namespace Wasteland.Sim.Scenario
             }
         }
 
-        private static NamedCount[] IdsOf(string[] sortedIds, NamedId[] source)
+        private static void RequireUnitIds(BalanceCatalog balance, string factionId, NamedId[] units)
         {
-            NamedCount[] units = new NamedCount[sortedIds.Length];
-            for (int i = 0; i < sortedIds.Length; i++)
+            for (int i = 0; i < units.Length; i++)
             {
-                string path = source[0].Path;
-                for (int j = 0; j < source.Length; j++)
+                if (!balance.TryGetUnitFaction(units[i].Id, out string owner))
                 {
-                    if (source[j].Id == sortedIds[i])
+                    throw ScenarioErrors.At(units[i].Path, "unknown unit id '" + units[i].Id + "'.");
+                }
+
+                if (owner != factionId)
+                {
+                    throw ScenarioErrors.At(
+                        units[i].Path,
+                        "unit '" + units[i].Id + "' belongs to faction '" + owner + "', not '" + factionId + "'.");
+                }
+            }
+        }
+
+        private static string[] CopyIds(NamedId[] items, string path)
+        {
+            string[] ids = new string[items.Length];
+            for (int i = 0; i < items.Length; i++)
+            {
+                for (int j = 0; j < i; j++)
+                {
+                    if (items[j].Id == items[i].Id)
                     {
-                        path = source[j].Path;
+                        throw ScenarioErrors.At(path, "duplicate id '" + items[i].Id + "'.");
                     }
                 }
 
-                units[i] = new NamedCount(path, sortedIds[i], 1);
-            }
-
-            return units;
-        }
-
-        private static string[] SortIds(NamedId[] items, string path)
-        {
-            NamedId[] copy = new NamedId[items.Length];
-            for (int i = 0; i < items.Length; i++)
-            {
-                copy[i] = items[i];
-            }
-
-            Array.Sort(copy, CompareNamedId);
-            for (int i = 1; i < copy.Length; i++)
-            {
-                if (copy[i].Id == copy[i - 1].Id)
-                {
-                    throw ScenarioErrors.At(path, "duplicate id '" + copy[i].Id + "'.");
-                }
-            }
-
-            string[] ids = new string[copy.Length];
-            for (int i = 0; i < copy.Length; i++)
-            {
-                ids[i] = copy[i].Id;
+                ids[i] = items[i].Id;
             }
 
             return ids;
         }
 
-        private static ScenarioUnitCount[] SortUnits(NamedCount[] items)
+        private static ScenarioUnitCount[] CopyUnits(NamedCount[] items)
         {
-            NamedCount[] copy = new NamedCount[items.Length];
+            ScenarioUnitCount[] units = new ScenarioUnitCount[items.Length];
             for (int i = 0; i < items.Length; i++)
             {
-                copy[i] = items[i];
-            }
-
-            Array.Sort(copy, CompareNamedCount);
-            for (int i = 1; i < copy.Length; i++)
-            {
-                if (copy[i].Id == copy[i - 1].Id)
+                for (int j = 0; j < i; j++)
                 {
-                    throw ScenarioErrors.At(copy[i].Path, "duplicate id '" + copy[i].Id + "'.");
+                    if (items[j].Id == items[i].Id)
+                    {
+                        throw ScenarioErrors.At(items[i].Path, "duplicate id '" + items[i].Id + "'.");
+                    }
                 }
-            }
 
-            ScenarioUnitCount[] units = new ScenarioUnitCount[copy.Length];
-            for (int i = 0; i < copy.Length; i++)
-            {
-                units[i] = new ScenarioUnitCount(copy[i].Id, copy[i].Count);
+                units[i] = new ScenarioUnitCount(items[i].Id, items[i].Count);
             }
 
             return units;
         }
 
-        private static ScenarioAutoResearch[] SortResearch(DraftResearch[] items)
+        private static ScenarioAutoResearch[] CopyResearch(DraftResearch[] items)
         {
-            DraftResearch[] copy = new DraftResearch[items.Length];
+            ScenarioAutoResearch[] research = new ScenarioAutoResearch[items.Length];
             for (int i = 0; i < items.Length; i++)
             {
-                copy[i] = items[i];
-            }
-
-            Array.Sort(copy, CompareResearch);
-            for (int i = 1; i < copy.Length; i++)
-            {
-                if (copy[i].Item == copy[i - 1].Item)
+                for (int j = 0; j < i; j++)
                 {
-                    throw ScenarioErrors.At(copy[i].Path + ".item", "duplicate id '" + copy[i].Item + "'.");
+                    if (items[j].Item == items[i].Item)
+                    {
+                        throw ScenarioErrors.At(items[i].Path + ".item", "duplicate id '" + items[i].Item + "'.");
+                    }
                 }
-            }
 
-            ScenarioAutoResearch[] research = new ScenarioAutoResearch[copy.Length];
-            for (int i = 0; i < copy.Length; i++)
-            {
-                research[i] = new ScenarioAutoResearch(copy[i].Item, copy[i].NotBeforeTick);
+                research[i] = new ScenarioAutoResearch(items[i].Item, items[i].NotBeforeTick);
             }
 
             return research;
@@ -1116,8 +1098,12 @@ namespace Wasteland.Sim.Scenario
         {
             hash.Int(seat.Slot);
             hash.Byte((byte)seat.Controller);
-            hash.Text(seat.FactionId);
-            hash.Text(seat.PersonalityId);
+            hash.Text(seat.Faction);
+            hash.Bool(seat.AiPersonality != null);
+            if (seat.AiPersonality != null)
+            {
+                hash.Text(seat.AiPersonality);
+            }
             hash.ULong(seat.HomeTerritoryKey);
             hash.Int(seat.HomeTerritoryId);
             hash.Int(seat.HomeTownId);
@@ -1270,6 +1256,27 @@ namespace Wasteland.Sim.Scenario
             throw ScenarioErrors.At(path, "expected 64 lowercase hex digits.");
         }
 
+        private static readonly byte[] LfsPointerPrefix = Encoding.ASCII.GetBytes(
+            "version https://git-lfs.github.com/spec/v1");
+
+        private static bool IsLfsPointer(byte[] bytes)
+        {
+            if (bytes.Length < LfsPointerPrefix.Length)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < LfsPointerPrefix.Length; i++)
+            {
+                if (bytes[i] != LfsPointerPrefix[i])
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         private static byte[] Sha256(byte[] data)
         {
             using (SHA256 sha = SHA256.Create())
@@ -1312,21 +1319,6 @@ namespace Wasteland.Sim.Scenario
         private static int CompareSeatSlot(DraftSeat a, DraftSeat b)
         {
             return a.Slot.CompareTo(b.Slot);
-        }
-
-        private static int CompareNamedId(NamedId a, NamedId b)
-        {
-            return string.CompareOrdinal(a.Id, b.Id);
-        }
-
-        private static int CompareNamedCount(NamedCount a, NamedCount b)
-        {
-            return string.CompareOrdinal(a.Id, b.Id);
-        }
-
-        private static int CompareResearch(DraftResearch a, DraftResearch b)
-        {
-            return string.CompareOrdinal(a.Item, b.Item);
         }
 
         private static int CompareHolding(ScenarioHolding a, ScenarioHolding b)

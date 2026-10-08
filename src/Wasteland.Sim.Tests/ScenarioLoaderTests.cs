@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Text;
 using Wasteland.Sim.Scenario;
 using Xunit;
 
@@ -24,10 +25,16 @@ namespace Wasteland.Sim.Tests
             Assert.Equal("golden_ci_columbia_gorge_100_v1_marsh", scenario.MapFile);
             Assert.Equal(1, scenario.MapFormatVersion);
             Assert.Equal(MapSha256, scenario.MapFileSha256);
+            Assert.Equal(607152, GoldenMapV1MarshTests.MapBytes);
+            Assert.Equal(607152, MarshMapLength());
             Assert.Equal(scenario.ContentHash, again.ContentHash);
             Assert.Equal(scenario.JsonHash, again.JsonHash);
             Assert.NotEqual(0UL, scenario.ContentHash);
             Assert.Equal(2, scenario.SeatCount);
+            Assert.Equal(2, scenario.MatchRules.AllowedFactionCount);
+            Assert.Equal(1, scenario.MatchRules.AllowedAiSeats);
+            Assert.Equal(ScenarioMatchRules.VictoryCaptureEnemyHq, scenario.MatchRules.Victory);
+            Assert.Equal(ScenarioMatchRules.OwnershipHoldSeat, scenario.MatchRules.TerritoryOwnershipRule);
             Assert.False(scenario.MatchRules.FuelEnabled);
             Assert.Equal(ScenarioMatchRules.SimultaneousHqLossDraw, scenario.MatchRules.SimultaneousHqLoss);
             Assert.True(scenario.MatchRules.HasNeutralPrize);
@@ -37,9 +44,9 @@ namespace Wasteland.Sim.Tests
 
             ScenarioSeat seat0 = scenario.SeatAt(0);
             Assert.Equal(0, seat0.Slot);
-            Assert.Equal("remnant_command", seat0.FactionId);
+            Assert.Equal("remnant_command", seat0.Faction);
             Assert.Equal(ScenarioController.Player, seat0.Controller);
-            Assert.Equal(string.Empty, seat0.PersonalityId);
+            Assert.Null(seat0.AiPersonality);
             Assert.False(seat0.IsAi);
             Assert.Equal(RemnantHome, seat0.HomeTerritoryKey);
             Assert.Equal(11, seat0.HomeTerritoryId);
@@ -48,20 +55,20 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(
                 new[]
                 {
-                    "heavy_works",
                     "hq",
                     "muster_camp",
-                    "salvage_yard",
-                    "town_walls_l1"
+                    "heavy_works",
+                    "town_walls_l1",
+                    "salvage_yard"
                 },
                 seat0.StartingBuildings);
             Assert.Equal(
                 new[]
                 {
-                    "remnant_armoured_battalion",
-                    "remnant_engineers",
+                    "remnant_motor_rifles",
                     "remnant_mech_battalion",
-                    "remnant_motor_rifles"
+                    "remnant_armoured_battalion",
+                    "remnant_engineers"
                 },
                 seat0.RaisableUnits);
             Assert.Equal(new[] { "supply_depot" }, seat0.BuildableBuildings);
@@ -80,10 +87,10 @@ namespace Wasteland.Sim.Tests
 
             ScenarioSeat seat1 = scenario.SeatAt(1);
             Assert.Equal(1, seat1.Slot);
-            Assert.Equal("homestead_compact", seat1.FactionId);
+            Assert.Equal("homestead_compact", seat1.Faction);
             Assert.Equal(ScenarioController.Ai, seat1.Controller);
             Assert.True(seat1.IsAi);
-            Assert.Equal("homestead_compact_settler", seat1.PersonalityId);
+            Assert.Equal("homestead_compact_settler", seat1.AiPersonality);
             Assert.Equal(CompactHome, seat1.HomeTerritoryKey);
             Assert.Equal(6, seat1.HomeTerritoryId);
             Assert.True(seat1.HomeTownId > 0);
@@ -100,18 +107,62 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void ContentHash_IgnoresObjectKeyOrder()
+        public void IdLists_KeepAuthoredOrderOnEveryLoad()
         {
-            string json = ReadScenario();
-            string swapped = json.Replace(
-                "\"remnant_engineers\": 1,\n        \"remnant_motor_rifles\": 2",
-                "\"remnant_motor_rifles\": 2,\n        \"remnant_engineers\": 1",
+            SimScenario first = Load();
+            SimScenario second = Load();
+            string[] remnantRaisable =
+            {
+                "remnant_motor_rifles",
+                "remnant_mech_battalion",
+                "remnant_armoured_battalion",
+                "remnant_engineers"
+            };
+            string[] compactRaisable =
+            {
+                "compact_militia",
+                "compact_rifle_battalion",
+                "compact_at_battalion",
+                "compact_engineers"
+            };
+            Assert.Equal(remnantRaisable, first.SeatAt(0).RaisableUnits);
+            Assert.Equal(remnantRaisable, second.SeatAt(0).RaisableUnits);
+            Assert.Equal(compactRaisable, first.SeatAt(1).RaisableUnits);
+            Assert.Equal(compactRaisable, second.SeatAt(1).RaisableUnits);
+            Assert.Equal(first.SeatAt(0).BuildableBuildings, second.SeatAt(0).BuildableBuildings);
+            Assert.Equal(new[] { "supply_depot" }, first.SeatAt(0).BuildableBuildings);
+            Assert.Equal(new[] { "supply_depot" }, first.SeatAt(1).BuildableBuildings);
+            Assert.Equal("tier2", first.SeatAt(0).AutoResearch[0].Item);
+            Assert.Equal(1200, first.SeatAt(0).AutoResearch[0].NotBeforeTick);
+            Assert.Equal(first.SeatAt(0).AutoResearch[0].Item, second.SeatAt(0).AutoResearch[0].Item);
+            Assert.Equal(first.SeatAt(0).AutoResearch[0].NotBeforeTick, second.SeatAt(0).AutoResearch[0].NotBeforeTick);
+            Assert.Empty(first.SeatAt(1).AutoResearch);
+            Assert.Empty(second.SeatAt(1).AutoResearch);
+
+            string swapped = ReadScenario().Replace(
+                "\"remnant_motor_rifles\",\n        \"remnant_mech_battalion\"",
+                "\"remnant_mech_battalion\",\n        \"remnant_motor_rifles\"",
                 StringComparison.Ordinal);
-            Assert.NotEqual(json, swapped);
-            SimScenario original = Load(json);
+            Assert.NotEqual(ReadScenario(), swapped);
             SimScenario reordered = Load(swapped);
-            Assert.Equal(original.ContentHash, reordered.ContentHash);
-            Assert.NotEqual(original.JsonHash, reordered.JsonHash);
+            Assert.Equal("remnant_mech_battalion", reordered.SeatAt(0).RaisableUnits[0]);
+            Assert.Equal("remnant_motor_rifles", reordered.SeatAt(0).RaisableUnits[1]);
+            Assert.NotEqual(first.SeatAt(0).RaisableUnits, reordered.SeatAt(0).RaisableUnits);
+        }
+
+        [Fact]
+        public void RejectsLfsPointer_InsteadOfShaMismatch()
+        {
+            byte[] pointer = Encoding.ASCII.GetBytes(
+                "version https://git-lfs.github.com/spec/v1\n"
+                + "oid sha256:" + MapSha256 + "\n"
+                + "size 607152\n");
+            LfsNotPulledException ex = Assert.Throws<LfsNotPulledException>(() => Load(ReadScenario(), pointer));
+            Assert.Equal(LfsNotPulledException.Code, "LfsNotPulled");
+            Assert.Contains("LfsNotPulled", ex.Message);
+            Assert.Equal(GoldenMapV1MarshTests.MapFileName, ex.FileName);
+            Assert.Contains(GoldenMapV1MarshTests.MapFileName, ex.Message);
+            Assert.DoesNotContain("does not match", ex.Message);
         }
 
         [Fact]
@@ -184,16 +235,33 @@ namespace Wasteland.Sim.Tests
 
         private static SimScenario Load(string scenarioJson)
         {
+            string mapPath = MarshMapPath();
+            byte[] map = GoldenMapFiles.ReadWrmb(mapPath, GoldenMapV1MarshTests.MapBytes);
+            return Load(scenarioJson, map);
+        }
+
+        private static SimScenario Load(string scenarioJson, byte[] map)
+        {
             string root = GoldenMapFiles.FindRepoRoot();
             BalanceCatalog balance = BalanceCatalog.LoadFromDirectory(Path.Combine(root, "data", "balance"));
-            string mapPath = Path.Combine(GoldenMapFiles.FindDirectory(GoldenMapV1MarshTests.MapFileName), GoldenMapV1MarshTests.MapFileName);
-            byte[] map = GoldenMapFiles.ReadWrmb(mapPath, GoldenMapV1MarshTests.MapBytes);
             return SimScenario.Load(
                 scenarioJson,
                 balance,
                 map,
                 GoldenMapV1MarshTests.MapFileName,
                 ScenarioId);
+        }
+
+        private static string MarshMapPath()
+        {
+            return Path.Combine(
+                GoldenMapFiles.FindDirectory(GoldenMapV1MarshTests.MapFileName),
+                GoldenMapV1MarshTests.MapFileName);
+        }
+
+        private static long MarshMapLength()
+        {
+            return new FileInfo(MarshMapPath()).Length;
         }
 
         private static string ReadScenario()

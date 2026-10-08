@@ -104,15 +104,17 @@ namespace Wasteland.Sim.Scenario
     }
 
     /// <summary>
-    /// One scenario seat. Catalog arrays are sorted by id. Territory keys are u64
-    /// values parsed from <c>0x</c> + 16 uppercase hex digits.
+    /// One scenario seat. <see cref="RaisableUnits"/>, <see cref="BuildableBuildings"/>,
+    /// <see cref="AutoResearch"/>, and the other id lists keep the order written in the
+    /// scenario file. <see cref="AiPersonality"/> is null for the human seat.
+    /// Territory keys are u64 values parsed from <c>0x</c> + 16 uppercase hex digits.
     /// </summary>
     public readonly struct ScenarioSeat
     {
         public readonly int Slot;
-        public readonly string FactionId;
+        public readonly string Faction;
         public readonly ScenarioController Controller;
-        public readonly string PersonalityId;
+        public readonly string? AiPersonality;
         public readonly ulong HomeTerritoryKey;
         public readonly int HomeTerritoryId;
         public readonly int HomeTownId;
@@ -126,9 +128,9 @@ namespace Wasteland.Sim.Scenario
 
         internal ScenarioSeat(
             int slot,
-            string factionId,
+            string faction,
             ScenarioController controller,
-            string personalityId,
+            string? aiPersonality,
             ulong homeTerritoryKey,
             int homeTerritoryId,
             int homeTownId,
@@ -141,9 +143,9 @@ namespace Wasteland.Sim.Scenario
             string[] buildableBuildings)
         {
             Slot = slot;
-            FactionId = factionId;
+            Faction = faction;
             Controller = controller;
-            PersonalityId = personalityId;
+            AiPersonality = aiPersonality;
             HomeTerritoryKey = homeTerritoryKey;
             HomeTerritoryId = homeTerritoryId;
             HomeTownId = homeTownId;
