@@ -12,6 +12,8 @@ namespace Wasteland.Sim.Tests
             Assert.True(File.Exists(log.Path));
             Assert.False(string.IsNullOrEmpty(log.Jsonl));
             Assert.Contains("\"event\":", log.Jsonl);
+            Assert.Contains("compact_dalles_arrive", log.Jsonl);
+            Assert.True(log.CompactArriveTick >= 0, "Compact did not arrive at The Dalles.");
         }
     }
 }

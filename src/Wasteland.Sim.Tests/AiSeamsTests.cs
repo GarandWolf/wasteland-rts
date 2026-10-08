@@ -428,6 +428,7 @@ namespace Wasteland.Sim.Tests
             Assert.True(seats.TryGetByFaction("remnant_command", out AiScenarioSeatView remnant));
             Assert.Equal(HomeTerritoryKeyOf(map, map.GoldendaleTownId), remnant.HomeTerritoryKey);
             Assert.Equal("remnant_command", remnant.Faction);
+            Assert.Equal(HomeTerritoryKeyOf(map, map.TheDallesTownId), seats.NeutralPrizeTerritoryKey);
             Assert.False(seats.TryGetByFaction("missing_faction", out _));
         }
 

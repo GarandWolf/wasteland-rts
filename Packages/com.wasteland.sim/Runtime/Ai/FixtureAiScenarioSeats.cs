@@ -209,20 +209,26 @@ namespace Wasteland.Sim.Ai
             AiPersonalityProfile remnant = balance.GetPersonalityOrGeneric(AiConstants.PersonalityWarlord);
             AiPersonalityProfile compact = balance.GetPersonalityOrGeneric(AiConstants.PersonalitySettler);
             return Create(
-                LaunchSeat(
-                    0,
-                    remnant.EconomyFactionId,
-                    remnant.Id,
-                    HomeKeyOf(map, map.GoldendaleTownId),
-                    RemnantRaisableUnits,
-                    map.GoldendaleTownId),
-                LaunchSeat(
-                    1,
-                    compact.EconomyFactionId,
-                    compact.Id,
-                    HomeKeyOf(map, map.HoodRiverTownId),
-                    DefaultRaisableUnits,
-                    map.HoodRiverTownId));
+                new[]
+                {
+                    LaunchSeat(
+                        0,
+                        remnant.EconomyFactionId,
+                        remnant.Id,
+                        HomeKeyOf(map, map.GoldendaleTownId),
+                        RemnantRaisableUnits,
+                        map.GoldendaleTownId),
+                    LaunchSeat(
+                        1,
+                        compact.EconomyFactionId,
+                        compact.Id,
+                        HomeKeyOf(map, map.HoodRiverTownId),
+                        DefaultRaisableUnits,
+                        map.HoodRiverTownId)
+                },
+                false,
+                SimultaneousHqLossDraw,
+                HomeKeyOf(map, map.TheDallesTownId));
         }
 
         public static AiScenarioSeatView LaunchSeat(string faction, ulong homeTerritoryKey)

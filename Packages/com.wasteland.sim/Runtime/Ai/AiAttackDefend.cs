@@ -255,7 +255,13 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                if (readback.OwnerFactionId == 0 || readback.OwnerFactionId == faction.FactionId)
+                if (readback.OwnerFactionId == faction.FactionId)
+                {
+                    continue;
+                }
+
+                bool isPrize = prizeTerritoryKey != 0UL && town.TerritoryStableKey == prizeTerritoryKey;
+                if (readback.OwnerFactionId == 0 && !isPrize)
                 {
                     continue;
                 }
@@ -267,7 +273,6 @@ namespace Wasteland.Sim.Ai
                 }
 
                 int d = dist.IsReached ? dist.DistanceCm : AiConstants.UnreachableCm;
-                bool isPrize = prizeTerritoryKey != 0UL && town.TerritoryStableKey == prizeTerritoryKey;
                 if (BetterTarget(d, isPrize, town.Id, nearestDist, nearestPrize, nearestId, prizeTargetBonusPpt))
                 {
                     nearestDist = d;

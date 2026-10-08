@@ -1279,7 +1279,8 @@ namespace Wasteland.Sim.Ai
             {
                 AiTownRecord town = _map.TownAt(i);
                 ulong territoryKey = 0UL;
-                if (_map.TryGetTerritory(town.TerritoryId, out AiTerritoryRecord territory))
+                if (_map.TryGetTerritory(town.TerritoryId, out AiTerritoryRecord territory)
+                    && town.Id == territory.SeatTownId)
                 {
                     territoryKey = territory.StableKey;
                 }

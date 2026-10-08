@@ -117,12 +117,91 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void PickAttackTarget_UnownedPrizeIsEligible()
+        {
+            Harness harness = Harness.Fork(1000, 1300);
+            harness.Towns[10] = Own(1);
+            harness.Towns[20] = Enemy(2, 1);
+            harness.Towns[30] = Unowned();
+            int target = harness.Planner.PickAttackTarget(
+                harness.Faction,
+                harness.TownRows,
+                3,
+                harness.Roads,
+                1,
+                harness.Network,
+                1,
+                100000,
+                3UL,
+                300);
+            Assert.Equal(30, target);
+        }
+
+        [Fact]
+        public void PickAttackTarget_UnownedNonPrizeIsSkipped()
+        {
+            Harness harness = Harness.Line();
+            harness.Towns[10] = Own(1);
+            harness.Towns[20] = Unowned();
+            harness.Towns[30] = Enemy(2, 1);
+            int target = harness.Planner.PickAttackTarget(
+                harness.Faction,
+                harness.TownRows,
+                3,
+                harness.Roads,
+                1,
+                harness.Network,
+                1,
+                100000,
+                0UL,
+                300);
+            Assert.Equal(30, target);
+        }
+
+        [Fact]
+        public void PickAttackTarget_UnownedPrizeBeatsCloserUnownedNonPrize()
+        {
+            Harness harness = Harness.Line();
+            harness.Towns[10] = Own(1);
+            harness.Towns[20] = Unowned();
+            harness.Towns[30] = Unowned();
+            int target = harness.Planner.PickAttackTarget(
+                harness.Faction,
+                harness.TownRows,
+                3,
+                harness.Roads,
+                1,
+                harness.Network,
+                1,
+                100000,
+                3UL,
+                300);
+            Assert.Equal(30, target);
+        }
+
+        [Fact]
         public void Attack_IssuesMoveAndClaimWhenRatioMetAndInSupply()
         {
             Harness harness = Harness.Line();
             harness.Towns[10] = Own(1);
             harness.Towns[30] = Enemy(2, 1);
             harness.SetBattalions(Idle(5, 1), Idle(6, 1));
+            harness.Tick();
+            Assert.Equal(AiIssuedKind.Move, harness.Sink.Log[0].Kind);
+            Assert.Equal(AiIssuedKind.ClaimTown, harness.Sink.Log[1].Kind);
+            Assert.Equal(30, harness.Sink.Log[1].Arg1);
+            Assert.Equal(30, harness.Faction.AttackTargetTownId);
+        }
+
+        [Fact]
+        public void Attack_IssuesMoveAndClaimOnUnownedPrize()
+        {
+            Harness harness = Harness.Line();
+            harness.Towns[10] = Own(1);
+            harness.Towns[30] = Unowned();
+            harness.PrizeTerritoryKey = 3UL;
+            harness.PrizeTargetBonusPpt = 300;
+            harness.SetBattalions(Idle(5, 1));
             harness.Tick();
             Assert.Equal(AiIssuedKind.Move, harness.Sink.Log[0].Kind);
             Assert.Equal(AiIssuedKind.ClaimTown, harness.Sink.Log[1].Kind);
@@ -425,6 +504,11 @@ namespace Wasteland.Sim.Tests
         private static AiTownReadback Enemy(int factionId, int strength)
         {
             return new AiTownReadback(factionId, false, factionId, strength, 0, 0);
+        }
+
+        private static AiTownReadback Unowned()
+        {
+            return new AiTownReadback(0, false, 0, 0, 0, 0);
         }
 
         internal static string FirstRoleOrTarget(

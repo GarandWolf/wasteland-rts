@@ -34,6 +34,19 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void CompactAttackTarget_IsTheDallesSeatTown()
+        {
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
+            host.Run(80);
+            AiFactionState compact = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionB);
+            Assert.Equal(host.Ai.Map.TheDallesTownId, compact.AttackTargetTownId);
+            Assert.True(host.Ai.Map.TryGetTown(host.Ai.Map.TheDallesTownId, out AiTownRecord dalles));
+            Assert.True(host.Ai.Map.TryGetTerritory(dalles.TerritoryId, out AiTerritoryRecord prize));
+            Assert.Equal(prize.StableKey, host.Ai.Seats.NeutralPrizeTerritoryKey);
+            host.Shutdown();
+        }
+
+        [Fact]
         public void MarshHoldTable_AtTwoThousandTickMarks()
         {
             AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
@@ -206,8 +219,9 @@ namespace Wasteland.Sim.Tests
             }
         }
 
-        // Regression check only. Replaced by the Designer's arrival-order check
-        // after he runs the timings.
+        // Compact now marches on the unowned prize, so both sides occupy The
+        // Dalles inside 10k and the capture stays contested (owner 0). Arrival
+        // is asserted in GorgeTimingLoggerTests.
         private static void AssertDallesOwnerAfterSerialProduction(AiMatchHost host)
         {
             int index = host.Ai.Map.IndexOfTown(host.Ai.Map.TheDallesTownId);
@@ -215,8 +229,8 @@ namespace Wasteland.Sim.Tests
             int compactHome = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionB).HomeTerritoryId;
             Assert.True(host.Ai.Map.Adjacency.AreNeighbors(remnantHome, host.Ai.Map.TheDallesTerritoryId));
             Assert.True(host.Ai.Map.Adjacency.AreNeighbors(compactHome, host.Ai.Map.TheDallesTerritoryId));
-            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.TheDallesOwnerId());
-            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.TownOwnerAt(index));
+            Assert.Equal(0, host.Ai.TheDallesOwnerId());
+            Assert.Equal(0, host.Ai.Owned.TownOwnerAt(index));
         }
 
         private static AiTownHoldSample FindHold(IReadOnlyList<AiTownHoldSample> samples, int tick, int factionId)
