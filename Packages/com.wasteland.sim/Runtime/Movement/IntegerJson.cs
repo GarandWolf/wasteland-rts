@@ -34,10 +34,12 @@ namespace Wasteland.Sim.Movement
     /// <summary>
     /// Strict integer JSON. Rejects fractions, exponents, comments, and trailing commas.
     /// Object fields are stored in parse order and looked up by linear scan.
+    /// Parse errors name the JSON path (object keys and array indexes) when one exists.
     /// </summary>
     internal sealed class IntegerJsonParser
     {
         private readonly string _text;
+        private readonly List<string> _path = new List<string>();
         private int _i;
 
         private IntegerJsonParser(string text)
@@ -137,7 +139,9 @@ namespace Wasteland.Sim.Movement
                 }
 
                 _i++;
+                _path.Add(key.StringValue);
                 JsonValue value = ParseValue();
+                _path.RemoveAt(_path.Count - 1);
                 obj.ObjectValue.Add(new JsonField { Name = key.StringValue, Value = value });
                 SkipWs();
                 if (Peek('}'))
@@ -178,7 +182,9 @@ namespace Wasteland.Sim.Movement
 
             while (true)
             {
+                _path.Add("[" + arr.ArrayValue.Count + "]");
                 arr.ArrayValue.Add(ParseValue());
+                _path.RemoveAt(_path.Count - 1);
                 SkipWs();
                 if (Peek(']'))
                 {
@@ -355,7 +361,33 @@ namespace Wasteland.Sim.Movement
 
         private FormatException Error(string message)
         {
-            return new FormatException("JSON at " + _i + ": " + message);
+            return new FormatException("JSON at " + _i + " (" + FormatPath() + "): " + message);
+        }
+
+        private string FormatPath()
+        {
+            if (_path.Count == 0)
+            {
+                return "$";
+            }
+
+            StringBuilder sb = new StringBuilder();
+            sb.Append('$');
+            for (int i = 0; i < _path.Count; i++)
+            {
+                string segment = _path[i];
+                if (segment.Length > 0 && segment[0] == '[')
+                {
+                    sb.Append(segment);
+                }
+                else
+                {
+                    sb.Append('.');
+                    sb.Append(segment);
+                }
+            }
+
+            return sb.ToString();
         }
     }
 
