@@ -1,0 +1,13 @@
+{"tick": 3000, "event": "remnant_tier2_complete", "seat": 0}
+{"tick": 3900, "event": "compact_militia_complete", "seat": 1}
+{"tick": 4240, "event": "remnant_armoured_1_complete", "seat": 0}
+{"tick": 4560, "event": "compact_reaches_the_dalles", "seat": 1}
+{"tick": 5440, "event": "remnant_armoured_2_complete", "seat": 0}
+{"tick": 5700, "event": "compact_at_1_complete", "seat": 1}
+{"tick": 6340, "event": "remnant_mech_1_complete", "seat": 0}
+{"tick": 8980, "event": "remnant_armoured_3_complete", "seat": 0}
+{"tick": 9640, "event": "remnant_captures_the_dalles", "seat": 0}
+{"tick": 10280, "event": "remnant_mech_2_complete", "seat": 0}
+{"tick": 12780, "event": "remnant_forward_depot_complete", "seat": 0, "nodeId": 614}
+{"tick": 19680, "event": "remnant_strike_group_arrives_hood_river", "seat": 0}
+{"tick": 25020, "event": "remnant_captures_hood_river", "seat": 0}
