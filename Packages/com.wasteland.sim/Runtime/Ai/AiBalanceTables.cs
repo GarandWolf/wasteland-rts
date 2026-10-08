@@ -35,6 +35,7 @@ namespace Wasteland.Sim.Ai
         public readonly int BuildUpScoreBonus;
         public readonly int DepotBaseScore;
         public readonly int AwayDepotScoreBonus;
+        public readonly int PrizeTargetBonusPpt;
         public readonly string EconomyFactionId;
         public readonly int MinGarrisonPerTown;
         public readonly int TaskForceTargetSize;
@@ -67,6 +68,7 @@ namespace Wasteland.Sim.Ai
             int buildUpScoreBonus,
             int depotBaseScore,
             int awayDepotScoreBonus,
+            int prizeTargetBonusPpt,
             string economyFactionId,
             int minGarrisonPerTown,
             int taskForceTargetSize,
@@ -98,6 +100,7 @@ namespace Wasteland.Sim.Ai
             BuildUpScoreBonus = buildUpScoreBonus;
             DepotBaseScore = depotBaseScore;
             AwayDepotScoreBonus = awayDepotScoreBonus;
+            PrizeTargetBonusPpt = prizeTargetBonusPpt;
             EconomyFactionId = economyFactionId ?? throw new ArgumentNullException(nameof(economyFactionId));
             MinGarrisonPerTown = minGarrisonPerTown;
             TaskForceTargetSize = taskForceTargetSize;
@@ -188,6 +191,7 @@ namespace Wasteland.Sim.Ai
         public const string RuleIdWorkUnitsPerTick = "workUnitsPerTick";
         public const string RuleIdContestedHoldingPaysIncome = "contestedHoldingPaysIncome";
         public const string RuleIdAttackStrengthRatioPpt = "attackStrengthRatioPpt";
+        public const string RuleIdPrizeTargetBonusPpt = "prizeTargetBonusPpt";
         public const string RuleIdTier2ResearchTicks = "tech.tier2.researchTicks";
 
         private readonly AiPersonalityProfile[] _personalities;
@@ -1050,6 +1054,7 @@ namespace Wasteland.Sim.Ai
                 RequireNonNegative(row, "buildUpScoreBonus"),
                 RequireNonNegative(row, "depotBaseScore"),
                 RequireNonNegative(row, "awayDepotScoreBonus"),
+                RequirePpt(row, RuleIdPrizeTargetBonusPpt),
                 RequireEconomyFactionId(row),
                 minGarrison,
                 JsonUtil.Int32(JsonUtil.Field(row, "taskForceTargetSize"), "taskForceTargetSize"),

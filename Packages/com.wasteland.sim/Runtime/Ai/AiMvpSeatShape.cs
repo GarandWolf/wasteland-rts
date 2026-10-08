@@ -3,8 +3,8 @@ using System;
 namespace Wasteland.Sim.Ai
 {
     /// <summary>
-    /// Mirrors the Lead/Designer MVP seat JSON shape (PR #17) without parsing
-    /// that file. Catalogs are string ids; <c>autoResearch</c> is item plus
+    /// Mirrors the Lead/Designer MVP seat JSON shape without parsing that
+    /// file. Catalogs are string ids; <c>autoResearch</c> is item plus
     /// <c>notBeforeTick</c>. Synthetic fixtures only.
     /// </summary>
     public readonly struct AiMvpAutoResearchItem
@@ -21,26 +21,29 @@ namespace Wasteland.Sim.Ai
 
     public readonly struct AiMvpSeatShape
     {
+        public readonly int Slot;
         public readonly string Faction;
-        public readonly string AiPersonality;
-        public readonly int HqTownId;
+        public readonly string? AiPersonality;
+        public readonly ulong HomeTerritoryKey;
         public readonly int StartingManpower;
         public readonly string[] RaisableUnits;
         public readonly string[] BuildableBuildings;
         public readonly AiMvpAutoResearchItem[] AutoResearch;
 
         public AiMvpSeatShape(
+            int slot,
             string faction,
-            string aiPersonality,
-            int hqTownId,
+            string? aiPersonality,
+            ulong homeTerritoryKey,
             int startingManpower,
             string[] raisableUnits,
             string[] buildableBuildings,
             AiMvpAutoResearchItem[] autoResearch)
         {
+            Slot = slot;
             Faction = faction;
             AiPersonality = aiPersonality;
-            HqTownId = hqTownId;
+            HomeTerritoryKey = homeTerritoryKey;
             StartingManpower = startingManpower;
             RaisableUnits = raisableUnits;
             BuildableBuildings = buildableBuildings;
@@ -52,11 +55,21 @@ namespace Wasteland.Sim.Ai
     {
         public readonly bool FuelEnabled;
         public readonly string SimultaneousHqLoss;
+        public readonly ulong NeutralPrizeTerritoryKey;
 
         public AiMvpMatchRulesShape(bool fuelEnabled, string simultaneousHqLoss)
+            : this(fuelEnabled, simultaneousHqLoss, 0UL)
+        {
+        }
+
+        public AiMvpMatchRulesShape(
+            bool fuelEnabled,
+            string simultaneousHqLoss,
+            ulong neutralPrizeTerritoryKey)
         {
             FuelEnabled = fuelEnabled;
             SimultaneousHqLoss = simultaneousHqLoss ?? string.Empty;
+            NeutralPrizeTerritoryKey = neutralPrizeTerritoryKey;
         }
     }
 }

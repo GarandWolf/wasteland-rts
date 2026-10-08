@@ -13,13 +13,12 @@ namespace Wasteland.Sim.Ai
     {
         public const string RuleIdSeats = "seats";
         public const string RuleIdFaction = "faction";
-        public const string RuleIdHqTownId = "hqTownId";
+        public const string RuleIdSlot = "slot";
+        public const string RuleIdHomeTerritoryKey = "homeTerritoryKey";
         public const string RuleIdStartingManpower = "startingManpower";
         public const string RuleIdRaisableUnits = "raisableUnits";
         public const string RuleIdBuildableBuildings = "buildableBuildings";
-        public const string RuleIdUnlockTick = "unlockTick";
-        public const string RuleIdResearchDurationTicks = "researchDurationTicks";
-        public const string RuleIdTier = "tier";
+        public const string RuleIdNotBeforeTick = "notBeforeTick";
         public const string SimultaneousHqLossDraw = "draw";
         public const string AutoResearchTier2 = "tier2";
 
@@ -35,23 +34,26 @@ namespace Wasteland.Sim.Ai
             AiConstants.BuildingTagDepot
         };
 
-        public static readonly AiAutoResearch DefaultResearch = new AiAutoResearch(0, 1);
+        public static readonly AiAutoResearch[] DefaultResearch = Array.Empty<AiAutoResearch>();
 
         private readonly AiScenarioSeatView[] _seats;
         private readonly string[] _mapDiagnostics;
         private readonly bool _fuelEnabled;
         private readonly string _simultaneousHqLoss;
+        private readonly ulong _neutralPrizeTerritoryKey;
 
         private FixtureAiScenarioSeats(
             AiScenarioSeatView[] seats,
             string[] mapDiagnostics,
             bool fuelEnabled,
-            string simultaneousHqLoss)
+            string simultaneousHqLoss,
+            ulong neutralPrizeTerritoryKey)
         {
             _seats = seats;
             _mapDiagnostics = mapDiagnostics;
             _fuelEnabled = fuelEnabled;
             _simultaneousHqLoss = simultaneousHqLoss;
+            _neutralPrizeTerritoryKey = neutralPrizeTerritoryKey;
         }
 
         public int SeatCount
@@ -69,6 +71,11 @@ namespace Wasteland.Sim.Ai
             get { return _simultaneousHqLoss; }
         }
 
+        public ulong NeutralPrizeTerritoryKey
+        {
+            get { return _neutralPrizeTerritoryKey; }
+        }
+
         public IReadOnlyList<string> PersonalityMapDiagnostics
         {
             get { return _mapDiagnostics; }
@@ -81,13 +88,22 @@ namespace Wasteland.Sim.Ai
 
         public static FixtureAiScenarioSeats Create(params AiScenarioSeatView[] seats)
         {
-            return Create(seats, false, SimultaneousHqLossDraw);
+            return Create(seats, false, SimultaneousHqLossDraw, 0UL);
         }
 
         public static FixtureAiScenarioSeats Create(
             AiScenarioSeatView[] seats,
             bool fuelEnabled,
             string simultaneousHqLoss)
+        {
+            return Create(seats, fuelEnabled, simultaneousHqLoss, 0UL);
+        }
+
+        public static FixtureAiScenarioSeats Create(
+            AiScenarioSeatView[] seats,
+            bool fuelEnabled,
+            string simultaneousHqLoss,
+            ulong neutralPrizeTerritoryKey)
         {
             if (seats == null || seats.Length < 1)
             {
@@ -99,19 +115,19 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < seats.Length; i++)
             {
                 copy[i] = CopyValidated(seats[i]);
-                string mapped = AiGenericPersonality.Map(copy[i].PersonalityId);
+                string mapped = AiGenericPersonality.Map(copy[i].AiPersonality);
                 if (mapped != AiGenericPersonality.ParameterSetId)
                 {
                     throw new InvalidDataException("aiPersonality");
                 }
 
-                AiGenericPersonality.RecordMappedFrom(diagnostics, copy[i].PersonalityId);
+                AiGenericPersonality.RecordMappedFrom(diagnostics, copy[i].AiPersonality);
             }
 
             SortByFaction(copy);
             for (int i = 1; i < copy.Length; i++)
             {
-                if (copy[i].FactionId == copy[i - 1].FactionId)
+                if (copy[i].Faction == copy[i - 1].Faction)
                 {
                     throw new InvalidDataException(RuleIdFaction);
                 }
@@ -120,63 +136,59 @@ namespace Wasteland.Sim.Ai
             string loss = string.IsNullOrEmpty(simultaneousHqLoss)
                 ? SimultaneousHqLossDraw
                 : simultaneousHqLoss;
-            return new FixtureAiScenarioSeats(copy, diagnostics.ToArray(), fuelEnabled, loss);
+            return new FixtureAiScenarioSeats(
+                copy,
+                diagnostics.ToArray(),
+                fuelEnabled,
+                loss,
+                neutralPrizeTerritoryKey);
         }
 
         /// <summary>
-        /// Adapter from the PR #17 seat/matchRules shape. Catalog strings are
+        /// Adapter from the Designer seat/matchRules shape. Catalog strings are
         /// synthetic; fuel is stored and ignored.
         /// </summary>
         public static FixtureAiScenarioSeats FromMvpShape(
             AiMvpSeatShape[] seats,
             AiMvpMatchRulesShape matchRules)
         {
-            return FromMvpShape(seats, matchRules, 0);
-        }
-
-        public static FixtureAiScenarioSeats FromMvpShape(
-            AiMvpSeatShape[] seats,
-            AiMvpMatchRulesShape matchRules,
-            int tier2ResearchTicks)
-        {
             if (seats == null || seats.Length < 1)
             {
                 throw new InvalidDataException(RuleIdSeats);
-            }
-
-            if (tier2ResearchTicks < 0)
-            {
-                throw new InvalidDataException(RuleIdResearchDurationTicks);
             }
 
             AiScenarioSeatView[] views = new AiScenarioSeatView[seats.Length];
             for (int i = 0; i < seats.Length; i++)
             {
                 AiMvpSeatShape row = seats[i];
-                AiAutoResearch research = MapAutoResearch(row.AutoResearch, tier2ResearchTicks);
+                AiAutoResearch[] research = MapAutoResearch(row.AutoResearch);
                 int[] units = MapUnitCatalog(row.RaisableUnits);
-                if (research.Tier >= 2)
+                if (HasTier2Item(research))
                 {
-                    units = AppendUnique(units, AiConstants.UnitKindTierII);
+                    units = AppendIfMissing(units, AiConstants.UnitKindTierII);
                 }
 
                 views[i] = new AiScenarioSeatView(
+                    row.Slot,
                     row.Faction,
                     row.AiPersonality,
-                    row.HqTownId,
+                    row.HomeTerritoryKey,
                     row.StartingManpower,
                     units,
                     MapBuildingCatalog(row.BuildableBuildings),
                     research);
             }
 
-            return Create(views, matchRules.FuelEnabled, matchRules.SimultaneousHqLoss);
+            return Create(
+                views,
+                matchRules.FuelEnabled,
+                matchRules.SimultaneousHqLoss,
+                matchRules.NeutralPrizeTerritoryKey);
         }
 
         /// <summary>
         /// Temporary launch seats from the loaded map's named towns until the
-        /// Lead's loader is wired. Town ids come from the map snapshot, not
-        /// from Gorge literals in this adapter.
+        /// Lead's loader is wired. Territory keys come from the snapshot.
         /// </summary>
         public static FixtureAiScenarioSeats ForLaunchPersonalities(AiMapSnapshot map, AiBalanceTables balance)
         {
@@ -193,31 +205,36 @@ namespace Wasteland.Sim.Ai
             AiPersonalityProfile remnant = balance.GetPersonalityOrGeneric(AiConstants.PersonalityWarlord);
             AiPersonalityProfile compact = balance.GetPersonalityOrGeneric(AiConstants.PersonalitySettler);
             return Create(
-                LaunchSeat(remnant.EconomyFactionId, remnant.Id, map.GoldendaleTownId),
-                LaunchSeat(compact.EconomyFactionId, compact.Id, map.HoodRiverTownId));
+                LaunchSeat(0, remnant.EconomyFactionId, remnant.Id, HomeKeyOf(map, map.GoldendaleTownId)),
+                LaunchSeat(1, compact.EconomyFactionId, compact.Id, HomeKeyOf(map, map.HoodRiverTownId)));
         }
 
-        public static AiScenarioSeatView LaunchSeat(string factionId, int hqTownId)
+        public static AiScenarioSeatView LaunchSeat(string faction, ulong homeTerritoryKey)
         {
-            return LaunchSeat(factionId, string.Empty, hqTownId);
+            return LaunchSeat(0, faction, string.Empty, homeTerritoryKey);
         }
 
-        public static AiScenarioSeatView LaunchSeat(string factionId, string personalityId, int hqTownId)
+        public static AiScenarioSeatView LaunchSeat(
+            int slot,
+            string faction,
+            string? aiPersonality,
+            ulong homeTerritoryKey)
         {
             return new AiScenarioSeatView(
-                factionId,
-                personalityId,
-                hqTownId,
+                slot,
+                faction,
+                aiPersonality,
+                homeTerritoryKey,
                 300,
                 DefaultRaisableUnits,
                 DefaultBuildableBuildings,
                 DefaultResearch);
         }
 
-        public bool TryGetByFaction(string factionId, out AiScenarioSeatView seat)
+        public bool TryGetByFaction(string faction, out AiScenarioSeatView seat)
         {
             seat = default;
-            if (factionId == null)
+            if (faction == null)
             {
                 return false;
             }
@@ -227,7 +244,7 @@ namespace Wasteland.Sim.Ai
             while (lo <= hi)
             {
                 int mid = lo + ((hi - lo) / 2);
-                int cmp = string.CompareOrdinal(_seats[mid].FactionId, factionId);
+                int cmp = string.CompareOrdinal(_seats[mid].Faction, faction);
                 if (cmp == 0)
                 {
                     seat = _seats[mid];
@@ -247,16 +264,36 @@ namespace Wasteland.Sim.Ai
             return false;
         }
 
+        private static ulong HomeKeyOf(AiMapSnapshot map, int townId)
+        {
+            if (!map.TryGetTown(townId, out AiTownRecord town))
+            {
+                throw new InvalidDataException(RuleIdHomeTerritoryKey);
+            }
+
+            if (!map.TryGetTerritory(town.TerritoryId, out AiTerritoryRecord territory))
+            {
+                throw new InvalidDataException(RuleIdHomeTerritoryKey);
+            }
+
+            return territory.StableKey;
+        }
+
         private static AiScenarioSeatView CopyValidated(AiScenarioSeatView seat)
         {
-            if (string.IsNullOrEmpty(seat.FactionId))
+            if (string.IsNullOrEmpty(seat.Faction))
             {
                 throw new InvalidDataException(RuleIdFaction);
             }
 
-            if (seat.HqTownId < 1)
+            if (seat.Slot < 0)
             {
-                throw new InvalidDataException(RuleIdHqTownId);
+                throw new InvalidDataException(RuleIdSlot);
+            }
+
+            if (seat.HomeTerritoryKey == 0UL)
+            {
+                throw new InvalidDataException(RuleIdHomeTerritoryKey);
             }
 
             if (seat.StartingManpower < 0)
@@ -264,31 +301,39 @@ namespace Wasteland.Sim.Ai
                 throw new InvalidDataException(RuleIdStartingManpower);
             }
 
-            if (seat.AutoResearch.UnlockTick < 0)
-            {
-                throw new InvalidDataException(RuleIdUnlockTick);
-            }
-
-            if (seat.AutoResearch.Tier < 0)
-            {
-                throw new InvalidDataException(RuleIdTier);
-            }
-
-            if (seat.AutoResearch.DurationTicks < 0)
-            {
-                throw new InvalidDataException(RuleIdResearchDurationTicks);
-            }
-
-            int[] units = CopySortedUnique(seat.RaisableUnits, RuleIdRaisableUnits);
-            int[] buildings = CopySortedUnique(seat.BuildableBuildings, RuleIdBuildableBuildings);
+            AiAutoResearch[] research = CopyResearch(seat.AutoResearch);
+            int[] units = CopyAuthoredPositive(seat.RaisableUnits, RuleIdRaisableUnits);
+            int[] buildings = CopyAuthoredPositive(seat.BuildableBuildings, RuleIdBuildableBuildings);
             return new AiScenarioSeatView(
-                seat.FactionId,
-                seat.PersonalityId,
-                seat.HqTownId,
+                seat.Slot,
+                seat.Faction,
+                seat.AiPersonality,
+                seat.HomeTerritoryKey,
                 seat.StartingManpower,
                 units,
                 buildings,
-                seat.AutoResearch);
+                research);
+        }
+
+        private static AiAutoResearch[] CopyResearch(AiAutoResearch[] source)
+        {
+            if (source == null || source.Length < 1)
+            {
+                return Array.Empty<AiAutoResearch>();
+            }
+
+            AiAutoResearch[] copy = new AiAutoResearch[source.Length];
+            for (int i = 0; i < source.Length; i++)
+            {
+                if (source[i].NotBeforeTick < 0)
+                {
+                    throw new InvalidDataException(RuleIdNotBeforeTick);
+                }
+
+                copy[i] = new AiAutoResearch(source[i].Item, source[i].NotBeforeTick);
+            }
+
+            return copy;
         }
 
         private static int[] MapUnitCatalog(string[] names)
@@ -304,7 +349,7 @@ namespace Wasteland.Sim.Ai
                 ids[i] = MapUnitName(names[i]);
             }
 
-            return DedupePositive(ids, RuleIdRaisableUnits);
+            return CopyAuthoredPositive(ids, RuleIdRaisableUnits);
         }
 
         private static int MapUnitName(string name)
@@ -345,7 +390,7 @@ namespace Wasteland.Sim.Ai
                 ids[i] = MapBuildingName(names[i]);
             }
 
-            return DedupePositive(ids, RuleIdBuildableBuildings);
+            return CopyAuthoredPositive(ids, RuleIdBuildableBuildings);
         }
 
         private static int MapBuildingName(string name)
@@ -368,54 +413,55 @@ namespace Wasteland.Sim.Ai
             return AiConstants.BuildingTagDepot;
         }
 
-        private static AiAutoResearch MapAutoResearch(AiMvpAutoResearchItem[] rows, int durationTicks)
+        private static AiAutoResearch[] MapAutoResearch(AiMvpAutoResearchItem[] rows)
         {
             if (rows == null || rows.Length < 1)
             {
-                return new AiAutoResearch(0, 1, 0);
+                return Array.Empty<AiAutoResearch>();
             }
 
-            int unlock = int.MaxValue;
-            int tier = 1;
+            AiAutoResearch[] copy = new AiAutoResearch[rows.Length];
             for (int i = 0; i < rows.Length; i++)
             {
-                AiMvpAutoResearchItem row = rows[i];
-                if (row.NotBeforeTick < 0)
+                if (rows[i].NotBeforeTick < 0)
                 {
-                    throw new InvalidDataException(RuleIdUnlockTick);
+                    throw new InvalidDataException(RuleIdNotBeforeTick);
                 }
 
-                if (row.Item == AutoResearchTier2)
-                {
-                    tier = 2;
-                    if (row.NotBeforeTick < unlock)
-                    {
-                        unlock = row.NotBeforeTick;
-                    }
-                }
+                copy[i] = new AiAutoResearch(rows[i].Item, rows[i].NotBeforeTick);
             }
 
-            if (tier < 2)
-            {
-                return new AiAutoResearch(0, 1, 0);
-            }
-
-            return new AiAutoResearch(unlock, tier, durationTicks);
+            return copy;
         }
 
-        private static int[] AppendUnique(int[] source, int value)
+        private static bool HasTier2Item(AiAutoResearch[] rows)
+        {
+            if (rows == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < rows.Length; i++)
+            {
+                if (rows[i].Item == AutoResearchTier2)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static int[] AppendIfMissing(int[] source, int value)
         {
             if (source == null)
             {
                 return new[] { value };
             }
 
-            for (int i = 0; i < source.Length; i++)
+            if (AiScenarioSeatView.Contains(source, value))
             {
-                if (source[i] == value)
-                {
-                    return source;
-                }
+                return source;
             }
 
             int[] next = new int[source.Length + 1];
@@ -426,62 +472,6 @@ namespace Wasteland.Sim.Ai
 
             next[source.Length] = value;
             return next;
-        }
-
-        private static int[] DedupePositive(int[] ids, string ruleId)
-        {
-            if (ids == null || ids.Length < 1)
-            {
-                throw new InvalidDataException(ruleId);
-            }
-
-            for (int i = 1; i < ids.Length; i++)
-            {
-                int row = ids[i];
-                int j = i - 1;
-                while (j >= 0 && ids[j] > row)
-                {
-                    ids[j + 1] = ids[j];
-                    j--;
-                }
-
-                ids[j + 1] = row;
-            }
-
-            int written = 0;
-            for (int i = 0; i < ids.Length; i++)
-            {
-                if (ids[i] < 1)
-                {
-                    throw new InvalidDataException(ruleId);
-                }
-
-                if (written > 0 && ids[i] == ids[written - 1])
-                {
-                    continue;
-                }
-
-                ids[written] = ids[i];
-                written++;
-            }
-
-            if (written < 1)
-            {
-                throw new InvalidDataException(ruleId);
-            }
-
-            if (written == ids.Length)
-            {
-                return ids;
-            }
-
-            int[] unique = new int[written];
-            for (int i = 0; i < written; i++)
-            {
-                unique[i] = ids[i];
-            }
-
-            return unique;
         }
 
         private static bool ContainsToken(string name, string token)
@@ -506,38 +496,22 @@ namespace Wasteland.Sim.Ai
             return false;
         }
 
-        private static int[] CopySortedUnique(int[] source, string ruleId)
+        private static int[] CopyAuthoredPositive(int[] source, string ruleId)
         {
             if (source == null || source.Length < 1)
             {
                 throw new InvalidDataException(ruleId);
             }
 
-            int[] copy = (int[])source.Clone();
-            for (int i = 1; i < copy.Length; i++)
+            int[] copy = new int[source.Length];
+            for (int i = 0; i < source.Length; i++)
             {
-                int row = copy[i];
-                int j = i - 1;
-                while (j >= 0 && copy[j] > row)
-                {
-                    copy[j + 1] = copy[j];
-                    j--;
-                }
-
-                copy[j + 1] = row;
-            }
-
-            for (int i = 0; i < copy.Length; i++)
-            {
-                if (copy[i] < 1)
+                if (source[i] < 1)
                 {
                     throw new InvalidDataException(ruleId);
                 }
 
-                if (i > 0 && copy[i] == copy[i - 1])
-                {
-                    throw new InvalidDataException(ruleId);
-                }
+                copy[i] = source[i];
             }
 
             return copy;
@@ -549,7 +523,7 @@ namespace Wasteland.Sim.Ai
             {
                 AiScenarioSeatView row = seats[i];
                 int j = i - 1;
-                while (j >= 0 && string.CompareOrdinal(seats[j].FactionId, row.FactionId) > 0)
+                while (j >= 0 && string.CompareOrdinal(seats[j].Faction, row.Faction) > 0)
                 {
                     seats[j + 1] = seats[j];
                     j--;

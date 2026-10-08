@@ -259,7 +259,7 @@ namespace Wasteland.Sim.Tests
         {
             return AiMatchHost.Start(
                 MatchConfig.Default(0xA11EEDUL),
-                AiSeamsTests.LoadGorgeBytes(),
+                AiSeamsTests.LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
                 AiBalanceTablesTests.LoadBalance());

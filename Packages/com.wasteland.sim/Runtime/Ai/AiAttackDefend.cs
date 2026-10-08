@@ -10,8 +10,16 @@ namespace Wasteland.Sim.Ai
         public readonly int XCm;
         public readonly int YCm;
         public readonly bool IsHq;
+        public readonly ulong TerritoryStableKey;
 
-        public AiAttackTownInfo(int id, int territoryId, int nodeId, int xCm, int yCm, bool isHq)
+        public AiAttackTownInfo(
+            int id,
+            int territoryId,
+            int nodeId,
+            int xCm,
+            int yCm,
+            bool isHq,
+            ulong territoryStableKey)
         {
             Id = id;
             TerritoryId = territoryId;
@@ -19,6 +27,7 @@ namespace Wasteland.Sim.Ai
             XCm = xCm;
             YCm = yCm;
             IsHq = isHq;
+            TerritoryStableKey = territoryStableKey;
         }
     }
 
@@ -69,6 +78,8 @@ namespace Wasteland.Sim.Ai
             Wasteland.Sim.Movement.RoadGraph graph,
             int attackStrengthRatioPpt,
             int supplyReachCm,
+            ulong prizeTerritoryKey,
+            int prizeTargetBonusPpt,
             IAiSeatView seatView)
         {
             if (faction == null)
@@ -119,6 +130,8 @@ namespace Wasteland.Sim.Ai
                 graph,
                 attackStrengthRatioPpt,
                 supplyReachCm,
+                prizeTerritoryKey,
+                prizeTargetBonusPpt,
                 seatView);
         }
 
@@ -130,12 +143,16 @@ namespace Wasteland.Sim.Ai
             int fromNodeId,
             int[] networkNodeIds,
             int networkCount,
-            int supplyReachCm)
+            int supplyReachCm,
+            ulong prizeTerritoryKey,
+            int prizeTargetBonusPpt)
         {
             int nearestId = 0;
             int nearestDist = AiConstants.UnreachableCm;
+            bool nearestPrize = false;
             int hqId = 0;
             int hqDist = AiConstants.UnreachableCm;
+            bool hqPrize = false;
             int hqNodeId = 0;
             for (int i = 0; i < townCount; i++)
             {
@@ -157,15 +174,18 @@ namespace Wasteland.Sim.Ai
                 }
 
                 int d = dist.IsReached ? dist.DistanceCm : AiConstants.UnreachableCm;
-                if (BetterTarget(d, town.Id, nearestDist, nearestId))
+                bool isPrize = prizeTerritoryKey != 0UL && town.TerritoryStableKey == prizeTerritoryKey;
+                if (BetterTarget(d, isPrize, town.Id, nearestDist, nearestPrize, nearestId, prizeTargetBonusPpt))
                 {
                     nearestDist = d;
+                    nearestPrize = isPrize;
                     nearestId = town.Id;
                 }
 
-                if (town.IsHq && BetterTarget(d, town.Id, hqDist, hqId))
+                if (town.IsHq && BetterTarget(d, isPrize, town.Id, hqDist, hqPrize, hqId, prizeTargetBonusPpt))
                 {
                     hqDist = d;
+                    hqPrize = isPrize;
                     hqId = town.Id;
                     hqNodeId = town.NodeId;
                 }
@@ -196,10 +216,17 @@ namespace Wasteland.Sim.Ai
             int fromNodeId)
         {
             int[] none = Array.Empty<int>();
-            return PickAttackTarget(faction, towns, townCount, graph, fromNodeId, none, 0, 0);
+            return PickAttackTarget(faction, towns, townCount, graph, fromNodeId, none, 0, 0, 0UL, 0);
         }
 
-        private static bool BetterTarget(int dist, int id, int bestDist, int bestId)
+        private static bool BetterTarget(
+            int dist,
+            bool isPrize,
+            int id,
+            int bestDist,
+            bool bestIsPrize,
+            int bestId,
+            int prizeTargetBonusPpt)
         {
             if (bestId == 0)
             {
@@ -212,7 +239,25 @@ namespace Wasteland.Sim.Ai
                 return true;
             }
 
-            return cmp == 0 && id < bestId;
+            if (cmp > 0)
+            {
+                return false;
+            }
+
+            if (prizeTargetBonusPpt > 0)
+            {
+                if (isPrize && !bestIsPrize)
+                {
+                    return true;
+                }
+
+                if (!isPrize && bestIsPrize)
+                {
+                    return false;
+                }
+            }
+
+            return id < bestId;
         }
 
         private bool TryDefend(
@@ -329,6 +374,8 @@ namespace Wasteland.Sim.Ai
             Wasteland.Sim.Movement.RoadGraph graph,
             int attackStrengthRatioPpt,
             int supplyReachCm,
+            ulong prizeTerritoryKey,
+            int prizeTargetBonusPpt,
             IAiSeatView seatView)
         {
             faction.DefendTownId = 0;
@@ -351,7 +398,9 @@ namespace Wasteland.Sim.Ai
                 fromNode,
                 networkNodeIds,
                 networkCount,
-                supplyReachCm);
+                supplyReachCm,
+                prizeTerritoryKey,
+                prizeTargetBonusPpt);
             if (targetId == 0)
             {
                 faction.AttackTargetTownId = 0;

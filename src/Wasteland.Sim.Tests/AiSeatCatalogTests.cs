@@ -8,9 +8,10 @@ namespace Wasteland.Sim.Tests
     {
         private const int CompactTicks = 240;
         private const int RemnantStartTick = 40;
-        private const int RemnantDurationTicks = 20;
-        private const int RemnantAvailableTick = RemnantStartTick + RemnantDurationTicks;
-        private const int RemnantTicks = 90;
+        private static readonly int RemnantDurationTicks =
+            AiBalanceTablesTests.LoadBalance().Tier2ResearchTicks;
+        private static readonly int RemnantAvailableTick = RemnantStartTick + RemnantDurationTicks;
+        private static readonly int RemnantTicks = RemnantAvailableTick + 50;
 
         [Fact]
         public void IAiSeatView_MirrorsLeadFieldNames()
@@ -31,15 +32,15 @@ namespace Wasteland.Sim.Tests
             Assert.False(seats.FuelEnabled);
             Assert.True(seats.TryGetByFaction("homestead_compact", out AiScenarioSeatView seat));
             FixtureAiSeatView view = ViewAt(seat, 0);
-            Assert.True(seat.AllowsUnit(AiConstants.UnitKindInfantry, 0));
-            Assert.True(seat.AllowsUnit(AiConstants.UnitKindEngineer, 0));
+            Assert.True(seat.AllowsUnit(AiConstants.UnitKindInfantry));
+            Assert.True(seat.AllowsUnit(AiConstants.UnitKindEngineer));
             Assert.Equal(1, view.CurrentTier);
             Assert.Equal(-1, view.TierResearchCompleteTick);
             view.Refresh(seat, 10000);
             Assert.Equal(1, view.CurrentTier);
             Assert.Equal(-1, view.TierResearchCompleteTick);
             Assert.False(seat.AllowsUnitForTier(AiConstants.UnitKindTierII, view.CurrentTier));
-            Assert.False(seat.AllowsUnit(AiConstants.UnitKindTierIII, 0));
+            Assert.False(seat.AllowsUnit(AiConstants.UnitKindTierIII));
             Assert.True(seat.AllowsBuilding(AiConstants.BuildingTagDepot));
             Assert.True(seat.AllowsBuilding(AiConstants.BuildingTagFortL1));
             Assert.False(seat.AllowsBuilding(AiConstants.BuildingTagFortL2));
@@ -68,7 +69,7 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void RemnantStyleSeat_RaisesTierIIOnlyAfterStartPlusDuration()
+        public void RemnantStyleSeat_RaisesTierIIOnlyAfterFixtureResearchCompletes()
         {
             FixtureAiScenarioSeats seats = RemnantSeats();
             Assert.False(seats.FuelEnabled);
@@ -173,8 +174,26 @@ namespace Wasteland.Sim.Tests
         {
             AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
             Assert.True(tables.Tier2ResearchTicks >= 0);
-            AiAutoResearch research = new AiAutoResearch(40, 2, tables.Tier2ResearchTicks);
-            Assert.Equal(40 + tables.Tier2ResearchTicks, research.AvailableTick);
+            AiScenarioSeatView seat = new AiScenarioSeatView(
+                0,
+                "remnant_command",
+                null,
+                1UL,
+                300,
+                FixtureAiScenarioSeats.DefaultRaisableUnits,
+                FixtureAiScenarioSeats.DefaultBuildableBuildings,
+                new[] { new AiAutoResearch("tier2", RemnantStartTick) });
+            FixtureAiSeatView view = new FixtureAiSeatView();
+            view.Tier2ResearchTicks = tables.Tier2ResearchTicks;
+            view.Refresh(seat, RemnantStartTick - 1);
+            Assert.Equal(1, view.CurrentTier);
+            Assert.Equal(-1, view.TierResearchCompleteTick);
+            view.Refresh(seat, RemnantStartTick);
+            Assert.Equal(1, view.CurrentTier);
+            Assert.Equal(RemnantStartTick + tables.Tier2ResearchTicks, view.TierResearchCompleteTick);
+            view.Refresh(seat, RemnantStartTick + tables.Tier2ResearchTicks);
+            Assert.Equal(2, view.CurrentTier);
+            Assert.Equal(-1, view.TierResearchCompleteTick);
         }
 
         private static void RunCompactAndAssertNoIllegalReject()
@@ -280,6 +299,7 @@ namespace Wasteland.Sim.Tests
         private static FixtureAiSeatView ViewAt(AiScenarioSeatView seat, int tick)
         {
             FixtureAiSeatView view = new FixtureAiSeatView();
+            view.Tier2ResearchTicks = RemnantDurationTicks;
             view.Refresh(seat, tick);
             return view;
         }
@@ -290,9 +310,10 @@ namespace Wasteland.Sim.Tests
                 new[]
                 {
                     new AiMvpSeatShape(
+                        0,
                         "homestead_compact",
                         "homestead_compact_settler",
-                        10,
+                        1UL,
                         300,
                         new[]
                         {
@@ -304,8 +325,7 @@ namespace Wasteland.Sim.Tests
                         new[] { "supply_depot", "town_walls_l1" },
                         Array.Empty<AiMvpAutoResearchItem>())
                 },
-                new AiMvpMatchRulesShape(false, "draw"),
-                RemnantDurationTicks);
+                new AiMvpMatchRulesShape(false, "draw"));
         }
 
         private static FixtureAiScenarioSeats RemnantSeats()
@@ -314,16 +334,16 @@ namespace Wasteland.Sim.Tests
                 new[]
                 {
                     new AiMvpSeatShape(
+                        0,
                         "remnant_command",
-                        string.Empty,
-                        10,
+                        null,
+                        1UL,
                         300,
                         new[] { "remnant_motor_rifles", "remnant_engineers" },
                         new[] { "supply_depot" },
                         new[] { new AiMvpAutoResearchItem("tier2", RemnantStartTick) })
                 },
-                new AiMvpMatchRulesShape(false, "draw"),
-                RemnantDurationTicks);
+                new AiMvpMatchRulesShape(false, "draw"));
         }
     }
 }

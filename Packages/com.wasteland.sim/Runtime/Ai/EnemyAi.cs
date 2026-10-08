@@ -1550,6 +1550,7 @@ namespace Wasteland.Sim.Ai
             }
 
             _aiCommands.Tick = _world.Tick;
+            _fixtureSeatView.Tier2ResearchTicks = _balance.Tier2ResearchTicks;
             _fixtureSeatView.Refresh(seat, _world.Tick);
             _attackDefend.Tick(
                 _world.Tick,
@@ -1564,6 +1565,8 @@ namespace Wasteland.Sim.Ai
                 _map.Roads,
                 _difficulty.AttackStrengthRatioPpt,
                 AiConstants.DepotRangeCm,
+                _seats.NeutralPrizeTerritoryKey,
+                personality.PrizeTargetBonusPpt,
                 _seatView);
         }
 
@@ -1573,13 +1576,20 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < _map.TownCount; i++)
             {
                 AiTownRecord town = _map.TownAt(i);
+                ulong territoryKey = 0UL;
+                if (_map.TryGetTerritory(town.TerritoryId, out AiTerritoryRecord territory))
+                {
+                    territoryKey = territory.StableKey;
+                }
+
                 _attackTowns[count++] = new AiAttackTownInfo(
                     town.Id,
                     town.TerritoryId,
                     town.RoadNodeId,
                     town.XCm,
                     town.YCm,
-                    IsSeatTown(town));
+                    IsSeatTown(town),
+                    territoryKey);
             }
 
             return count;

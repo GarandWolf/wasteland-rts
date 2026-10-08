@@ -12,19 +12,19 @@ namespace Wasteland.Sim.Ai
         public const string ParameterSetId = AiConstants.DifficultyNormal;
         public const string GenericProfileId = AiConstants.PersonalitySettler;
 
-        public static string Map(string seatPersonalityId)
+        public static string Map(string? seatPersonalityId)
         {
             _ = seatPersonalityId;
             return ParameterSetId;
         }
 
-        public static string FormatMappedFrom(string seatPersonalityId)
+        public static string FormatMappedFrom(string? seatPersonalityId)
         {
             string from = string.IsNullOrEmpty(seatPersonalityId) ? "null" : seatPersonalityId;
             return "aiPersonality mappedFrom=" + from + " to=" + ParameterSetId;
         }
 
-        public static void RecordMappedFrom(IList<string> diagnostics, string seatPersonalityId)
+        public static void RecordMappedFrom(IList<string> diagnostics, string? seatPersonalityId)
         {
             if (diagnostics == null)
             {

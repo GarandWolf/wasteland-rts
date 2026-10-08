@@ -1,99 +1,67 @@
+using System;
 using System.IO;
 
 namespace Wasteland.Sim.Ai
 {
     /// <summary>
-    /// Auto-research grant from the scenario seat. Tier II is usable only
-    /// after <see cref="UnlockTick"/> plus <see cref="DurationTicks"/> (the
-    /// research duration from balance/seat data, not a map constant).
+    /// Authored auto-research row. <see cref="NotBeforeTick"/> is the earliest
+    /// the item may start, not the actual start or the available tick.
     /// </summary>
     public readonly struct AiAutoResearch
     {
-        public readonly int UnlockTick;
-        public readonly int Tier;
-        public readonly int DurationTicks;
+        public readonly string Item;
+        public readonly int NotBeforeTick;
 
-        public AiAutoResearch(int unlockTick, int tier)
-            : this(unlockTick, tier, 0)
+        public AiAutoResearch(string item, int notBeforeTick)
         {
-        }
-
-        public AiAutoResearch(int unlockTick, int tier, int durationTicks)
-        {
-            UnlockTick = unlockTick;
-            Tier = tier;
-            DurationTicks = durationTicks;
-        }
-
-        public int AvailableTick
-        {
-            get
-            {
-                if (Tier < 2)
-                {
-                    return int.MaxValue;
-                }
-
-                return checked(UnlockTick + DurationTicks);
-            }
+            Item = item ?? string.Empty;
+            NotBeforeTick = notBeforeTick;
         }
     }
 
     /// <summary>
-    /// One scenario seat. HQ is a town id on the loaded map. Catalogs are
-    /// sorted unique positive ids. Wiring to the Lead's loader comes later.
+    /// One scenario seat. Home is a territory key; the AI finds HQ through
+    /// that territory's seat town. Catalogs stay in authored order.
     /// </summary>
     public readonly struct AiScenarioSeatView
     {
-        public readonly string FactionId;
-        public readonly string PersonalityId;
-        public readonly int HqTownId;
+        public readonly int Slot;
+        public readonly string Faction;
+        public readonly string? AiPersonality;
+        public readonly ulong HomeTerritoryKey;
         public readonly int StartingManpower;
         public readonly int[] RaisableUnits;
         public readonly int[] BuildableBuildings;
-        public readonly AiAutoResearch AutoResearch;
+        public readonly AiAutoResearch[] AutoResearch;
 
         public AiScenarioSeatView(
-            string factionId,
-            string personalityId,
-            int hqTownId,
+            int slot,
+            string faction,
+            string? aiPersonality,
+            ulong homeTerritoryKey,
             int startingManpower,
             int[] raisableUnits,
             int[] buildableBuildings,
-            AiAutoResearch autoResearch)
+            AiAutoResearch[] autoResearch)
         {
-            FactionId = factionId;
-            PersonalityId = personalityId ?? string.Empty;
-            HqTownId = hqTownId;
+            Slot = slot;
+            Faction = faction;
+            AiPersonality = aiPersonality;
+            HomeTerritoryKey = homeTerritoryKey;
             StartingManpower = startingManpower;
             RaisableUnits = raisableUnits;
             BuildableBuildings = buildableBuildings;
-            AutoResearch = autoResearch;
+            AutoResearch = autoResearch ?? Array.Empty<AiAutoResearch>();
         }
 
-        public int CurrentTierAt(int tick)
+        public bool AllowsUnit(int unitKind)
         {
-            if (AutoResearch.Tier < 2)
-            {
-                return 1;
-            }
-
-            if (tick >= AutoResearch.AvailableTick)
-            {
-                return AutoResearch.Tier >= 3 ? 3 : 2;
-            }
-
-            return 1;
-        }
-
-        public bool AllowsUnit(int unitKind, int tick)
-        {
-            return AllowsUnitForTier(unitKind, CurrentTierAt(tick));
+            return Contains(RaisableUnits, unitKind);
         }
 
         public bool AllowsUnitForTier(int unitKind, int currentTier)
         {
-            if (!ContainsSorted(RaisableUnits, unitKind))
+            if (!AllowsUnit(unitKind))
             {
                 return false;
             }
@@ -113,34 +81,21 @@ namespace Wasteland.Sim.Ai
 
         public bool AllowsBuilding(int buildingKind)
         {
-            return ContainsSorted(BuildableBuildings, buildingKind);
+            return Contains(BuildableBuildings, buildingKind);
         }
 
-        internal static bool ContainsSorted(int[] ids, int value)
+        internal static bool Contains(int[] ids, int value)
         {
             if (ids == null)
             {
                 return false;
             }
 
-            int lo = 0;
-            int hi = ids.Length - 1;
-            while (lo <= hi)
+            for (int i = 0; i < ids.Length; i++)
             {
-                int mid = lo + ((hi - lo) / 2);
-                int current = ids[mid];
-                if (current == value)
+                if (ids[i] == value)
                 {
                     return true;
-                }
-
-                if (current < value)
-                {
-                    lo = mid + 1;
-                }
-                else
-                {
-                    hi = mid - 1;
                 }
             }
 
@@ -160,44 +115,46 @@ namespace Wasteland.Sim.Ai
 
         string SimultaneousHqLoss { get; }
 
+        ulong NeutralPrizeTerritoryKey { get; }
+
         System.Collections.Generic.IReadOnlyList<string> PersonalityMapDiagnostics { get; }
 
         AiScenarioSeatView SeatAt(int index);
 
-        bool TryGetByFaction(string factionId, out AiScenarioSeatView seat);
+        bool TryGetByFaction(string faction, out AiScenarioSeatView seat);
     }
 
     /// <summary>
-    /// Binds each AI faction to its seat HQ town. Load range checks throw
-    /// <see cref="InvalidDataException"/>.
+    /// Binds each AI faction to its home territory and that territory's seat
+    /// town. Load range checks throw <see cref="InvalidDataException"/>.
     /// </summary>
     public sealed class AiSeatHomeBinder
     {
         public const string RuleIdFaction = "faction";
-        public const string RuleIdHqTownId = "hqTownId";
+        public const string RuleIdHomeTerritoryKey = "homeTerritoryKey";
 
         private readonly IAiScenarioSeats _seats;
 
         public AiSeatHomeBinder(IAiScenarioSeats seats)
         {
-            _seats = seats ?? throw new System.ArgumentNullException(nameof(seats));
+            _seats = seats ?? throw new ArgumentNullException(nameof(seats));
         }
 
         public void Seed(AiOwnedState owned, AiMapSnapshot map, AiBalanceTables balance)
         {
             if (owned == null)
             {
-                throw new System.ArgumentNullException(nameof(owned));
+                throw new ArgumentNullException(nameof(owned));
             }
 
             if (map == null)
             {
-                throw new System.ArgumentNullException(nameof(map));
+                throw new ArgumentNullException(nameof(map));
             }
 
             if (balance == null)
             {
-                throw new System.ArgumentNullException(nameof(balance));
+                throw new ArgumentNullException(nameof(balance));
             }
 
             for (int i = 0; i < owned.FactionCount; i++)
@@ -209,16 +166,21 @@ namespace Wasteland.Sim.Ai
                     throw new InvalidDataException(RuleIdFaction);
                 }
 
-                int townIndex = map.IndexOfTown(seat.HqTownId);
+                if (!map.TryGetTerritoryByStableKey(seat.HomeTerritoryKey, out AiTerritoryRecord territory))
+                {
+                    throw new InvalidDataException(RuleIdHomeTerritoryKey);
+                }
+
+                int townIndex = map.IndexOfTown(territory.SeatTownId);
                 if (townIndex < 0)
                 {
-                    throw new InvalidDataException(RuleIdHqTownId);
+                    throw new InvalidDataException(RuleIdHomeTerritoryKey);
                 }
 
                 AiTownRecord town = map.TownAt(townIndex);
                 faction.Manpower = seat.StartingManpower;
                 faction.HomeTownId = town.Id;
-                faction.HomeTerritoryId = town.TerritoryId;
+                faction.HomeTerritoryId = territory.Id;
                 faction.HqNodeId = town.RoadNodeId;
                 owned.SetTownOwner(townIndex, faction.FactionId);
             }

@@ -51,7 +51,9 @@ namespace Wasteland.Sim.Tests
                 1,
                 harness.Network,
                 1,
-                100000);
+                100000,
+                0UL,
+                0);
             Assert.Equal(30, target);
         }
 
@@ -71,8 +73,43 @@ namespace Wasteland.Sim.Tests
                 1,
                 harness.Network,
                 1,
-                harness.SupplyReachCm);
+                harness.SupplyReachCm,
+                0UL,
+                0);
             Assert.Equal(20, target);
+        }
+
+        [Fact]
+        public void PickAttackTarget_PrizeWinsDistanceTie()
+        {
+            Harness harness = Harness.Fork();
+            harness.Towns[10] = Own(1);
+            harness.Towns[20] = Enemy(2, 1);
+            harness.Towns[30] = Enemy(2, 1);
+            int withoutPrize = harness.Planner.PickAttackTarget(
+                harness.Faction,
+                harness.TownRows,
+                3,
+                harness.Roads,
+                1,
+                harness.Network,
+                1,
+                100000,
+                0UL,
+                0);
+            Assert.Equal(20, withoutPrize);
+            int withPrize = harness.Planner.PickAttackTarget(
+                harness.Faction,
+                harness.TownRows,
+                3,
+                harness.Roads,
+                1,
+                harness.Network,
+                1,
+                100000,
+                3UL,
+                1000);
+            Assert.Equal(30, withPrize);
         }
 
         [Fact]
@@ -239,12 +276,13 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void Raise_BlocksTierIIBeforeUnlockTick()
+        public void Raise_BlocksTierIIUntilFixtureResearchCompletes()
         {
             AiScenarioSeatView seat = new AiScenarioSeatView(
+                0,
                 "homestead_compact",
                 "unknown_raider_v9",
-                10,
+                1UL,
                 300,
                 new[]
                 {
@@ -253,12 +291,16 @@ namespace Wasteland.Sim.Tests
                     AiConstants.UnitKindTierII
                 },
                 new[] { AiConstants.BuildingTagDepot },
-                new AiAutoResearch(50, 2, 10));
-            Assert.False(seat.AllowsUnit(AiConstants.UnitKindTierII, 59));
-            Assert.True(seat.AllowsUnit(AiConstants.UnitKindTierII, 60));
-            Assert.Equal(1, seat.CurrentTierAt(59));
-            Assert.Equal(2, seat.CurrentTierAt(60));
-            Assert.True(seat.AllowsUnit(AiConstants.UnitKindInfantry, 0));
+                new[] { new AiAutoResearch("tier2", 50) });
+            FixtureAiSeatView view = new FixtureAiSeatView();
+            view.Tier2ResearchTicks = 10;
+            view.Refresh(seat, 59);
+            Assert.Equal(1, view.CurrentTier);
+            Assert.False(seat.AllowsUnitForTier(AiConstants.UnitKindTierII, view.CurrentTier));
+            view.Refresh(seat, 60);
+            Assert.Equal(2, view.CurrentTier);
+            Assert.True(seat.AllowsUnitForTier(AiConstants.UnitKindTierII, view.CurrentTier));
+            Assert.True(seat.AllowsUnit(AiConstants.UnitKindInfantry));
         }
 
         [Fact]
@@ -323,9 +365,10 @@ namespace Wasteland.Sim.Tests
         private static AiScenarioSeatView InfantryOnlySeat()
         {
             return FixtureAiScenarioSeats.Create(new AiScenarioSeatView(
+                0,
                 "homestead_compact",
                 string.Empty,
-                10,
+                1UL,
                 300,
                 new[] { AiConstants.UnitKindInfantry },
                 new[] { AiConstants.BuildingTagDepot },
@@ -343,6 +386,8 @@ namespace Wasteland.Sim.Tests
             public readonly int[] Network = { 1 };
             public readonly FixtureAiSeatView SeatView = new FixtureAiSeatView();
             public int SupplyReachCm = 100000;
+            public ulong PrizeTerritoryKey;
+            public int PrizeTargetBonusPpt;
             public AiScenarioSeatView Seat;
             private AiBattalionPin[] _battalions = System.Array.Empty<AiBattalionPin>();
 
@@ -374,7 +419,10 @@ namespace Wasteland.Sim.Tests
                 Faction.HqNodeId = 1;
                 Faction.HomeTownId = 10;
                 Faction.HomeTerritoryId = 1;
-                Seat = FixtureAiScenarioSeats.LaunchSeat("homestead_compact", 10);
+                Seat = FixtureAiScenarioSeats.LaunchSeat("homestead_compact", 1UL);
+                SeatView.Tier2ResearchTicks = AiBalanceTablesTests.LoadBalance().Tier2ResearchTicks;
+                PrizeTerritoryKey = 0UL;
+                PrizeTargetBonusPpt = 0;
             }
 
             public static Harness Line()
@@ -396,11 +444,32 @@ namespace Wasteland.Sim.Tests
                     roads,
                     new[]
                     {
-                        new AiAttackTownInfo(10, 1, 1, 0, 0, true),
-                        new AiAttackTownInfo(20, 2, 2, 1000, 0, false),
-                        new AiAttackTownInfo(30, 3, 3, 2000, 0, true)
+                        new AiAttackTownInfo(10, 1, 1, 0, 0, true, 1UL),
+                        new AiAttackTownInfo(20, 2, 2, 1000, 0, false, 2UL),
+                        new AiAttackTownInfo(30, 3, 3, 2000, 0, true, 3UL)
                     },
                     workUnitsPerTick);
+            }
+
+            public static Harness Fork()
+            {
+                RoadGraph roads = Wrmb.ReadRoadGraph(
+                    new RoadGraphBuilder()
+                        .AddNode(1, 0, 0)
+                        .AddNode(2, 1000, 1000)
+                        .AddNode(3, 1000, -1000)
+                        .AddEdge(1, 1, 2, 1000, RoadTier.Paved, RoadSurface.Asphalt)
+                        .AddEdge(2, 1, 3, 1000, RoadTier.Paved, RoadSurface.Asphalt)
+                        .ToBlob());
+                return new Harness(
+                    roads,
+                    new[]
+                    {
+                        new AiAttackTownInfo(10, 1, 1, 0, 0, true, 1UL),
+                        new AiAttackTownInfo(20, 2, 2, 1000, 1000, false, 2UL),
+                        new AiAttackTownInfo(30, 3, 3, 1000, -1000, false, 3UL)
+                    },
+                    50000);
             }
 
             public void SetBattalions(params AiBattalionPin[] pins)
@@ -441,6 +510,8 @@ namespace Wasteland.Sim.Tests
                     Roads,
                     1500,
                     SupplyReachCm,
+                    PrizeTerritoryKey,
+                    PrizeTargetBonusPpt,
                     SeatView);
                 AssertNoAiCausedTierOrPopRequest(from, injected);
             }

@@ -21,8 +21,10 @@ namespace Wasteland.Sim.Ai
     }
 
     /// <summary>
-    /// Fixture-backed <see cref="IAiSeatView"/>. Refresh fills tier fields
-    /// from a scenario seat and tick; pop/resources are set by the test.
+    /// Fixture-backed <see cref="IAiSeatView"/>. Research start/complete
+    /// simulation lives only here: start at the earliest tier2
+    /// <c>NotBeforeTick</c>, complete after <see cref="Tier2ResearchTicks"/>.
+    /// AI decisions must read <see cref="CurrentTier"/>, not this schedule.
     /// </summary>
     public sealed class FixtureAiSeatView : IAiSeatView
     {
@@ -38,6 +40,8 @@ namespace Wasteland.Sim.Ai
 
         public int PopCap { get; set; }
 
+        public int Tier2ResearchTicks { get; set; }
+
         public FixtureAiSeatView()
         {
             CurrentTier = 1;
@@ -46,29 +50,50 @@ namespace Wasteland.Sim.Ai
 
         public void Refresh(AiScenarioSeatView seat, int tick)
         {
-            if (seat.AutoResearch.Tier < 2)
+            int notBefore = 0;
+            bool hasTier2 = false;
+            AiAutoResearch[] rows = seat.AutoResearch;
+            if (rows != null)
+            {
+                for (int i = 0; i < rows.Length; i++)
+                {
+                    if (rows[i].Item != FixtureAiScenarioSeats.AutoResearchTier2)
+                    {
+                        continue;
+                    }
+
+                    if (!hasTier2 || rows[i].NotBeforeTick < notBefore)
+                    {
+                        notBefore = rows[i].NotBeforeTick;
+                    }
+
+                    hasTier2 = true;
+                }
+            }
+
+            if (!hasTier2)
             {
                 CurrentTier = 1;
                 TierResearchCompleteTick = -1;
                 return;
             }
 
-            int available = seat.AutoResearch.AvailableTick;
-            if (tick < seat.AutoResearch.UnlockTick)
+            if (tick < notBefore)
             {
                 CurrentTier = 1;
                 TierResearchCompleteTick = -1;
                 return;
             }
 
-            if (tick < available)
+            int complete = checked(notBefore + Tier2ResearchTicks);
+            if (tick < complete)
             {
                 CurrentTier = 1;
-                TierResearchCompleteTick = available;
+                TierResearchCompleteTick = complete;
                 return;
             }
 
-            CurrentTier = seat.AutoResearch.Tier >= 3 ? 3 : 2;
+            CurrentTier = 2;
             TierResearchCompleteTick = -1;
         }
     }

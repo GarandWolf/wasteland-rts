@@ -72,7 +72,7 @@ namespace Wasteland.Sim.Tests
 
             AiMatchHost other = AiMatchHost.Start(
                 MatchConfig.Default(0xBEEFUL),
-                LoadGorgeBytes(),
+                LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
                 AiBalanceTablesTests.LoadBalance());
@@ -292,7 +292,7 @@ namespace Wasteland.Sim.Tests
         {
             AiMatchHost host = AiMatchHost.Start(
                 MatchConfig.Default(0xA11EEDUL),
-                LoadGorgeBytes(),
+                LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyBrutal,
                 AiBalanceTablesTests.LoadBalance());
@@ -393,15 +393,15 @@ namespace Wasteland.Sim.Tests
         [Fact]
         public void HomeSeeder_MapsLaunchPersonalities()
         {
-            AiMapSnapshot map = LoadGorgeMap();
+            AiMapSnapshot map = AiMapSnapshot.FromWrmb(LoadGorgeV1Bytes());
             IAiScenarioSeats seats = FixtureAiScenarioSeats.ForLaunchPersonalities(
                 map,
                 AiBalanceTablesTests.LoadBalance());
             Assert.True(seats.TryGetByFaction("homestead_compact", out AiScenarioSeatView settler));
-            Assert.Equal(map.HoodRiverTownId, settler.HqTownId);
+            Assert.Equal(HomeTerritoryKeyOf(map, map.HoodRiverTownId), settler.HomeTerritoryKey);
             Assert.True(seats.TryGetByFaction("remnant_command", out AiScenarioSeatView remnant));
-            Assert.Equal(map.GoldendaleTownId, remnant.HqTownId);
-            Assert.Equal("remnant_command", remnant.FactionId);
+            Assert.Equal(HomeTerritoryKeyOf(map, map.GoldendaleTownId), remnant.HomeTerritoryKey);
+            Assert.Equal("remnant_command", remnant.Faction);
             Assert.False(seats.TryGetByFaction("missing_faction", out _));
         }
 
@@ -419,7 +419,7 @@ namespace Wasteland.Sim.Tests
         public void MatchInit_RejectsCommandDelayMismatch()
         {
             AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
-            byte[] map = LoadGorgeBytes();
+            byte[] map = LoadGorgeV1Bytes();
             MatchConfig match = new MatchConfig(0xA11EEDUL, 5).WithKeys(
                 balance.BalanceKey,
                 MapKey.For(WrmbFile.Parse(map), AiConstants.MapKeySectionTags()));
@@ -688,7 +688,7 @@ namespace Wasteland.Sim.Tests
 
             InvalidDataException ex = Assert.Throws<InvalidDataException>(() => AiMatchHost.ReplayTo(
                 MatchConfig.Default(0xA11EEDUL),
-                LoadGorgeBytes(),
+                LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
                 AiBalanceTablesTests.LoadBalance(),
@@ -724,7 +724,7 @@ namespace Wasteland.Sim.Tests
         {
             return AiMatchHost.Start(
                 MatchConfig.Default(0xA11EEDUL),
-                LoadGorgeBytes(),
+                LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
                 AiBalanceTablesTests.LoadBalance());
@@ -745,6 +745,14 @@ namespace Wasteland.Sim.Tests
         internal static AiMapSnapshot LoadGorgeMap()
         {
             return AiMapSnapshot.FromWrmb(LoadGorgeBytes());
+        }
+
+        private static ulong HomeTerritoryKeyOf(AiMapSnapshot map, int townId)
+        {
+            Assert.True(map.TryGetTown(townId, out AiTownRecord town));
+            Assert.True(map.TryGetTerritory(town.TerritoryId, out AiTerritoryRecord territory));
+            Assert.NotEqual(0UL, territory.StableKey);
+            return territory.StableKey;
         }
     }
 }
