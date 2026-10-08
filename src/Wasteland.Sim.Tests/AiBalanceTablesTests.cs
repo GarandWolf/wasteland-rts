@@ -242,8 +242,7 @@ namespace Wasteland.Sim.Tests
 
         internal static AiBalanceTables LoadBalance()
         {
-            return AiBalanceTables.FromDirectory(
-                System.IO.Path.Combine(GoldenMapFiles.FindRepoRoot(), "data", "balance"));
+            return BalanceLoad.Tables();
         }
     }
 }

@@ -756,14 +756,10 @@ namespace Wasteland.Sim.Ai
             bool wantAt = false;
             if (!string.IsNullOrEmpty(atId))
             {
-                if (seatView.HasSeenEnemyArmourOrMech)
-                {
-                    wantAt = line > (long)lineUnitsPerAntiArmour * at;
-                }
-                else
-                {
-                    wantAt = line >= (long)lineUnitsPerAntiArmour * ((long)at + 1L);
-                }
+                bool ratioDue = line >= (long)lineUnitsPerAntiArmour * ((long)at + 1L);
+                bool ratioShort = line > (long)lineUnitsPerAntiArmour * at;
+                wantAt = ratioDue
+                    || (seatView.HasSeenEnemyArmourOrMech && ratioShort);
             }
 
             if (wantAt)

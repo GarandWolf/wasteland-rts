@@ -367,6 +367,16 @@ namespace Wasteland.Sim.Ai
 
         public static AiBalanceTables FromDirectory(string balanceDirectory)
         {
+            return FromDirectory(balanceDirectory, null);
+        }
+
+        /// <summary>
+        /// <paramref name="unitsJson"/> is the already-loaded
+        /// <c>units.json</c> document from the same load as
+        /// <c>BalanceCatalog</c>. This method does not read that file.
+        /// </summary>
+        public static AiBalanceTables FromDirectory(string balanceDirectory, string unitsJson)
+        {
             if (balanceDirectory == null)
             {
                 throw new ArgumentNullException(nameof(balanceDirectory));
@@ -381,8 +391,9 @@ namespace Wasteland.Sim.Ai
                 File.ReadAllText(difficultyPath));
             RulesState rules = ParseCapture(File.ReadAllText(rulesPath));
             ParseEconomy(File.ReadAllText(economyPath), tables._personalities, rules);
-            IAiUnitCatalog units = AiUnitCatalog.Parse(
-                File.ReadAllText(Path.Combine(balanceDirectory, "units.json")));
+            IAiUnitCatalog units = unitsJson == null
+                ? AiUnitCatalog.Empty
+                : AiUnitCatalog.Parse(unitsJson);
             return tables.WithUnitCatalog(units).WithRules(rules).WithBalanceKey(
                 global::Wasteland.Sim.Movement.BalanceKey.For(balanceDirectory));
         }

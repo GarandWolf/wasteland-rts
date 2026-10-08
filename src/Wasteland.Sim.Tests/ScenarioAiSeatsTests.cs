@@ -210,12 +210,11 @@ namespace Wasteland.Sim.Tests
 
         private static SimScenario LoadMvp()
         {
-            string root = GoldenMapFiles.FindRepoRoot();
-            BalanceCatalog balance = BalanceCatalog.LoadFromDirectory(Path.Combine(root, "data", "balance"));
+            BalanceLoad.SharedPack pack = BalanceLoad.Shared();
             byte[] map = ReadMarshMap();
             return SimScenario.Load(
                 GoldenMapFiles.ReadRepoText(ScenarioRelative),
-                balance,
+                pack.Scenario,
                 map,
                 GoldenMapV1MarshTests.MapFileName,
                 ScenarioId);

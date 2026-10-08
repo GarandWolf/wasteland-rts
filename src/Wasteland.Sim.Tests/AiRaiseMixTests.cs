@@ -7,47 +7,87 @@ namespace Wasteland.Sim.Tests
     public sealed class AiRaiseMixTests
     {
         [Fact]
-        public void Compact_RaisesAntiArmourAfterSeeingEnemyArmour()
+        public void Compact_FirstThreeRaises_IncludeAntiTankWhenArmourUnseen()
         {
-            AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
-            AiScenarioSeatView seat = CompactSeat();
-            IAiUnitCatalog catalog = tables.UnitCatalog;
-            int ratio = tables.GetPersonality(AiConstants.PersonalitySettler).LineUnitsPerAntiArmour;
-            FixtureAiSeatView view = new FixtureAiSeatView();
-            view.Manpower = seat.StartingManpower;
-            view.HasSeenEnemyArmourOrMech = true;
-            string raised = AiAttackDefend.SelectRaiseUnit(
-                seat,
-                catalog,
-                view,
-                Pins(1, 0),
-                1,
-                ratio,
-                false,
-                false);
-            AssertRole(raised, catalog, AiConstants.RoleAntiTank);
-            Assert.True(catalog.TryGetTargetClass(FirstArmored(RemnantSeat(), catalog), out string seenClass));
+            MixContext ctx = CompactUnseen();
+            int at = 0;
+            List<AiBattalionPin> pins = new List<AiBattalionPin>();
+            for (int i = 0; i < 3; i++)
+            {
+                string raised = Select(ctx, pins.ToArray());
+                Assert.True(ctx.Catalog.TryGetRole(raised, out string role));
+                if (role == AiConstants.RoleAntiTank)
+                {
+                    at++;
+                }
+
+                pins.Add(PinFor(raised, pins.Count + 1));
+            }
+
+            Assert.True(at >= 1);
+        }
+
+        [Fact]
+        public void Compact_MixRatioHoldsOverRaises_WhenArmourUnseen()
+        {
+            MixContext ctx = CompactUnseen();
+            Assert.Equal(2, ctx.Ratio);
+            const int n = 12;
+            int line = 0;
+            int at = 0;
+            for (int i = 0; i < n; i++)
+            {
+                string raised = Select(ctx, Pins(line, at));
+                Assert.True(ctx.Catalog.TryGetRole(raised, out string role));
+                if (role == AiConstants.RoleAntiTank)
+                {
+                    at++;
+                }
+                else
+                {
+                    Assert.Equal(AiConstants.RoleLineInfantry, role);
+                    line++;
+                }
+
+                Assert.Equal((i + 1) / (ctx.Ratio + 1), at);
+                Assert.True(line <= ctx.Ratio * (at + 1));
+                Assert.True(at * ctx.Ratio <= line);
+            }
+
+            Assert.Equal(n / (ctx.Ratio + 1), at);
+            Assert.Equal(n - at, line);
+        }
+
+        [Fact]
+        public void Compact_RaisesAntiTankNext_WhenArmourSeenAndRatioShort()
+        {
+            MixContext ctx = CompactSeen();
+            AssertRole(Select(ctx, Pins(1, 0)), ctx.Catalog, AiConstants.RoleAntiTank);
+            AssertRole(Select(ctx, Pins(3, 1)), ctx.Catalog, AiConstants.RoleAntiTank);
+            Assert.True(ctx.Catalog.TryGetTargetClass(FirstArmored(RemnantSeat(), ctx.Catalog), out string seenClass));
             Assert.Equal(AiConstants.TargetClassArmored, seenClass);
+        }
+
+        [Fact]
+        public void Compact_DoesNotExceedRatio_WhenArmourSeenAndRatioMet()
+        {
+            MixContext ctx = CompactSeen();
+            AssertRole(Select(ctx, System.Array.Empty<AiBattalionPin>()), ctx.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(ctx, Pins(2, 1)), ctx.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(ctx, Pins(4, 2)), ctx.Catalog, AiConstants.RoleLineInfantry);
         }
 
         [Fact]
         public void Compact_MixFollowsLineUnitsPerAntiArmourBeforeSeeingArmour()
         {
-            AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
-            int ratio = tables.GetPersonality(AiConstants.PersonalitySettler).LineUnitsPerAntiArmour;
-            Assert.Equal(2, ratio);
-            AiScenarioSeatView seat = CompactSeat();
-            IAiUnitCatalog catalog = tables.UnitCatalog;
-            FixtureAiSeatView view = new FixtureAiSeatView();
-            view.Manpower = seat.StartingManpower;
-            view.HasSeenEnemyArmourOrMech = false;
-
-            AssertRole(Select(seat, catalog, view, ratio, System.Array.Empty<AiBattalionPin>()), catalog, AiConstants.RoleLineInfantry);
-            AssertRole(Select(seat, catalog, view, ratio, Pins(1, 0)), catalog, AiConstants.RoleLineInfantry);
-            AssertRole(Select(seat, catalog, view, ratio, Pins(2, 0)), catalog, AiConstants.RoleAntiTank);
-            AssertRole(Select(seat, catalog, view, ratio, Pins(2, 1)), catalog, AiConstants.RoleLineInfantry);
-            AssertRole(Select(seat, catalog, view, ratio, Pins(3, 1)), catalog, AiConstants.RoleLineInfantry);
-            AssertRole(Select(seat, catalog, view, ratio, Pins(4, 1)), catalog, AiConstants.RoleAntiTank);
+            MixContext ctx = CompactUnseen();
+            Assert.Equal(2, ctx.Ratio);
+            AssertRole(Select(ctx, System.Array.Empty<AiBattalionPin>()), ctx.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(ctx, Pins(1, 0)), ctx.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(ctx, Pins(2, 0)), ctx.Catalog, AiConstants.RoleAntiTank);
+            AssertRole(Select(ctx, Pins(2, 1)), ctx.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(ctx, Pins(3, 1)), ctx.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(ctx, Pins(4, 1)), ctx.Catalog, AiConstants.RoleAntiTank);
         }
 
         [Fact]
@@ -204,14 +244,66 @@ namespace Wasteland.Sim.Tests
             }
         }
 
-        private static string Select(
-            AiScenarioSeatView seat,
-            IAiUnitCatalog catalog,
-            IAiSeatView view,
-            int ratio,
-            AiBattalionPin[] pins)
+        private static MixContext CompactUnseen()
         {
-            return AiAttackDefend.SelectRaiseUnit(seat, catalog, view, pins, pins.Length, ratio, false, false);
+            return CompactMix(false);
+        }
+
+        private static MixContext CompactSeen()
+        {
+            return CompactMix(true);
+        }
+
+        private static MixContext CompactMix(bool seenArmour)
+        {
+            AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
+            AiScenarioSeatView seat = CompactSeat();
+            FixtureAiSeatView view = new FixtureAiSeatView();
+            view.Manpower = seat.StartingManpower;
+            view.HasSeenEnemyArmourOrMech = seenArmour;
+            return new MixContext(
+                seat,
+                tables.UnitCatalog,
+                view,
+                tables.GetPersonality(AiConstants.PersonalitySettler).LineUnitsPerAntiArmour);
+        }
+
+        private static string Select(MixContext ctx, AiBattalionPin[] pins)
+        {
+            return AiAttackDefend.SelectRaiseUnit(
+                ctx.Seat,
+                ctx.Catalog,
+                ctx.View,
+                pins,
+                pins.Length,
+                ctx.Ratio,
+                false,
+                false);
+        }
+
+        private static AiBattalionPin PinFor(string unitId, int id)
+        {
+            return new AiBattalionPin(id, 0, 0, 1, unitId, false);
+        }
+
+        private readonly struct MixContext
+        {
+            public readonly AiScenarioSeatView Seat;
+            public readonly IAiUnitCatalog Catalog;
+            public readonly FixtureAiSeatView View;
+            public readonly int Ratio;
+
+            public MixContext(
+                AiScenarioSeatView seat,
+                IAiUnitCatalog catalog,
+                FixtureAiSeatView view,
+                int ratio)
+            {
+                Seat = seat;
+                Catalog = catalog;
+                View = view;
+                Ratio = ratio;
+            }
         }
 
         private static AiBattalionPin[] Pins(int line, int at)

@@ -57,6 +57,7 @@ namespace Wasteland.Sim.Ai
         public const string RoleGarrisonInfantry = "garrison_infantry";
         public const string RoleEngineer = "engineer";
         public const string TargetClassArmored = "armored";
+        public const string TargetClassSoft = "soft";
 
         public const string TierIITickNone = "none";
         public const int ClaimMarchSpeedCmPerSecond = 25000;

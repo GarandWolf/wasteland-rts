@@ -1,15 +1,13 @@
 using System;
-using System.IO;
 using Wasteland.Sim.Movement;
 
 namespace Wasteland.Sim.Ai
 {
     /// <summary>
-    /// Read-only unit rows for AI decisions. Uses the sim's existing
-    /// integer JSON reader — not a second units.json grammar. The #21
-    /// catalog does not yet expose <c>techTier</c>, <c>role</c>, or
-    /// <c>targetClass</c>; this type adds those three fields plus
-    /// <c>cost.manpower</c> (militia affordability). Friday replaces the
+    /// Read-only unit rows for AI decisions. Parses already-loaded
+    /// <c>units.json</c> bytes from the same load as
+    /// <c>BalanceCatalog</c> — this type never opens that file and
+    /// keeps no static cache of parsed units. Friday replaces the
     /// backing with a one-line adapter.
     /// </summary>
     public sealed class AiUnitCatalog : IAiUnitCatalog
@@ -44,16 +42,6 @@ namespace Wasteland.Sim.Ai
         public int Count
         {
             get { return _ids.Length; }
-        }
-
-        public static AiUnitCatalog FromDirectory(string balanceDirectory)
-        {
-            if (balanceDirectory == null)
-            {
-                throw new ArgumentNullException(nameof(balanceDirectory));
-            }
-
-            return Parse(File.ReadAllText(Path.Combine(balanceDirectory, "units.json")));
         }
 
         public static AiUnitCatalog Parse(string unitsJson)
@@ -93,19 +81,10 @@ namespace Wasteland.Sim.Ai
                     throw new FormatException(path + ".techTier must be >= 1.");
                 }
 
-                string role = JsonUtil.String(JsonUtil.Field(row, "role"), path + ".role");
-                if (role.Length < 1)
-                {
-                    throw new FormatException(path + ".role must be a non-empty string.");
-                }
-
-                string targetClass = JsonUtil.String(
-                    JsonUtil.Field(row, "targetClass"),
-                    path + ".targetClass");
-                if (targetClass.Length < 1)
-                {
-                    throw new FormatException(path + ".targetClass must be a non-empty string.");
-                }
+                string role = RequireFieldString(row, id, "role");
+                RequireKnownRole(id, role);
+                string targetClass = RequireFieldString(row, id, "targetClass");
+                RequireKnownTargetClass(id, targetClass);
 
                 JsonValue cost = JsonUtil.Field(row, "cost");
                 int mp = JsonUtil.Int32(JsonUtil.Field(cost, "manpower"), path + ".cost.manpower");
@@ -151,10 +130,12 @@ namespace Wasteland.Sim.Ai
                     throw new FormatException("techTier must be >= 1.");
                 }
 
+                RequireKnownRole(row.Id, row.Role ?? string.Empty);
+                RequireKnownTargetClass(row.Id, row.TargetClass ?? string.Empty);
                 ids[i] = row.Id;
                 tiers[i] = row.TechTier;
-                roles[i] = row.Role ?? string.Empty;
-                targetClasses[i] = row.TargetClass ?? string.Empty;
+                roles[i] = row.Role;
+                targetClasses[i] = row.TargetClass;
                 manpower[i] = row.ManpowerCost;
             }
 
@@ -213,6 +194,54 @@ namespace Wasteland.Sim.Ai
 
             manpower = _manpower[index];
             return true;
+        }
+
+        internal static string RequireFieldString(JsonValue row, string unitId, string field)
+        {
+            string path = "units.json $.units." + unitId;
+            if (!JsonUtil.TryField(row, field, out JsonValue value))
+            {
+                throw new FormatException(path + " missing " + field + ".");
+            }
+
+            return JsonUtil.String(value, path + "." + field);
+        }
+
+        /// <summary>
+        /// Mix keys only on line / AT / garrison / engineer. Extra data-pack
+        /// roles are accepted so the shared <c>units.json</c> document loads;
+        /// they are never treated as rifle.
+        /// </summary>
+        internal static void RequireKnownRole(string unitId, string role)
+        {
+            if (role == AiConstants.RoleLineInfantry
+                || role == AiConstants.RoleAntiTank
+                || role == AiConstants.RoleGarrisonInfantry
+                || role == AiConstants.RoleEngineer
+                || role == "assault_infantry"
+                || role == "breakthrough"
+                || role == "indirect_fire"
+                || role == "recon_spotter"
+                || role == "recon_strike"
+                || role == "supply")
+            {
+                return;
+            }
+
+            throw new FormatException(
+                "units.json $.units." + unitId + " unknown role '" + role + "'.");
+        }
+
+        internal static void RequireKnownTargetClass(string unitId, string targetClass)
+        {
+            if (targetClass == AiConstants.TargetClassArmored
+                || targetClass == AiConstants.TargetClassSoft)
+            {
+                return;
+            }
+
+            throw new FormatException(
+                "units.json $.units." + unitId + " unknown targetClass '" + targetClass + "'.");
         }
 
         private int IndexOf(string unitId)
