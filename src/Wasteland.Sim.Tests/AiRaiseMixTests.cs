@@ -9,13 +9,24 @@ namespace Wasteland.Sim.Tests
         [Fact]
         public void Compact_RaisesAntiArmourAfterSeeingEnemyArmour()
         {
-            AiMvpAttackTests.Harness harness = CombatHarness();
-            harness.SeatView.HasSeenEnemyArmourOrMech = true;
-            harness.SetBattalions(AiMvpAttackTests.PinWithRole(5, 1000, 0, 1, AiConstants.RoleLineInfantry, true));
-            string raised = RaiseOnce(harness);
-            Assert.True(harness.Catalog.TryGetRole(raised, out string role));
-            Assert.Equal(AiConstants.RoleAntiTank, role);
-            Assert.True(harness.Catalog.TryGetTargetClass(EnemyArmoredId(harness), out string seenClass));
+            AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
+            AiScenarioSeatView seat = CompactSeat();
+            IAiUnitCatalog catalog = tables.UnitCatalog;
+            int ratio = tables.GetPersonality(AiConstants.PersonalitySettler).LineUnitsPerAntiArmour;
+            FixtureAiSeatView view = new FixtureAiSeatView();
+            view.Manpower = seat.StartingManpower;
+            view.HasSeenEnemyArmourOrMech = true;
+            string raised = AiAttackDefend.SelectRaiseUnit(
+                seat,
+                catalog,
+                view,
+                Pins(1, 0),
+                1,
+                ratio,
+                false,
+                false);
+            AssertRole(raised, catalog, AiConstants.RoleAntiTank);
+            Assert.True(catalog.TryGetTargetClass(FirstArmored(RemnantSeat(), catalog), out string seenClass));
             Assert.Equal(AiConstants.TargetClassArmored, seenClass);
         }
 
@@ -193,33 +204,6 @@ namespace Wasteland.Sim.Tests
             }
         }
 
-        private static AiMvpAttackTests.Harness CombatHarness()
-        {
-            AiMvpAttackTests.Harness harness = AiMvpAttackTests.Harness.Line();
-            harness.Seat = CompactSeat();
-            harness.SupplyReachCm = 100000;
-            harness.Towns[10] = new AiTownReadback(1, false, 1, 4, 0, 0);
-            harness.Towns[30] = new AiTownReadback(2, false, 2, 1, 0, 0);
-            harness.SetBattalions();
-            return harness;
-        }
-
-        private static string RaiseOnce(AiMvpAttackTests.Harness harness)
-        {
-            int before = harness.Sink.Log.Count;
-            harness.Tick(0);
-            for (int i = before; i < harness.Sink.Log.Count; i++)
-            {
-                if (harness.Sink.Log[i].Kind == AiIssuedKind.RaiseBattalion)
-                {
-                    return harness.Sink.Log[i].UnitId;
-                }
-            }
-
-            Assert.Fail("expected a raise");
-            return string.Empty;
-        }
-
         private static string Select(
             AiScenarioSeatView seat,
             IAiUnitCatalog catalog,
@@ -252,11 +236,6 @@ namespace Wasteland.Sim.Tests
             Assert.False(string.IsNullOrEmpty(unitId));
             Assert.True(catalog.TryGetRole(unitId, out string have));
             Assert.Equal(role, have);
-        }
-
-        private static string EnemyArmoredId(AiMvpAttackTests.Harness harness)
-        {
-            return FirstArmored(RemnantSeat(), harness.Catalog);
         }
 
         private static string FirstArmored(AiScenarioSeatView seat, IAiUnitCatalog catalog)
