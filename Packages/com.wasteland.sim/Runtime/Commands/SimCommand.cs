@@ -57,6 +57,28 @@ namespace Wasteland.Sim.Commands
         }
 
         /// <summary>
+        /// Raise <paramref name="unitIndex"/> for a seat. <paramref name="rallyXCm"/>
+        /// and <paramref name="rallyYCm"/> are the first Move, not the spawn point.
+        /// </summary>
+        public static SimCommand RaiseBattalion(
+            int issuedTick,
+            int issuerId,
+            int battalionId,
+            int unitIndex,
+            int rallyXCm,
+            int rallyYCm)
+        {
+            return new SimCommand(
+                issuedTick,
+                issuerId,
+                battalionId,
+                CommandKind.RaiseBattalion,
+                unitIndex,
+                rallyXCm,
+                rallyYCm);
+        }
+
+        /// <summary>
         /// Building intent. The AI command sink accepts this in M1. SimWorld
         /// rejects it until the sim owns buildings.
         /// </summary>

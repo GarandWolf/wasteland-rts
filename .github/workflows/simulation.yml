@@ -22,6 +22,9 @@ jobs:
         with:
           dotnet-version: "8.0.x"
 
+      - name: Validate balance data
+        run: python3 tools/validate.py
+
       - name: Test
         run: dotnet test Wasteland.Sim.sln --configuration Release --nologo
 
