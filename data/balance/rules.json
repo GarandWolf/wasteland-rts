@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "dataVersion": 7,
+  "dataVersion": 8,
   "sim": {
     "ticksPerSecond": 20,
     "ticksPerMinute": 1200,
