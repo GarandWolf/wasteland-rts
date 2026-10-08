@@ -1,0 +1,420 @@
+{
+  "schemaVersion": 1,
+  "dataVersion": 7,
+  "id": "columbia_gorge_100mi_mvp",
+  "mapFile": "golden_ci_columbia_gorge_100_v1_marsh",
+  "mapFormatVersion": 1,
+  "mapFileSha256": "76a801a37862ca5858f455ba44a73d48434791db07bb8558eb4086c6afd2107f",
+  "seats": [
+    {
+      "slot": 0,
+      "faction": "remnant_command",
+      "aiPersonality": null,
+      "homeTerritoryKey": "0x1000000008FF3E87",
+      "startingManpower": 300,
+      "startingBuildings": [
+        "hq",
+        "muster_camp",
+        "heavy_works",
+        "town_walls_l1",
+        "salvage_yard"
+      ],
+      "startingUnits": {
+        "remnant_engineers": 1,
+        "remnant_motor_rifles": 2,
+        "remnant_recon": 1
+      },
+      "startingHoldings": [
+        {
+          "territoryKey": "0x1000000008FF3E87",
+          "places": {
+            "hamlet": 3,
+            "village": 2,
+            "town": 0,
+            "city": 0
+          }
+        }
+      ],
+      "raisableUnits": [
+        "remnant_motor_rifles",
+        "remnant_mech_battalion",
+        "remnant_armoured_battalion",
+        "remnant_engineers"
+      ],
+      "autoResearch": [
+        {
+          "item": "tier2",
+          "notBeforeTick": 1200
+        }
+      ],
+      "buildableBuildings": [
+        "supply_depot"
+      ]
+    },
+    {
+      "slot": 1,
+      "faction": "homestead_compact",
+      "aiPersonality": "homestead_compact_settler",
+      "homeTerritoryKey": "0x1000000008FFA335",
+      "startingManpower": 300,
+      "startingBuildings": [
+        "hq",
+        "muster_camp",
+        "town_walls_l1",
+        "salvage_yard"
+      ],
+      "startingUnits": {
+        "compact_engineers": 1,
+        "compact_militia": 4,
+        "compact_scouts": 1
+      },
+      "startingHoldings": [
+        {
+          "territoryKey": "0x1000000008FFA335",
+          "places": {
+            "hamlet": 4,
+            "village": 0,
+            "town": 1,
+            "city": 0
+          }
+        }
+      ],
+      "raisableUnits": [
+        "compact_militia",
+        "compact_rifle_battalion",
+        "compact_at_battalion",
+        "compact_engineers"
+      ],
+      "autoResearch": [],
+      "buildableBuildings": [
+        "supply_depot"
+      ]
+    }
+  ],
+  "matchRules": {
+    "allowedFactionCount": 2,
+    "allowedAiSeats": 1,
+    "victory": "capture_enemy_hq_territory",
+    "territoryOwnershipRule": "hold_seat",
+    "neutralPrizeTerritoryKey": "0x10000000B3787512",
+    "fuelEnabled": false,
+    "simultaneousHqLoss": "draw"
+  },
+  "derived": {
+    "holdingCounts": {
+      "hamlet": 19,
+      "village": 13,
+      "town": 2,
+      "city": 0
+    },
+    "capturablePlaces": 34,
+    "capturablePlacesFromMap": 33,
+    "designerOverridePlaces": 1,
+    "sceneryPlaces": 2,
+    "sceneryPlacesPendingPopulationFix": 0,
+    "resourceSiteCounts": {
+      "fuel_station": 65,
+      "fuel_storage_depot": 8,
+      "refinery": 0,
+      "industrial_area": 129
+    },
+    "territories": [
+      {
+        "id": "maupin",
+        "bakeIndex": 1,
+        "mapStableKey": "0x1000000008FF8922",
+        "seatTier": "hamlet",
+        "places": {
+          "hamlet": 2,
+          "village": 0,
+          "town": 0,
+          "city": 0
+        },
+        "sceneryPlaces": 0,
+        "designerOverridePlaces": 0,
+        "sites": {
+          "fuel_station": 2,
+          "fuel_storage_depot": 0,
+          "refinery": 0,
+          "industrial_area": 5
+        }
+      },
+      {
+        "id": "condon",
+        "bakeIndex": 2,
+        "mapStableKey": "0x1000000008FF96BF",
+        "seatTier": "village",
+        "places": {
+          "hamlet": 1,
+          "village": 1,
+          "town": 0,
+          "city": 0
+        },
+        "sceneryPlaces": 0,
+        "designerOverridePlaces": 0,
+        "sites": {
+          "fuel_station": 3,
+          "fuel_storage_depot": 2,
+          "refinery": 0,
+          "industrial_area": 4
+        }
+      },
+      {
+        "id": "wasco",
+        "bakeIndex": 3,
+        "mapStableKey": "0x1000000008FF1031",
+        "seatTier": "hamlet",
+        "places": {
+          "hamlet": 4,
+          "village": 0,
+          "town": 0,
+          "city": 0
+        },
+        "sceneryPlaces": 2,
+        "designerOverridePlaces": 0,
+        "sites": {
+          "fuel_station": 4,
+          "fuel_storage_depot": 0,
+          "refinery": 0,
+          "industrial_area": 7
+        }
+      },
+      {
+        "id": "the_dalles",
+        "bakeIndex": 4,
+        "mapStableKey": "0x10000000B3787512",
+        "seatTier": "town",
+        "places": {
+          "hamlet": 1,
+          "village": 2,
+          "town": 1,
+          "city": 0
+        },
+        "sceneryPlaces": 0,
+        "designerOverridePlaces": 0,
+        "sites": {
+          "fuel_station": 8,
+          "fuel_storage_depot": 0,
+          "refinery": 0,
+          "industrial_area": 10
+        }
+      },
+      {
+        "id": "cascade_locks",
+        "bakeIndex": 5,
+        "mapStableKey": "0x1000000008FFAEF2",
+        "seatTier": "village",
+        "places": {
+          "hamlet": 0,
+          "village": 1,
+          "town": 0,
+          "city": 0
+        },
+        "sceneryPlaces": 0,
+        "designerOverridePlaces": 0,
+        "sites": {
+          "fuel_station": 2,
+          "fuel_storage_depot": 2,
+          "refinery": 0,
+          "industrial_area": 1
+        }
+      },
+      {
+        "id": "hood_river",
+        "bakeIndex": 6,
+        "mapStableKey": "0x1000000008FFA335",
+        "seatTier": "town",
+        "places": {
+          "hamlet": 4,
+          "village": 0,
+          "town": 1,
+          "city": 0
+        },
+        "sceneryPlaces": 0,
+        "designerOverridePlaces": 1,
+        "sites": {
+          "fuel_station": 19,
+          "fuel_storage_depot": 4,
+          "refinery": 0,
+          "industrial_area": 13
+        }
+      },
+      {
+        "id": "arlington",
+        "bakeIndex": 7,
+        "mapStableKey": "0x1000000008FF4A4D",
+        "seatTier": "village",
+        "places": {
+          "hamlet": 0,
+          "village": 1,
+          "town": 0,
+          "city": 0
+        },
+        "sceneryPlaces": 0,
+        "designerOverridePlaces": 0,
+        "sites": {
+          "fuel_station": 1,
+          "fuel_storage_depot": 0,
+          "refinery": 0,
+          "industrial_area": 0
+        }
+      },
+      {
+        "id": "carson",
+        "bakeIndex": 8,
+        "mapStableKey": "0x1000000008FFBFBF",
+        "seatTier": "village",
+        "places": {
+          "hamlet": 0,
+          "village": 3,
+          "town": 0,
+          "city": 0
+        },
+        "sceneryPlaces": 0,
+        "designerOverridePlaces": 0,
+        "sites": {
+          "fuel_station": 5,
+          "fuel_storage_depot": 0,
+          "refinery": 0,
+          "industrial_area": 21
+        }
+      },
+      {
+        "id": "white_salmon",
+        "bakeIndex": 9,
+        "mapStableKey": "0x1000000008FF4119",
+        "seatTier": "village",
+        "places": {
+          "hamlet": 1,
+          "village": 2,
+          "town": 0,
+          "city": 0
+        },
+        "sceneryPlaces": 0,
+        "designerOverridePlaces": 0,
+        "sites": {
+          "fuel_station": 5,
+          "fuel_storage_depot": 0,
+          "refinery": 0,
+          "industrial_area": 3
+        }
+      },
+      {
+        "id": "roosevelt",
+        "bakeIndex": 10,
+        "mapStableKey": "0x1000000008FF1E34",
+        "seatTier": "hamlet",
+        "places": {
+          "hamlet": 1,
+          "village": 0,
+          "town": 0,
+          "city": 0
+        },
+        "sceneryPlaces": 0,
+        "designerOverridePlaces": 0,
+        "sites": {
+          "fuel_station": 0,
+          "fuel_storage_depot": 0,
+          "refinery": 0,
+          "industrial_area": 4
+        }
+      },
+      {
+        "id": "goldendale",
+        "bakeIndex": 11,
+        "mapStableKey": "0x1000000008FF3E87",
+        "seatTier": "village",
+        "places": {
+          "hamlet": 3,
+          "village": 2,
+          "town": 0,
+          "city": 0
+        },
+        "sceneryPlaces": 0,
+        "designerOverridePlaces": 0,
+        "sites": {
+          "fuel_station": 15,
+          "fuel_storage_depot": 0,
+          "refinery": 0,
+          "industrial_area": 50
+        }
+      },
+      {
+        "id": "trout_lake",
+        "bakeIndex": 12,
+        "mapStableKey": "0x1000000008FF32BF",
+        "seatTier": "village",
+        "places": {
+          "hamlet": 1,
+          "village": 1,
+          "town": 0,
+          "city": 0
+        },
+        "sceneryPlaces": 0,
+        "designerOverridePlaces": 0,
+        "sites": {
+          "fuel_station": 1,
+          "fuel_storage_depot": 0,
+          "refinery": 0,
+          "industrial_area": 3
+        }
+      },
+      {
+        "id": "outlook",
+        "bakeIndex": 13,
+        "mapStableKey": "0x1000000008FF571B",
+        "seatTier": "hamlet",
+        "places": {
+          "hamlet": 1,
+          "village": 0,
+          "town": 0,
+          "city": 0
+        },
+        "sceneryPlaces": 0,
+        "designerOverridePlaces": 0,
+        "sites": {
+          "fuel_station": 0,
+          "fuel_storage_depot": 0,
+          "refinery": 0,
+          "industrial_area": 8
+        }
+      }
+    ],
+    "populationOverrides": [
+      {
+        "place": "welches",
+        "mapTownId": 9,
+        "territoryKey": "0x1000000008FFA335",
+        "population": 250,
+        "tier": "hamlet",
+        "populationSource": "designer_override"
+      }
+    ],
+    "censusFallbackPlaces": [
+      {
+        "place": "rhododendron",
+        "mapTownId": 8,
+        "territoryKey": "0x1000000008FFA335",
+        "population": 262,
+        "tier": "hamlet",
+        "populationSource": "us_census_2020_pl"
+      },
+      {
+        "place": "celilo_village",
+        "mapTownId": 18,
+        "territoryKey": "0x10000000B3787512",
+        "population": 85,
+        "tier": "hamlet",
+        "populationSource": "us_census_2020_pl"
+      },
+      {
+        "place": "glenwood",
+        "mapTownId": 35,
+        "territoryKey": "0x1000000008FF32BF",
+        "population": 179,
+        "tier": "hamlet",
+        "populationSource": "us_census_2020_pl"
+      }
+    ]
+  }
+}
