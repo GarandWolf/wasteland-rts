@@ -1146,6 +1146,13 @@ namespace Wasteland.Sim.Ai
                         continue;
                     }
 
+                    AiPersonalityProfile planner = _balance.GetPersonalityOrGeneric(faction.PersonalityId);
+                    if (!_seats.TryGetByFaction(planner.EconomyFactionId, out AiScenarioSeatView plannerSeat)
+                        || !plannerSeat.AllowsBuilding(AiConstants.BuildingTagDepot))
+                    {
+                        continue;
+                    }
+
                     if (!Issue(faction, CommandKind.Build, 0, site.XCm, site.YCm, AiConstants.BuildingTagDepot))
                     {
                         continue;

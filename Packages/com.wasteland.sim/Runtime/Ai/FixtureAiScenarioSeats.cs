@@ -139,14 +139,21 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < seats.Length; i++)
             {
                 AiMvpSeatShape row = seats[i];
+                AiAutoResearch research = MapAutoResearch(row.AutoResearch);
+                int[] units = MapUnitCatalog(row.RaisableUnits);
+                if (research.Tier >= 2)
+                {
+                    units = AppendUnique(units, AiConstants.UnitKindTierII);
+                }
+
                 views[i] = new AiScenarioSeatView(
                     row.Faction,
                     row.AiPersonality,
                     row.HqTownId,
                     row.StartingManpower,
-                    MapUnitCatalog(row.RaisableUnits),
+                    units,
                     MapBuildingCatalog(row.BuildableBuildings),
-                    MapAutoResearch(row.AutoResearch));
+                    research);
             }
 
             return Create(views, matchRules.FuelEnabled, matchRules.SimultaneousHqLoss);
@@ -278,7 +285,7 @@ namespace Wasteland.Sim.Ai
                 ids[i] = MapUnitName(names[i]);
             }
 
-            return ids;
+            return DedupePositive(ids, RuleIdRaisableUnits);
         }
 
         private static int MapUnitName(string name)
@@ -286,6 +293,11 @@ namespace Wasteland.Sim.Ai
             if (string.IsNullOrEmpty(name))
             {
                 throw new InvalidDataException(RuleIdRaisableUnits);
+            }
+
+            if (ContainsToken(name, "tier3"))
+            {
+                return AiConstants.UnitKindTierIII;
             }
 
             if (ContainsToken(name, "engineer"))
@@ -311,15 +323,30 @@ namespace Wasteland.Sim.Ai
             int[] ids = new int[names.Length];
             for (int i = 0; i < names.Length; i++)
             {
-                if (string.IsNullOrEmpty(names[i]))
-                {
-                    throw new InvalidDataException(RuleIdBuildableBuildings);
-                }
-
-                ids[i] = AiConstants.BuildingTagDepot;
+                ids[i] = MapBuildingName(names[i]);
             }
 
-            return ids;
+            return DedupePositive(ids, RuleIdBuildableBuildings);
+        }
+
+        private static int MapBuildingName(string name)
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                throw new InvalidDataException(RuleIdBuildableBuildings);
+            }
+
+            if (ContainsToken(name, "l2") || ContainsToken(name, "level2"))
+            {
+                return AiConstants.BuildingTagFortL2;
+            }
+
+            if (ContainsToken(name, "l1") || ContainsToken(name, "level1") || ContainsToken(name, "wall"))
+            {
+                return AiConstants.BuildingTagFortL1;
+            }
+
+            return AiConstants.BuildingTagDepot;
         }
 
         private static AiAutoResearch MapAutoResearch(AiMvpAutoResearchItem[] rows)
@@ -355,6 +382,87 @@ namespace Wasteland.Sim.Ai
             }
 
             return new AiAutoResearch(unlock, tier);
+        }
+
+        private static int[] AppendUnique(int[] source, int value)
+        {
+            if (source == null)
+            {
+                return new[] { value };
+            }
+
+            for (int i = 0; i < source.Length; i++)
+            {
+                if (source[i] == value)
+                {
+                    return source;
+                }
+            }
+
+            int[] next = new int[source.Length + 1];
+            for (int i = 0; i < source.Length; i++)
+            {
+                next[i] = source[i];
+            }
+
+            next[source.Length] = value;
+            return next;
+        }
+
+        private static int[] DedupePositive(int[] ids, string ruleId)
+        {
+            if (ids == null || ids.Length < 1)
+            {
+                throw new InvalidDataException(ruleId);
+            }
+
+            for (int i = 1; i < ids.Length; i++)
+            {
+                int row = ids[i];
+                int j = i - 1;
+                while (j >= 0 && ids[j] > row)
+                {
+                    ids[j + 1] = ids[j];
+                    j--;
+                }
+
+                ids[j + 1] = row;
+            }
+
+            int written = 0;
+            for (int i = 0; i < ids.Length; i++)
+            {
+                if (ids[i] < 1)
+                {
+                    throw new InvalidDataException(ruleId);
+                }
+
+                if (written > 0 && ids[i] == ids[written - 1])
+                {
+                    continue;
+                }
+
+                ids[written] = ids[i];
+                written++;
+            }
+
+            if (written < 1)
+            {
+                throw new InvalidDataException(ruleId);
+            }
+
+            if (written == ids.Length)
+            {
+                return ids;
+            }
+
+            int[] unique = new int[written];
+            for (int i = 0; i < written; i++)
+            {
+                unique[i] = ids[i];
+            }
+
+            return unique;
         }
 
         private static bool ContainsToken(string name, string token)

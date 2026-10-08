@@ -45,9 +45,12 @@ namespace Wasteland.Sim.Ai
         public const int DepotMinSpacingCm = 804670;
         public const int MaxDepotsPerNode = 1;
         public const int BuildingTagDepot = 1;
+        public const int BuildingTagFortL1 = 2;
+        public const int BuildingTagFortL2 = 3;
         public const int UnitKindInfantry = 1;
         public const int UnitKindEngineer = 2;
         public const int UnitKindTierII = 3;
+        public const int UnitKindTierIII = 4;
 
         public const string TierIITickNone = "none";
         public const int ClaimMarchSpeedCmPerSecond = 25000;

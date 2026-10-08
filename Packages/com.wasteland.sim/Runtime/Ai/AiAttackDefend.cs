@@ -413,7 +413,13 @@ namespace Wasteland.Sim.Ai
             int battalionId = NearestIdle(faction, graph, target.NodeId, battalions, battalionCount, 0);
             if (battalionId == 0)
             {
-                TryRaise(tick, faction, seat, AiConstants.UnitKindInfantry, target.XCm, target.YCm);
+                int raiseKind = AiConstants.UnitKindInfantry;
+                if (seat.AllowsUnit(AiConstants.UnitKindTierII, tick))
+                {
+                    raiseKind = AiConstants.UnitKindTierII;
+                }
+
+                TryRaise(tick, faction, seat, raiseKind, target.XCm, target.YCm);
                 return;
             }
 
