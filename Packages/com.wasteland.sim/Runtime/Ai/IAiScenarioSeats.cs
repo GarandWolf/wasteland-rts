@@ -3,18 +3,39 @@ using System.IO;
 namespace Wasteland.Sim.Ai
 {
     /// <summary>
-    /// Auto-research unlock from the scenario seat. Tier II units are usable
-    /// only after <see cref="UnlockTick"/> when <see cref="Tier"/> is at least 2.
+    /// Auto-research grant from the scenario seat. Tier II is usable only
+    /// after <see cref="UnlockTick"/> plus <see cref="DurationTicks"/> (the
+    /// research duration from balance/seat data, not a map constant).
     /// </summary>
     public readonly struct AiAutoResearch
     {
         public readonly int UnlockTick;
         public readonly int Tier;
+        public readonly int DurationTicks;
 
         public AiAutoResearch(int unlockTick, int tier)
+            : this(unlockTick, tier, 0)
+        {
+        }
+
+        public AiAutoResearch(int unlockTick, int tier, int durationTicks)
         {
             UnlockTick = unlockTick;
             Tier = tier;
+            DurationTicks = durationTicks;
+        }
+
+        public int AvailableTick
+        {
+            get
+            {
+                if (Tier < 2)
+                {
+                    return int.MaxValue;
+                }
+
+                return checked(UnlockTick + DurationTicks);
+            }
         }
     }
 
@@ -50,19 +71,44 @@ namespace Wasteland.Sim.Ai
             AutoResearch = autoResearch;
         }
 
+        public int CurrentTierAt(int tick)
+        {
+            if (AutoResearch.Tier < 2)
+            {
+                return 1;
+            }
+
+            if (tick >= AutoResearch.AvailableTick)
+            {
+                return AutoResearch.Tier >= 3 ? 3 : 2;
+            }
+
+            return 1;
+        }
+
         public bool AllowsUnit(int unitKind, int tick)
+        {
+            return AllowsUnitForTier(unitKind, CurrentTierAt(tick));
+        }
+
+        public bool AllowsUnitForTier(int unitKind, int currentTier)
         {
             if (!ContainsSorted(RaisableUnits, unitKind))
             {
                 return false;
             }
 
-            if (unitKind != AiConstants.UnitKindTierII)
+            if (unitKind == AiConstants.UnitKindTierII)
             {
-                return true;
+                return currentTier >= 2;
             }
 
-            return tick >= AutoResearch.UnlockTick && AutoResearch.Tier >= 2;
+            if (unitKind == AiConstants.UnitKindTierIII)
+            {
+                return currentTier >= 3;
+            }
+
+            return true;
         }
 
         public bool AllowsBuilding(int buildingKind)

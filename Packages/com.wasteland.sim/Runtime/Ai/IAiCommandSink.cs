@@ -21,7 +21,8 @@ namespace Wasteland.Sim.Ai
         DepotOutOfReach = 2,
         UnitNotRaisable = 3,
         BuildingNotBuildable = 4,
-        TierLocked = 5
+        TierLocked = 5,
+        PopCapReached = 6
     }
 
     public readonly struct AiIssuedCommand

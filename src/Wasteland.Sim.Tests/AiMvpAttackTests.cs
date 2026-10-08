@@ -253,9 +253,11 @@ namespace Wasteland.Sim.Tests
                     AiConstants.UnitKindTierII
                 },
                 new[] { AiConstants.BuildingTagDepot },
-                new AiAutoResearch(50, 2));
-            Assert.False(seat.AllowsUnit(AiConstants.UnitKindTierII, 49));
-            Assert.True(seat.AllowsUnit(AiConstants.UnitKindTierII, 50));
+                new AiAutoResearch(50, 2, 10));
+            Assert.False(seat.AllowsUnit(AiConstants.UnitKindTierII, 59));
+            Assert.True(seat.AllowsUnit(AiConstants.UnitKindTierII, 60));
+            Assert.Equal(1, seat.CurrentTierAt(59));
+            Assert.Equal(2, seat.CurrentTierAt(60));
             Assert.True(seat.AllowsUnit(AiConstants.UnitKindInfantry, 0));
         }
 
@@ -339,6 +341,7 @@ namespace Wasteland.Sim.Tests
             public readonly AiAttackTownInfo[] TownRows;
             public readonly Dictionary<int, AiTownReadback> Towns = new Dictionary<int, AiTownReadback>();
             public readonly int[] Network = { 1 };
+            public readonly FixtureAiSideReadback Side = new FixtureAiSideReadback();
             public int SupplyReachCm = 100000;
             public AiScenarioSeatView Seat;
             private AiBattalionPin[] _battalions = System.Array.Empty<AiBattalionPin>();
@@ -422,6 +425,7 @@ namespace Wasteland.Sim.Tests
                     networkCount = 2;
                 }
 
+                Side.Bind(Seat);
                 Planner.Tick(
                     tick,
                     Faction,
@@ -434,7 +438,8 @@ namespace Wasteland.Sim.Tests
                     networkCount,
                     Roads,
                     1500,
-                    SupplyReachCm);
+                    SupplyReachCm,
+                    Side);
             }
 
             public bool TryGet(int townId, out AiTownReadback readback)

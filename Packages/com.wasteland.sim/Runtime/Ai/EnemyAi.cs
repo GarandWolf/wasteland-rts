@@ -35,6 +35,7 @@ namespace Wasteland.Sim.Ai
         private readonly int[] _networkScratch;
         private readonly AiRoadSupply _roadSupply = new AiRoadSupply();
         private readonly RecordingAiCommandSink _aiCommands;
+        private readonly FixtureAiSideReadback _side = new FixtureAiSideReadback();
         private readonly AiAttackDefend _attackDefend;
         private readonly AiAttackTownInfo[] _attackTowns;
         private AiBattalionPin[] _attackBattalions;
@@ -1546,6 +1547,7 @@ namespace Wasteland.Sim.Ai
             }
 
             _aiCommands.Tick = _world.Tick;
+            _side.Bind(seat);
             _attackDefend.Tick(
                 _world.Tick,
                 faction,
@@ -1558,7 +1560,8 @@ namespace Wasteland.Sim.Ai
                 networkCount,
                 _map.Roads,
                 _difficulty.AttackStrengthRatioPpt,
-                AiConstants.DepotRangeCm);
+                AiConstants.DepotRangeCm,
+                _side);
         }
 
         private int FillAttackTowns()

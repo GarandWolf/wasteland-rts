@@ -188,6 +188,7 @@ namespace Wasteland.Sim.Ai
         public const string RuleIdWorkUnitsPerTick = "workUnitsPerTick";
         public const string RuleIdContestedHoldingPaysIncome = "contestedHoldingPaysIncome";
         public const string RuleIdAttackStrengthRatioPpt = "attackStrengthRatioPpt";
+        public const string RuleIdTier2ResearchTicks = "tech.tier2.researchTicks";
 
         private readonly AiPersonalityProfile[] _personalities;
         private readonly AiDifficultyProfile[] _difficulties;
@@ -278,6 +279,15 @@ namespace Wasteland.Sim.Ai
             {
                 RequireRulesLimits();
                 return _rules.MaxCandidateGoalsCeiling;
+            }
+        }
+
+        public int Tier2ResearchTicks
+        {
+            get
+            {
+                RequireRulesLimits();
+                return _rules.Tier2ResearchTicks;
             }
         }
 
@@ -746,6 +756,16 @@ namespace Wasteland.Sim.Ai
 
                 rules.DifficultyIds[i] = id;
                 rules.IncomeMultiplierPpt[i] = ppt;
+            }
+
+            JsonValue tech = JsonUtil.Field(root, "tech");
+            JsonValue tier2 = JsonUtil.Field(tech, "tier2");
+            rules.Tier2ResearchTicks = JsonUtil.Int32(
+                JsonUtil.Field(tier2, "researchTicks"),
+                RuleIdTier2ResearchTicks);
+            if (rules.Tier2ResearchTicks < 0)
+            {
+                throw new FormatException(RuleIdTier2ResearchTicks + " must be >= 0.");
             }
 
             rules.HasLimits = true;
@@ -1325,6 +1345,7 @@ namespace Wasteland.Sim.Ai
             public int MaxDepotsPerFaction;
             public int ConnectivityScratchSize;
             public int MaxCandidateGoalsCeiling;
+            public int Tier2ResearchTicks;
             public string[] DifficultyIds = Array.Empty<string>();
             public int[] IncomeMultiplierPpt = Array.Empty<int>();
 
@@ -1350,6 +1371,7 @@ namespace Wasteland.Sim.Ai
                 copy.MaxDepotsPerFaction = MaxDepotsPerFaction;
                 copy.ConnectivityScratchSize = ConnectivityScratchSize;
                 copy.MaxCandidateGoalsCeiling = MaxCandidateGoalsCeiling;
+                copy.Tier2ResearchTicks = Tier2ResearchTicks;
                 copy.DifficultyIds = (string[])DifficultyIds.Clone();
                 copy.IncomeMultiplierPpt = (int[])IncomeMultiplierPpt.Clone();
                 return copy;

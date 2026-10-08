@@ -18,6 +18,7 @@ namespace Wasteland.Sim.Ai
         public const string RuleIdRaisableUnits = "raisableUnits";
         public const string RuleIdBuildableBuildings = "buildableBuildings";
         public const string RuleIdUnlockTick = "unlockTick";
+        public const string RuleIdResearchDurationTicks = "researchDurationTicks";
         public const string RuleIdTier = "tier";
         public const string SimultaneousHqLossDraw = "draw";
         public const string AutoResearchTier2 = "tier2";
@@ -130,16 +131,29 @@ namespace Wasteland.Sim.Ai
             AiMvpSeatShape[] seats,
             AiMvpMatchRulesShape matchRules)
         {
+            return FromMvpShape(seats, matchRules, 0);
+        }
+
+        public static FixtureAiScenarioSeats FromMvpShape(
+            AiMvpSeatShape[] seats,
+            AiMvpMatchRulesShape matchRules,
+            int tier2ResearchTicks)
+        {
             if (seats == null || seats.Length < 1)
             {
                 throw new InvalidDataException(RuleIdSeats);
+            }
+
+            if (tier2ResearchTicks < 0)
+            {
+                throw new InvalidDataException(RuleIdResearchDurationTicks);
             }
 
             AiScenarioSeatView[] views = new AiScenarioSeatView[seats.Length];
             for (int i = 0; i < seats.Length; i++)
             {
                 AiMvpSeatShape row = seats[i];
-                AiAutoResearch research = MapAutoResearch(row.AutoResearch);
+                AiAutoResearch research = MapAutoResearch(row.AutoResearch, tier2ResearchTicks);
                 int[] units = MapUnitCatalog(row.RaisableUnits);
                 if (research.Tier >= 2)
                 {
@@ -260,6 +274,11 @@ namespace Wasteland.Sim.Ai
                 throw new InvalidDataException(RuleIdTier);
             }
 
+            if (seat.AutoResearch.DurationTicks < 0)
+            {
+                throw new InvalidDataException(RuleIdResearchDurationTicks);
+            }
+
             int[] units = CopySortedUnique(seat.RaisableUnits, RuleIdRaisableUnits);
             int[] buildings = CopySortedUnique(seat.BuildableBuildings, RuleIdBuildableBuildings);
             return new AiScenarioSeatView(
@@ -349,11 +368,11 @@ namespace Wasteland.Sim.Ai
             return AiConstants.BuildingTagDepot;
         }
 
-        private static AiAutoResearch MapAutoResearch(AiMvpAutoResearchItem[] rows)
+        private static AiAutoResearch MapAutoResearch(AiMvpAutoResearchItem[] rows, int durationTicks)
         {
             if (rows == null || rows.Length < 1)
             {
-                return new AiAutoResearch(0, 1);
+                return new AiAutoResearch(0, 1, 0);
             }
 
             int unlock = int.MaxValue;
@@ -378,10 +397,10 @@ namespace Wasteland.Sim.Ai
 
             if (tier < 2)
             {
-                return new AiAutoResearch(0, 1);
+                return new AiAutoResearch(0, 1, 0);
             }
 
-            return new AiAutoResearch(unlock, tier);
+            return new AiAutoResearch(unlock, tier, durationTicks);
         }
 
         private static int[] AppendUnique(int[] source, int value)

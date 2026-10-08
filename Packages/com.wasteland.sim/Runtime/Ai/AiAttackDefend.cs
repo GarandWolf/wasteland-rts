@@ -36,6 +36,7 @@ namespace Wasteland.Sim.Ai
         private readonly IAiTownQuery _towns;
         private readonly IAiDepotQuery _depots;
         private readonly AiRoadSupply _roads = new AiRoadSupply();
+        private IAiSideReadback _side = new FixtureAiSideReadback();
 
         public AiAttackDefend(IAiCommandSink commands, IAiTownQuery towns, IAiDepotQuery depots)
         {
@@ -67,12 +68,20 @@ namespace Wasteland.Sim.Ai
             int networkCount,
             Wasteland.Sim.Movement.RoadGraph graph,
             int attackStrengthRatioPpt,
-            int supplyReachCm)
+            int supplyReachCm,
+            IAiSideReadback side)
         {
             if (faction == null)
             {
                 throw new ArgumentNullException(nameof(faction));
             }
+
+            if (side == null)
+            {
+                throw new ArgumentNullException(nameof(side));
+            }
+
+            _side = side;
 
             if (towns == null)
             {
@@ -84,13 +93,9 @@ namespace Wasteland.Sim.Ai
                 recorded.Tick = tick;
             }
 
-            if (faction.LastIssuedCommandId != 0
-                && _commands.RejectOf(faction.LastIssuedCommandId) != AiCommandReject.None)
+            if (faction.RejectBackoffUntilTick > 0 && tick < faction.RejectBackoffUntilTick)
             {
-                if (tick < faction.RejectBackoffUntilTick)
-                {
-                    return;
-                }
+                return;
             }
 
             SortTowns(towns, townCount);
@@ -113,7 +118,8 @@ namespace Wasteland.Sim.Ai
                 networkCount,
                 graph,
                 attackStrengthRatioPpt,
-                supplyReachCm);
+                supplyReachCm,
+                side);
         }
 
         public int PickAttackTarget(
@@ -322,7 +328,8 @@ namespace Wasteland.Sim.Ai
             int networkCount,
             Wasteland.Sim.Movement.RoadGraph graph,
             int attackStrengthRatioPpt,
-            int supplyReachCm)
+            int supplyReachCm,
+            IAiSideReadback side)
         {
             faction.DefendTownId = 0;
             int fromNode = faction.HqNodeId;
@@ -413,8 +420,9 @@ namespace Wasteland.Sim.Ai
             int battalionId = NearestIdle(faction, graph, target.NodeId, battalions, battalionCount, 0);
             if (battalionId == 0)
             {
+                int currentTier = side.CurrentTier(faction.FactionId, tick);
                 int raiseKind = AiConstants.UnitKindInfantry;
-                if (seat.AllowsUnit(AiConstants.UnitKindTierII, tick))
+                if (seat.AllowsUnitForTier(AiConstants.UnitKindTierII, currentTier))
                 {
                     raiseKind = AiConstants.UnitKindTierII;
                 }
@@ -568,17 +576,27 @@ namespace Wasteland.Sim.Ai
 
         private void TryRaise(int tick, AiFactionState faction, AiScenarioSeatView seat, int unitKind, int xCm, int yCm)
         {
-            if (!seat.AllowsUnit(unitKind, tick))
+            int currentTier = _side.CurrentTier(faction.FactionId, tick);
+            if (unitKind == AiConstants.UnitKindTierII && currentTier < 2)
             {
-                if (unitKind == AiConstants.UnitKindTierII)
+                return;
+            }
+
+            if (!seat.AllowsUnitForTier(unitKind, currentTier))
+            {
+                if (unitKind != AiConstants.UnitKindTierII)
                 {
-                    faction.LastRejectCode = (int)AiCommandReject.TierLocked;
-                }
-                else
-                {
-                    faction.LastRejectCode = (int)AiCommandReject.UnitNotRaisable;
+                    NoteReject(tick, faction, AiCommandReject.UnitNotRaisable);
                 }
 
+                return;
+            }
+
+            int used;
+            int cap;
+            if (_side.TryGetPopCap(faction.FactionId, out used, out cap) && used >= cap)
+            {
+                NoteReject(tick, faction, AiCommandReject.PopCapReached);
                 return;
             }
 
@@ -639,14 +657,20 @@ namespace Wasteland.Sim.Ai
         {
             faction.LastIssuedCommandId = commandId;
             AiCommandReject reject = _commands.RejectOf(commandId);
-            faction.LastRejectCode = (int)reject;
             if (reject == AiCommandReject.None)
             {
+                faction.LastRejectCode = 0;
                 faction.RejectStreak = 0;
                 faction.RejectBackoffUntilTick = 0;
                 return;
             }
 
+            NoteReject(tick, faction, reject);
+        }
+
+        private static void NoteReject(int tick, AiFactionState faction, AiCommandReject reject)
+        {
+            faction.LastRejectCode = (int)reject;
             int streak = faction.RejectStreak + 1;
             if (streak < 1)
             {
