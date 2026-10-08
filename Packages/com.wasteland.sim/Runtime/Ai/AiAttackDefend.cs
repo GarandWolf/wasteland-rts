@@ -586,7 +586,7 @@ namespace Wasteland.Sim.Ai
 
             bool prizeMarch = prizeTerritoryKey != 0UL && target.TerritoryStableKey == prizeTerritoryKey;
             bool prizeGroupReady = !prizeMarch
-                || CountPrizeRifles(battalions, battalionCount) >= _taskForceTargetSize;
+                || PrizeGroupIsReady(seat, battalions, battalionCount);
             int own = CountIdle(battalions, battalionCount) + readback.StrengthOf(faction.FactionId);
             int defender = readback.StrengthOf(readback.OwnerFactionId);
             if (prizeMarch)
@@ -1707,6 +1707,20 @@ namespace Wasteland.Sim.Ai
             return moveClass == MovementClass.Foot;
         }
 
+        private bool PrizeGroupIsReady(
+            AiScenarioSeatView seat,
+            AiBattalionPin[] battalions,
+            int battalionCount)
+        {
+            int present = CountPrizeGroupMembers(battalions, battalionCount);
+            if (CountAuthoredPrizeGroupMembers(seat) >= _taskForceTargetSize)
+            {
+                return present >= _taskForceTargetSize;
+            }
+
+            return CountPrizeRifles(battalions, battalionCount) >= _taskForceTargetSize;
+        }
+
         private int CountPrizeRifles(AiBattalionPin[] battalions, int battalionCount)
         {
             int count = 0;
@@ -1715,6 +1729,47 @@ namespace Wasteland.Sim.Ai
                 if (IsPrizeRifle(_catalog, battalions[i].UnitId))
                 {
                     count++;
+                }
+            }
+
+            return count;
+        }
+
+        private int CountPrizeGroupMembers(AiBattalionPin[] battalions, int battalionCount)
+        {
+            int count = 0;
+            for (int i = 0; i < battalionCount; i++)
+            {
+                string unitId = battalions[i].UnitId;
+                if (IsPrizeRifle(_catalog, unitId) || IsPrizeScout(_catalog, unitId))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private int CountAuthoredPrizeGroupMembers(AiScenarioSeatView seat)
+        {
+            AiStartingUnit[] starting = seat.StartingUnits;
+            if (starting == null || starting.Length == 0)
+            {
+                return 0;
+            }
+
+            int count = 0;
+            for (int i = 0; i < starting.Length; i++)
+            {
+                AiStartingUnit row = starting[i];
+                if (row.Count < 1)
+                {
+                    continue;
+                }
+
+                if (IsPrizeRifle(_catalog, row.UnitId) || IsPrizeScout(_catalog, row.UnitId))
+                {
+                    count += row.Count;
                 }
             }
 

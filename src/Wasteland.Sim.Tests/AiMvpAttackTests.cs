@@ -275,21 +275,47 @@ namespace Wasteland.Sim.Tests
         {
             Harness harness = Harness.Line();
             harness.TaskForceTargetSize = 2;
+            harness.Seat = CompactSeatWithAuthoredStart();
             harness.Towns[10] = Own(1);
             harness.Towns[30] = Unowned();
             harness.PrizeTerritoryKey = 3UL;
             harness.PrizeTargetBonusPpt = 300;
             AiBattalionPin scout = new AiBattalionPin(4, 0, 0, 1, "compact_scouts", false);
-            harness.SetBattalions(Idle(5, 1), scout);
+            AiBattalionPin militia = new AiBattalionPin(2, 0, 0, 1, "compact_militia", false);
+            harness.SetBattalions(Idle(5, 1), scout, militia);
             harness.Tick();
             Assert.Equal(30, harness.Faction.AttackTargetTownId);
             AssertNoPrizeMarch(harness, 0);
 
-            harness.SetBattalions(Idle(5, 1), Idle(7, 1), scout);
+            harness.SetBattalions(Idle(5, 1), Idle(7, 1), scout, militia);
             int from = harness.Sink.Log.Count;
             harness.Tick(1);
             AssertPrizeMarchMembers(harness, from, new[] { 4, 5, 7 });
             Assert.Equal(3, harness.Faction.OrderCount);
+        }
+
+        [Fact]
+        public void RemnantPrizeForce_DepartsOnTickZero_WhenStartingUnitsPresent()
+        {
+            Harness harness = Harness.Line();
+            harness.TaskForceTargetSize = 3;
+            harness.Seat = RemnantSeatWithAuthoredStart();
+            harness.Towns[10] = Own(1);
+            harness.Towns[30] = Unowned();
+            harness.PrizeTerritoryKey = 3UL;
+            harness.PrizeTargetBonusPpt = 300;
+            AiBattalionPin rifleA = new AiBattalionPin(1, 0, 0, 1, "remnant_motor_rifles", false);
+            AiBattalionPin rifleB = new AiBattalionPin(3, 0, 0, 1, "remnant_motor_rifles", false);
+            AiBattalionPin recon = new AiBattalionPin(5, 0, 0, 1, "remnant_recon", false);
+            harness.SetBattalions(rifleA, rifleB, recon);
+            harness.Tick(0);
+            Assert.Equal(30, harness.Faction.AttackTargetTownId);
+            AssertPrizeMarchMembers(harness, 0, new[] { 1, 3, 5 });
+            Assert.Equal(3, harness.Faction.OrderCount);
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                Assert.NotEqual(AiIssuedKind.RaiseBattalion, harness.Sink.Log[i].Kind);
+            }
         }
 
         [Fact]
@@ -688,6 +714,32 @@ namespace Wasteland.Sim.Tests
             }
 
             return -1;
+        }
+
+        private static AiScenarioSeatView CompactSeatWithAuthoredStart()
+        {
+            return FixtureAiScenarioSeats.LaunchSeat(
+                0,
+                "homestead_compact",
+                AiConstants.PersonalitySettler,
+                1UL,
+                FixtureAiScenarioSeats.DefaultRaisableUnits,
+                10,
+                FixtureAiScenarioSeats.DefaultResearch,
+                FixtureAiScenarioSeats.CompactAuthoredStartingUnits);
+        }
+
+        private static AiScenarioSeatView RemnantSeatWithAuthoredStart()
+        {
+            return FixtureAiScenarioSeats.LaunchSeat(
+                0,
+                "remnant_command",
+                AiConstants.PersonalityWarlord,
+                1UL,
+                FixtureAiScenarioSeats.RemnantRaisableUnits,
+                10,
+                FixtureAiScenarioSeats.DefaultResearch,
+                FixtureAiScenarioSeats.RemnantAuthoredStartingUnits);
         }
 
         private static AiBattalionPin Idle(int id, int nodeId)
