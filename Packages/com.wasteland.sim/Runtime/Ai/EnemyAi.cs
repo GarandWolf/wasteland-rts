@@ -644,6 +644,30 @@ namespace Wasteland.Sim.Ai
             return count;
         }
 
+        /// <summary>
+        /// A straight-line move stores the town on <see cref="SimBattalion.TargetXCm"/>.
+        /// A road move stores the next node there and the town on the last waypoint.
+        /// Either one is already the order this slice would issue.
+        /// </summary>
+        private static bool AlreadyMovingTo(SimBattalion battalion, int xCm, int yCm)
+        {
+            if (!battalion.HasTarget)
+            {
+                return false;
+            }
+
+            if (battalion.PathCount > 0 && battalion.PathXCm != null && battalion.PathYCm != null)
+            {
+                int last = battalion.PathCount - 1;
+                if (last < battalion.PathXCm.Length && last < battalion.PathYCm.Length)
+                {
+                    return battalion.PathXCm[last] == xCm && battalion.PathYCm[last] == yCm;
+                }
+            }
+
+            return battalion.TargetXCm == xCm && battalion.TargetYCm == yCm;
+        }
+
         private static bool InRadius(int ax, int ay, int bx, int by, long radiusSq)
         {
             long dx = (long)ax - bx;
@@ -689,7 +713,7 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                if (battalion.HasTarget && battalion.TargetXCm == town.XCm && battalion.TargetYCm == town.YCm)
+                if (AlreadyMovingTo(battalion, town.XCm, town.YCm))
                 {
                     continue;
                 }
