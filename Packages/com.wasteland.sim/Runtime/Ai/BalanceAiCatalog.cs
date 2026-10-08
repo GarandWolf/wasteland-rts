@@ -49,6 +49,18 @@ namespace Wasteland.Sim.Ai
             pop = _inner.UnitPopAt(index);
             return true;
         }
+
+        public bool TryGetMovementClass(string unitId, out MovementClass moveClass)
+        {
+            if (!_inner.TryGetUnitIndex(unitId, out int index))
+            {
+                moveClass = default;
+                return false;
+            }
+
+            moveClass = _inner.UnitMoveClassAt(index);
+            return true;
+        }
     }
 
     /// <summary>

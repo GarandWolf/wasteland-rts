@@ -1,3 +1,5 @@
+using Wasteland.Sim.Movement;
+
 namespace Wasteland.Sim.Ai
 {
     /// <summary>
@@ -17,5 +19,7 @@ namespace Wasteland.Sim.Ai
         bool TryGetManpowerCost(string unitId, out int manpower);
 
         bool TryGetPopCost(string unitId, out int pop);
+
+        bool TryGetMovementClass(string unitId, out MovementClass moveClass);
     }
 }

@@ -153,6 +153,31 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(0, pop);
         }
 
+        [Fact]
+        public void ClaimTown_DoesNotQueueMoveToTownIdAsCoordinates()
+        {
+            const int delay = 2;
+            const int battalionId = 5;
+            const int townId = 14;
+            SimWorld world = new SimWorld(new MatchConfig(1UL, delay));
+            world.BindCatalog(Catalog());
+            world.Submit(SimCommand.SpawnBattalion(0, Faction, battalionId, 1000, 2000, 24000));
+            world.Step();
+            world.Step();
+            world.ProcessQueue();
+            SimBattalion before = world.GetBattalion(battalionId);
+            Assert.False(before.HasTarget);
+            ForwardingAiCommandSink sink = new ForwardingAiCommandSink(new SimWorldCommandSink(world), Owned());
+            sink.SubmitClaimTown(Faction, battalionId, townId);
+            world.Step();
+            world.Step();
+            world.ProcessQueue();
+            SimBattalion after = world.GetBattalion(battalionId);
+            Assert.False(after.HasTarget && after.TargetXCm == townId && after.TargetYCm == 0);
+            Assert.Equal(before.PositionXCm, after.PositionXCm);
+            Assert.Equal(before.PositionYCm, after.PositionYCm);
+        }
+
         private static AiMvpAttackTests.Harness RaiseHarness()
         {
             AiMvpAttackTests.Harness harness = AiMvpAttackTests.Harness.Line();

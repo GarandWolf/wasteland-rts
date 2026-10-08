@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Wasteland.Sim.Movement;
 
 namespace Wasteland.Sim.Ai
 {
@@ -575,11 +576,12 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
+            bool prizeMarch = prizeTerritoryKey != 0UL && target.TerritoryStableKey == prizeTerritoryKey;
             int own = CountIdle(battalions, battalionCount) + readback.StrengthOf(faction.FactionId);
             int defender = readback.StrengthOf(readback.OwnerFactionId);
             if (!StrengthAllowsAttack(own, defender, attackStrengthRatioPpt))
             {
-                if (CountIdle(battalions, battalionCount) < 1)
+                if (CountMarchIdle(battalions, battalionCount, prizeMarch) < 1)
                 {
                     string raiseId = SelectRaiseUnit(
                         seat,
@@ -594,7 +596,10 @@ namespace Wasteland.Sim.Ai
                         _queuedCount,
                         _pendingUnitIds,
                         _pendingCount);
-                    TryRaise(tick, faction, seat, raiseId, target.XCm, target.YCm);
+                    int raiseX;
+                    int raiseY;
+                    RallyForRaise(prizeMarch, raiseId, towns, townCount, faction.HomeTownId, target.XCm, target.YCm, out raiseX, out raiseY);
+                    TryRaise(tick, faction, seat, raiseId, raiseX, raiseY);
                 }
 
                 return;
@@ -629,7 +634,14 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            int battalionId = NearestIdle(faction, graph, target.NodeId, battalions, battalionCount, string.Empty);
+            int battalionId = NearestIdle(
+                faction,
+                graph,
+                target.NodeId,
+                battalions,
+                battalionCount,
+                string.Empty,
+                prizeMarch);
             if (_budgetDeferred)
             {
                 return;
@@ -650,7 +662,10 @@ namespace Wasteland.Sim.Ai
                     _queuedCount,
                     _pendingUnitIds,
                     _pendingCount);
-                TryRaise(tick, faction, seat, raiseId, target.XCm, target.YCm);
+                int raiseX;
+                int raiseY;
+                RallyForRaise(prizeMarch, raiseId, towns, townCount, faction.HomeTownId, target.XCm, target.YCm, out raiseX, out raiseY);
+                TryRaise(tick, faction, seat, raiseId, raiseX, raiseY);
                 return;
             }
 
@@ -1411,6 +1426,93 @@ namespace Wasteland.Sim.Ai
             return idle;
         }
 
+        private int CountMarchIdle(AiBattalionPin[] battalions, int battalionCount, bool prizeMarch)
+        {
+            int idle = 0;
+            for (int i = 0; i < battalionCount; i++)
+            {
+                AiBattalionPin pin = battalions[i];
+                if (pin.Assigned)
+                {
+                    continue;
+                }
+
+                if (prizeMarch && IsFootUnit(pin.UnitId))
+                {
+                    continue;
+                }
+
+                idle++;
+            }
+
+            return idle;
+        }
+
+        private bool IsFootUnit(string unitId)
+        {
+            if (string.IsNullOrEmpty(unitId) || _catalog == null)
+            {
+                return false;
+            }
+
+            MovementClass moveClass;
+            if (!_catalog.TryGetMovementClass(unitId, out moveClass))
+            {
+                return false;
+            }
+
+            return moveClass == MovementClass.Foot;
+        }
+
+        private void RallyForRaise(
+            bool prizeMarch,
+            string unitId,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            int homeTownId,
+            int targetXCm,
+            int targetYCm,
+            out int xCm,
+            out int yCm)
+        {
+            xCm = targetXCm;
+            yCm = targetYCm;
+            if (!prizeMarch || !IsFootUnit(unitId))
+            {
+                return;
+            }
+
+            int homeX;
+            int homeY;
+            if (TryTownXy(towns, townCount, homeTownId, out homeX, out homeY))
+            {
+                xCm = homeX;
+                yCm = homeY;
+            }
+        }
+
+        private static bool TryTownXy(
+            AiAttackTownInfo[] towns,
+            int townCount,
+            int townId,
+            out int xCm,
+            out int yCm)
+        {
+            for (int i = 0; i < townCount; i++)
+            {
+                if (towns[i].Id == townId)
+                {
+                    xCm = towns[i].XCm;
+                    yCm = towns[i].YCm;
+                    return true;
+                }
+            }
+
+            xCm = 0;
+            yCm = 0;
+            return false;
+        }
+
         private static int CountRole(
             AiBattalionPin[] battalions,
             int battalionCount,
@@ -1492,12 +1594,29 @@ namespace Wasteland.Sim.Ai
             int battalionCount,
             string role)
         {
+            return NearestIdle(faction, graph, toNodeId, battalions, battalionCount, role, false);
+        }
+
+        private int NearestIdle(
+            AiFactionState faction,
+            Wasteland.Sim.Movement.RoadGraph graph,
+            int toNodeId,
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            string role,
+            bool prizeMarch)
+        {
             int bestId = 0;
             int bestDist = AiConstants.UnreachableCm;
             for (int i = 0; i < battalionCount; i++)
             {
                 AiBattalionPin pin = battalions[i];
                 if (pin.Assigned)
+                {
+                    continue;
+                }
+
+                if (prizeMarch && IsFootUnit(pin.UnitId))
                 {
                     continue;
                 }

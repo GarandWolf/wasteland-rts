@@ -47,6 +47,80 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void CompactPrizeMarch_DoesNotMoveToTownIdAsCoordinates()
+        {
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
+            host.Run(900);
+            Assert.True(host.Ai.Map.TryGetTown(host.Ai.Map.TheDallesTownId, out AiTownRecord dalles));
+            int compactId = AiConstants.DefaultAiFactionB;
+            int compactCount = 0;
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.OwnerId != compactId)
+                {
+                    continue;
+                }
+
+                compactCount++;
+                Assert.False(
+                    battalion.HasTarget && battalion.TargetXCm == dalles.Id && battalion.TargetYCm == 0,
+                    "ClaimTown stub must not Move(townId, 0).");
+            }
+
+            Assert.True(compactCount >= 1);
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void CompactFootAntiTank_StaysHomeOnPrizeMarch()
+        {
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
+            host.Run(2100);
+            Assert.True(host.Ai.Map.TryGetTown(host.Ai.Map.TheDallesTownId, out AiTownRecord dalles));
+            Assert.True(host.Ai.Map.TryGetTown(host.Ai.Map.HoodRiverTownId, out AiTownRecord hood));
+            int compactId = AiConstants.DefaultAiFactionB;
+            int atId = 0;
+            SimBattalion at = default;
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.OwnerId != compactId)
+                {
+                    continue;
+                }
+
+                if (!host.World.TryGetBattalionView(battalion.Id, out BattalionView view))
+                {
+                    continue;
+                }
+
+                if (view.UnitId != "compact_at_battalion")
+                {
+                    continue;
+                }
+
+                if (atId == 0 || battalion.Id < atId)
+                {
+                    atId = battalion.Id;
+                    at = battalion;
+                }
+            }
+
+            Assert.True(atId != 0, "compact_at_battalion should have spawned by tick 2100.");
+            Assert.False(at.HasTarget && at.TargetXCm == dalles.XCm && at.TargetYCm == dalles.YCm);
+            long dx = (long)at.PositionXCm - hood.XCm;
+            long dy = (long)at.PositionYCm - hood.YCm;
+            const long homeRadiusCm = 500000;
+            Assert.True(
+                (dx * dx) + (dy * dy) <= homeRadiusCm * homeRadiusCm,
+                "foot AT must remain near Hood River.");
+            host.Shutdown();
+        }
+
+        [Fact]
         public void MarshHoldTable_AtTwoThousandTickMarks()
         {
             AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());

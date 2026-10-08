@@ -45,7 +45,9 @@ namespace Wasteland.Sim.Ai
 
         public int SubmitClaimTown(int factionId, int battalionId, int townId)
         {
-            _inner.Submit(SimCommand.Move(_inner.Tick, factionId, battalionId, townId, 0));
+            // Occupancy capture has no CommandKind.ClaimTown. Do not stub it
+            // as Move(townId, 0): that overwrites the prize-march destination
+            // with the town id as an X coordinate.
             return Record(factionId, AiIssuedKind.ClaimTown, battalionId, townId, 0, 0, string.Empty);
         }
 

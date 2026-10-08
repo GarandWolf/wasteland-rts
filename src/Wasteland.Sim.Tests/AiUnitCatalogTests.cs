@@ -2,6 +2,7 @@ using System;
 using System.Reflection;
 using System.Text.Json.Nodes;
 using Wasteland.Sim.Ai;
+using Wasteland.Sim.Movement;
 using Xunit;
 
 namespace Wasteland.Sim.Tests
@@ -50,6 +51,12 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(1, tier);
             Assert.True(tables.UnitCatalog.TryGetManpowerCost("compact_rifle_battalion", out int cost));
             Assert.True(cost > 0);
+            Assert.True(tables.UnitCatalog.TryGetMovementClass("compact_rifle_battalion", out MovementClass rifleMove));
+            Assert.Equal(MovementClass.Wheeled, rifleMove);
+            Assert.True(tables.UnitCatalog.TryGetMovementClass("compact_at_battalion", out MovementClass atMove));
+            Assert.Equal(MovementClass.Foot, atMove);
+            Assert.True(tables.UnitCatalog.TryGetMovementClass("compact_militia", out MovementClass militiaMove));
+            Assert.Equal(MovementClass.Foot, militiaMove);
             Assert.True(tables.BuildingCatalog.TryGetBuildingRole("supply_depot", out string buildingRole));
             Assert.Equal(AiConstants.BuildingRoleSupplyDepot, buildingRole);
         }

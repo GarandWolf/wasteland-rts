@@ -721,6 +721,11 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
+                if (IsAttackingPrize(faction) && IsFootBattalion(order.BattalionId))
+                {
+                    continue;
+                }
+
                 long radiusSq = (long)ZoneRadiusCm(town) * ZoneRadiusCm(town);
                 if (InRadius(battalion.PositionXCm, battalion.PositionYCm, town.XCm, town.YCm, radiusSq))
                 {
@@ -1052,6 +1057,11 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
+                if (IsAttackingPrize(faction) && IsFootBattalion(id))
+                {
+                    continue;
+                }
+
                 if (InRadius(battalion.PositionXCm, battalion.PositionYCm, home.XCm, home.YCm, radiusSq)
                     && CountOwnBattalionsInTown(faction.FactionId, home) <= faction.MinGarrisonPerTown)
                 {
@@ -1140,6 +1150,43 @@ namespace Wasteland.Sim.Ai
             }
 
             return false;
+        }
+
+        private bool IsAttackingPrize(AiFactionState faction)
+        {
+            ulong prize = _seats.NeutralPrizeTerritoryKey;
+            if (prize == 0UL || faction.AttackTargetTownId == 0)
+            {
+                return false;
+            }
+
+            if (!_map.TryGetTown(faction.AttackTargetTownId, out AiTownRecord town))
+            {
+                return false;
+            }
+
+            if (!_map.TryGetTerritory(town.TerritoryId, out AiTerritoryRecord territory))
+            {
+                return false;
+            }
+
+            return territory.StableKey == prize && town.Id == territory.SeatTownId;
+        }
+
+        private bool IsFootBattalion(int battalionId)
+        {
+            if (!_world.TryGetBattalionView(battalionId, out BattalionView view))
+            {
+                return false;
+            }
+
+            MovementClass moveClass;
+            if (!_balance.UnitCatalog.TryGetMovementClass(view.UnitId, out moveClass))
+            {
+                return false;
+            }
+
+            return moveClass == MovementClass.Foot;
         }
 
         private int CountAssignedTaskForces(AiFactionState faction)

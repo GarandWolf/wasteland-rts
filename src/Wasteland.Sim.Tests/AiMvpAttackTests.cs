@@ -210,6 +210,67 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void CompactAttackGroup_ExcludesFootUnits()
+        {
+            Harness harness = Harness.Line();
+            harness.Towns[10] = Own(1);
+            harness.Towns[30] = Unowned();
+            harness.PrizeTerritoryKey = 3UL;
+            harness.PrizeTargetBonusPpt = 300;
+            AiBattalionPin rifle = Idle(5, 1);
+            AiBattalionPin at = Pin(6, 2, AiConstants.RoleAntiTank);
+            Assert.True(harness.Catalog.TryGetMovementClass(rifle.UnitId, out MovementClass rifleClass));
+            Assert.Equal(MovementClass.Wheeled, rifleClass);
+            Assert.True(harness.Catalog.TryGetMovementClass(at.UnitId, out MovementClass atClass));
+            Assert.Equal(MovementClass.Foot, atClass);
+            harness.SetBattalions(rifle, at);
+            harness.Tick();
+            Assert.Equal(AiIssuedKind.Move, harness.Sink.Log[0].Kind);
+            Assert.Equal(5, harness.Sink.Log[0].Arg0);
+            Assert.Equal(2000, harness.Sink.Log[0].Arg1);
+            Assert.Equal(0, harness.Sink.Log[0].Arg2);
+            Assert.Equal(AiIssuedKind.ClaimTown, harness.Sink.Log[1].Kind);
+            Assert.Equal(5, harness.Sink.Log[1].Arg0);
+            Assert.Equal(30, harness.Sink.Log[1].Arg1);
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                AiIssuedCommand cmd = harness.Sink.Log[i];
+                if (cmd.Kind == AiIssuedKind.Move || cmd.Kind == AiIssuedKind.ClaimTown)
+                {
+                    Assert.NotEqual(6, cmd.Arg0);
+                }
+            }
+        }
+
+        [Fact]
+        public void CompactFootAntiTank_StaysHomeOnDefend()
+        {
+            Harness harness = Harness.Line();
+            harness.Towns[10] = new AiTownReadback(1, true, 1, 1, 2, 3);
+            harness.Towns[30] = Unowned();
+            harness.PrizeTerritoryKey = 3UL;
+            harness.PrizeTargetBonusPpt = 300;
+            AiBattalionPin at = Pin(6, 1, AiConstants.RoleAntiTank);
+            harness.SetBattalions(at);
+            harness.Tick();
+            Assert.Equal(10, harness.Faction.DefendTownId);
+            Assert.Equal(0, harness.Faction.AttackTargetTownId);
+            Assert.Equal(AiIssuedKind.Move, harness.Sink.Log[0].Kind);
+            Assert.Equal(6, harness.Sink.Log[0].Arg0);
+            Assert.Equal(0, harness.Sink.Log[0].Arg1);
+            Assert.Equal(0, harness.Sink.Log[0].Arg2);
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                AiIssuedCommand cmd = harness.Sink.Log[i];
+                Assert.NotEqual(AiIssuedKind.ClaimTown, cmd.Kind);
+                if (cmd.Kind == AiIssuedKind.Move)
+                {
+                    Assert.False(cmd.Arg1 == 2000 && cmd.Arg2 == 0);
+                }
+            }
+        }
+
+        [Fact]
         public void Attack_SkipsWhenBelowRatio()
         {
             Harness harness = Harness.Line();

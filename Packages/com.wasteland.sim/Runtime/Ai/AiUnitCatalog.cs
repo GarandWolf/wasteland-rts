@@ -1,4 +1,5 @@
 using System;
+using Wasteland.Sim.Movement;
 
 namespace Wasteland.Sim.Ai
 {
@@ -155,6 +156,12 @@ namespace Wasteland.Sim.Ai
 
             pop = _pop[index];
             return true;
+        }
+
+        public bool TryGetMovementClass(string unitId, out MovementClass moveClass)
+        {
+            moveClass = default;
+            return false;
         }
 
         /// <summary>
