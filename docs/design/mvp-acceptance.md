@@ -5,7 +5,7 @@ Owner: Game Designer. Status: draft for the Lead's sim tests. Design only; nothi
 - **Source:** Designer MVP rules sheet (draft Oct 8 2026): §2 Win / lose, §3 and §3a buildings, supply and MVP defaults, §4 scenario keys, §5 timeline.
 - **Data baseline:** main `b9e53fc`, `dataVersion` 8. Scenario `data/balance/scenarios/columbia_gorge_100mi_mvp.json` on map `golden_ci_columbia_gorge_100_v1_marsh` (`mapFileSha256` `76a801a3…107f`).
 - **Units:** 20 ticks per second (`rules.json sim.ticksPerSecond`). Distances are cm. 1 road-mile = 160934.4 cm.
-- Every number below comes from the rules sheet, from main's data files, or from the pinned marsh map read with `tools/map/wrmb_reader.py`. Road distances are shortest paths over `REDG.lengthCm`. Rules the sheet left open are settled in **§5 Designer decisions (2026-10-08)**. Anything still unsettled is in **Open questions** at the end rather than guessed.
+- Every number below comes from the rules sheet, from main's data files, or from the pinned marsh map read with `tools/map/wrmb_reader.py`. Road distances are shortest paths over `REDG.lengthCm`. Rules the sheet left open are settled in **§5 Decisions (2026-10-08)**. Anything still unsettled is in **Open questions** at the end rather than guessed.
 - Assert against the `rules.json` values, not against hardcoded constants.
 
 ## 0. Fixture facts (MVP scenario + marsh map)
@@ -59,6 +59,15 @@ Formula: `ticks = timerTicksByTier[seatTier] × (1000 + min(L × fortificationTi
 |---|---|---|---|---|
 | **C1 Goldendale (Remnant HQ)** | village | 1200 | 1 | 1200 × 1250 / 1000 = **1500 ticks (75 s)** |
 | **C2 Hood River (Compact HQ)** | town | 2400 | 1 | 2400 × 1250 / 1000 = **3000 ticks (150 s)** |
+
+**Capture tick (Lead decision, 2026-10-08).** The capture lands on tick *a* + N, where *a* is the first tick the capture condition holds and N is the timer above. Uninterrupted, Goldendale flips exactly 1500 ticks after *a* and Hood River exactly 3000 ticks after *a*.
+
+| Case | Setup | Expected |
+|---|---|---|
+| **C1a Goldendale uninterrupted** | The capture condition first holds on tick *a* in the Goldendale zone and keeps holding. | Goldendale changes owner on tick *a* + 1500. Not on *a* + 1499. |
+| **C2a Hood River uninterrupted** | The capture condition first holds on tick *a* in the Hood River zone and keeps holding. | Hood River changes owner on tick *a* + 3000 (W1 resolves at end of that tick). Not on *a* + 2999. |
+
+**When the condition breaks**, the timer follows `rules.json capture` exactly: `onContest` `"pause"`, `resetOnContest` false, `onCapturerAbsent` `"pause_then_decay"` with decay starting after `decayStartsAfterTicks` 1200 at `decayTicksPerTick` 1. **Lead to confirm sim matches rules.json** (the Lead described this as "resets", which differs from the data).
 
 Timer behaviour, unchanged from `rules.json capture`:
 
@@ -127,8 +136,9 @@ Distances below are from the marsh map with every edge usable (no enemy-controll
 
 The §5 timeline estimates live in `data/design/mvp_targets.json` (ticks, tolerance 300 = 15 s). `tools/check_mvp_timings.py` compares a headless run log against them. These are designer-sim estimates for the tuning pass, not acceptance asserts.
 
-## 5. Designer decisions (2026-10-08)
+## 5. Decisions (2026-10-08)
 
+- **LD1 Capture tick. Lead decision, 2026-10-08.** A capture lands on tick *a* + N, where *a* is the first tick the capture condition holds (C1a, C2a). After a break, the timer follows `rules.json capture` (pause on contest without reset; pause then decay after 1200 ticks at 1 tick per tick when the capturer is absent). Lead to confirm sim matches rules.json.
 - **DD1 Depots under construction. Designer decision, 2026-10-08.** A depot under construction counts for spacing (`depotMinSpacingCm`), the one-per-node limit (`maxDepotsPerNode`) and the 16 cap (`maxDepotsPerFaction`) from the tick its `BuildDepot` executes. It is destroyed if its territory is captured, exactly like a completed depot (K1).
 - **DD2 Cost timing. Designer decision, 2026-10-08.** The 200 materiel is charged when the command executes, on tick *T* + `commandDelayTicks` for a command issued on tick *T*. Nothing is charged when `BuildDepot` is rejected.
 - **DD3 Range boundary. Designer decision, 2026-10-08.** A site exactly at `depotRangeCm` (4828032) or `hqRangeCm` (6437376) counts as in range: road distance ≤ range. Spacing passes at ≥ 804670.
@@ -141,6 +151,5 @@ The §5 timeline estimates live in `data/design/mvp_targets.json` (ticks, tolera
 
 ## Open questions
 
-1. **Capture completion tick (Lead's call).** If the capture timer first runs on tick *a*, does the capture resolve on tick *a* + N (N = 1500 at Goldendale, 3000 at Hood River) or on *a* + N − 1? Tests should pin whichever convention the sim picks.
-2. **`_test` scenario loader defaults (later data PR).** Sheet §4 says absent `fuelEnabled`, `simultaneousHqLoss`, `raisableUnits`, `buildableBuildings` and `autoResearch` keep today's behaviour (defaults `true`, `"draw"`, every unit, every building, `[]`). Main's `ScenarioLoader` requires all five, so `columbia_gorge_100mi_test.json`, which has none of them, would not load. Nothing on main loads the test scenario today.
-3. **`compact_militia` target.** §5 gives "Compact militia / AT: 3:15 / 4:45" without saying which militia. In the designer sim (old Settler build order, rifles ×4 first) 3:15 is the second raised militia; the first is at 2:21. The real AI's build order differs from the designer sim (§6.5), so the Compact production targets are expected to move and are not marked `core`.
+1. **`_test` scenario loader defaults (later data PR).** Sheet §4 says absent `fuelEnabled`, `simultaneousHqLoss`, `raisableUnits`, `buildableBuildings` and `autoResearch` keep today's behaviour (defaults `true`, `"draw"`, every unit, every building, `[]`). Main's `ScenarioLoader` requires all five, so `columbia_gorge_100mi_test.json`, which has none of them, would not load. Nothing on main loads the test scenario today.
+2. **`compact_militia` target.** §5 gives "Compact militia / AT: 3:15 / 4:45" without saying which militia. In the designer sim (old Settler build order, rifles ×4 first) 3:15 is the second raised militia; the first is at 2:21. The real AI's build order differs from the designer sim (§6.5), so the Compact production targets are expected to move and are not marked `core`.
