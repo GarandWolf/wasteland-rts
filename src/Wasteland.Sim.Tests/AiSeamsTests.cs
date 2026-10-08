@@ -355,12 +355,14 @@ namespace Wasteland.Sim.Tests
         public void SubmitThroughSink_IsTheSameQueueHumansUse()
         {
             AiMatchHost host = StartHost();
-            host.Ai.Commands.Submit(SimCommand.SpawnBattalion(0, 1, 7, 0, 0, 100));
+            int before = host.World.BattalionCount;
+            const int battalionId = 9000007;
+            host.Ai.Commands.Submit(SimCommand.SpawnBattalion(0, 1, battalionId, 0, 0, 100));
             host.World.Step();
             host.World.Step();
             host.World.Step();
-            Assert.Equal(1, host.World.BattalionCount);
-            Assert.Equal(1, host.World.GetBattalion(7).OwnerId);
+            Assert.Equal(before + 1, host.World.BattalionCount);
+            Assert.Equal(1, host.World.GetBattalion(battalionId).OwnerId);
             host.Shutdown();
         }
 
