@@ -1603,6 +1603,11 @@ namespace Wasteland.Sim.Ai
             int battalionId,
             AiAttackTownInfo target)
         {
+            if (HasPrizeOrder(faction, battalionId, target.Id))
+            {
+                return;
+            }
+
             int moveId = _commands.SubmitMove(faction.FactionId, battalionId, target.XCm, target.YCm);
             Issue(tick, faction, moveId);
             if (_commands.RejectOf(moveId) != AiCommandReject.None)
@@ -1613,6 +1618,27 @@ namespace Wasteland.Sim.Ai
             int claimId = _commands.SubmitClaimTown(faction.FactionId, battalionId, target.Id);
             Issue(tick, faction, claimId);
             EnsurePrizeOrder(faction, battalionId, target.Id, target.TerritoryId);
+        }
+
+        private static bool HasPrizeOrder(AiFactionState faction, int battalionId, int townId)
+        {
+            if (faction == null || battalionId == 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < faction.OrderCount; i++)
+            {
+                AiOrder order = faction.Orders[i];
+                if (order.BattalionId == battalionId
+                    && order.Type == AiGoalType.ClaimTown
+                    && order.TargetTownId == townId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static void EnsurePrizeOrder(
