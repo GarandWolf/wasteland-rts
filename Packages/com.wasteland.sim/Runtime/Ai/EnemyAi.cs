@@ -31,6 +31,8 @@ namespace Wasteland.Sim.Ai
         private readonly ulong _adjacencyHash;
         private readonly int _commandDelayTicks;
         private readonly List<int> _idScratch = new List<int>();
+        private readonly List<int> _prizeIdScratch = new List<int>();
+        private readonly List<int> _countIdScratch = new List<int>();
         private readonly Candidate[] _candidates;
         private readonly int[] _networkScratch;
         private readonly IAiCommandSink _aiCommands;
@@ -93,6 +95,7 @@ namespace Wasteland.Sim.Ai
             _networkScratch = new int[balance.ConnectivityScratchSize];
             _homes.Seed(_owned, _map, _balance);
             _homesSeeded = true;
+            IssueOpeningForces();
         }
 
         public IAiScenarioSeats Seats
@@ -666,10 +669,10 @@ namespace Wasteland.Sim.Ai
         {
             int count = 0;
             long radiusSq = (long)ZoneRadiusCm(town) * ZoneRadiusCm(town);
-            _world.CopyOwnBattalionIds(factionId, _idScratch);
-            for (int i = 0; i < _idScratch.Count; i++)
+            _world.CopyOwnBattalionIds(factionId, _countIdScratch);
+            for (int i = 0; i < _countIdScratch.Count; i++)
             {
-                if (!_world.TryGetOwnBattalion(factionId, _idScratch[i], out SimBattalion battalion))
+                if (!_world.TryGetOwnBattalion(factionId, _countIdScratch[i], out SimBattalion battalion))
                 {
                     continue;
                 }
@@ -895,6 +898,10 @@ namespace Wasteland.Sim.Ai
                     {
                         keep = false;
                     }
+                    else if (IsPrizeSeatTown(order.TargetTownId) && !IsAttackingPrize(faction))
+                    {
+                        keep = false;
+                    }
                 }
 
                 if (keep)
@@ -1057,15 +1064,23 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                if (IsAttackingPrize(faction) && IsFootBattalion(id))
+                if (IsAttackingPrize(faction) && PrizeUncaptured() && IsPrizeForceBattalion(faction, id))
                 {
                     continue;
                 }
 
-                if (InRadius(battalion.PositionXCm, battalion.PositionYCm, home.XCm, home.YCm, radiusSq)
-                    && CountOwnBattalionsInTown(faction.FactionId, home) <= faction.MinGarrisonPerTown)
+                if (IsFootBattalion(id))
                 {
-                    continue;
+                    if (IsAttackingPrize(faction))
+                    {
+                        continue;
+                    }
+
+                    if (InRadius(battalion.PositionXCm, battalion.PositionYCm, home.XCm, home.YCm, radiusSq)
+                        && CountFootBattalionsInTown(faction.FactionId, home) <= faction.MinGarrisonPerTown)
+                    {
+                        continue;
+                    }
                 }
 
                 return id;
@@ -1150,6 +1165,162 @@ namespace Wasteland.Sim.Ai
             }
 
             return false;
+        }
+
+        private void IssueOpeningForces()
+        {
+            for (int i = 0; i < _owned.FactionCount; i++)
+            {
+                IssueOpeningForce(_owned.FactionAt(i));
+            }
+        }
+
+        /// <summary>
+        /// Fixture-only generic opening spawn. Real scenario seats with an
+        /// authored <c>startingUnits</c> list are skipped so they do not stack
+        /// on the Lead's spawn.
+        /// </summary>
+        public void IssueOpeningForce(AiFactionState faction)
+        {
+            if (faction == null)
+            {
+                throw new ArgumentNullException(nameof(faction));
+            }
+
+            AiPersonalityProfile personality = _balance.GetPersonalityOrGeneric(faction.PersonalityId);
+            if (!_seats.TryGetByFaction(personality.EconomyFactionId, out AiScenarioSeatView seat))
+            {
+                return;
+            }
+
+            if (seat.HasAuthoredStartingUnits)
+            {
+                return;
+            }
+
+            if (!_map.TryGetTown(faction.HomeTownId, out AiTownRecord home))
+            {
+                return;
+            }
+
+            int battalionId = faction.NextBattalionId;
+            faction.NextBattalionId = battalionId + 1;
+            Issue(
+                faction,
+                CommandKind.SpawnBattalion,
+                battalionId,
+                home.XCm,
+                home.YCm,
+                AiConstants.ClaimMarchSpeedCmPerSecond);
+        }
+
+        private bool PrizeUncaptured()
+        {
+            ulong prize = _seats.NeutralPrizeTerritoryKey;
+            if (prize == 0UL || !_map.TryGetTerritoryByStableKey(prize, out AiTerritoryRecord territory))
+            {
+                return false;
+            }
+
+            int index = _map.IndexOfTown(territory.SeatTownId);
+            return index >= 0 && _owned.TownOwnerAt(index) == 0;
+        }
+
+        private bool IsPrizeSeatTown(int townId)
+        {
+            ulong prize = _seats.NeutralPrizeTerritoryKey;
+            if (prize == 0UL || !_map.TryGetTown(townId, out AiTownRecord town))
+            {
+                return false;
+            }
+
+            if (!_map.TryGetTerritory(town.TerritoryId, out AiTerritoryRecord territory))
+            {
+                return false;
+            }
+
+            return territory.StableKey == prize && town.Id == territory.SeatTownId;
+        }
+
+        private bool IsPrizeForceBattalion(AiFactionState faction, int battalionId)
+        {
+            if (!_world.TryGetBattalionView(battalionId, out BattalionView view))
+            {
+                return false;
+            }
+
+            if (AiAttackDefend.IsPrizeScout(_balance.UnitCatalog, view.UnitId))
+            {
+                return true;
+            }
+
+            if (!AiAttackDefend.IsPrizeRifle(_balance.UnitCatalog, view.UnitId))
+            {
+                return false;
+            }
+
+            _world.CopyOwnBattalionIds(faction.FactionId, _prizeIdScratch);
+            SortIds(_prizeIdScratch);
+            int taken = 0;
+            int need = faction.TaskForceTargetSize;
+            if (need < 1)
+            {
+                need = 1;
+            }
+
+            for (int i = 0; i < _prizeIdScratch.Count; i++)
+            {
+                int id = _prizeIdScratch[i];
+                if (!_world.TryGetBattalionView(id, out BattalionView own))
+                {
+                    continue;
+                }
+
+                if (!AiAttackDefend.IsPrizeRifle(_balance.UnitCatalog, own.UnitId))
+                {
+                    continue;
+                }
+
+                taken++;
+                if (id == battalionId)
+                {
+                    return taken <= need;
+                }
+
+                if (taken >= need)
+                {
+                    return false;
+                }
+            }
+
+            return false;
+        }
+
+        private int CountFootBattalionsInTown(int factionId, AiTownRecord town)
+        {
+            int count = 0;
+            long radiusSq = (long)ZoneRadiusCm(town) * ZoneRadiusCm(town);
+            _world.CopyOwnBattalionIds(factionId, _countIdScratch);
+            for (int i = 0; i < _countIdScratch.Count; i++)
+            {
+                int id = _countIdScratch[i];
+                if (!_world.TryGetOwnBattalion(factionId, id, out SimBattalion battalion))
+                {
+                    continue;
+                }
+
+                if (!IsFootBattalion(id))
+                {
+                    continue;
+                }
+
+                if (InRadius(battalion.PositionXCm, battalion.PositionYCm, town.XCm, town.YCm, radiusSq))
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         private bool IsAttackingPrize(AiFactionState faction)
@@ -1315,6 +1486,7 @@ namespace Wasteland.Sim.Ai
                 _balance.BuildingCatalog,
                 personality.LineUnitsPerAntiArmour,
                 personality.MinGarrisonPerTown,
+                faction.TaskForceTargetSize,
                 _queuedUnitIds,
                 queuedCount);
         }
@@ -1403,6 +1575,27 @@ namespace Wasteland.Sim.Ai
             }
 
             return best;
+        }
+
+        private static void SortIds(List<int> ids)
+        {
+            if (ids == null)
+            {
+                return;
+            }
+
+            for (int i = 1; i < ids.Count; i++)
+            {
+                int row = ids[i];
+                int j = i - 1;
+                while (j >= 0 && ids[j] > row)
+                {
+                    ids[j + 1] = ids[j];
+                    j--;
+                }
+
+                ids[j + 1] = row;
+            }
         }
 
         private static SimRandom SeedRng(ulong factionStream, ulong streamTag)

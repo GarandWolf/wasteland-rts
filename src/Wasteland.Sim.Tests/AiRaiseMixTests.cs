@@ -7,6 +7,35 @@ namespace Wasteland.Sim.Tests
     public sealed class AiRaiseMixTests
     {
         [Fact]
+        public void Compact_StartingMilitiaScoutsEngineers_DoNotCountAsMixLine()
+        {
+            MixContext ctx = CompactUnseen();
+            List<AiBattalionPin> pins = new List<AiBattalionPin>
+            {
+                new AiBattalionPin(1, 0, 0, 1, "compact_militia", false),
+                new AiBattalionPin(2, 0, 0, 1, "compact_militia", false),
+                new AiBattalionPin(3, 0, 0, 1, "compact_militia", false),
+                new AiBattalionPin(4, 0, 0, 1, "compact_militia", false),
+                new AiBattalionPin(5, 0, 0, 1, "compact_scouts", false),
+                new AiBattalionPin(6, 0, 0, 1, "compact_engineers", false)
+            };
+            Assert.False(AiAttackDefend.CountsAsMixRifle(ctx.Catalog, "compact_militia"));
+            Assert.False(AiAttackDefend.CountsAsMixRifle(ctx.Catalog, "compact_scouts"));
+            Assert.False(AiAttackDefend.CountsAsMixRifle(ctx.Catalog, "compact_engineers"));
+            AssertRole(Select(ctx, pins.ToArray()), ctx.Catalog, AiConstants.RoleLineInfantry);
+            pins.Add(PinFor(FirstRole(ctx, AiConstants.RoleLineInfantry), 7));
+            AssertRole(Select(ctx, pins.ToArray()), ctx.Catalog, AiConstants.RoleLineInfantry);
+            pins.Add(PinFor(FirstRole(ctx, AiConstants.RoleLineInfantry), 8));
+            AssertRole(Select(ctx, pins.ToArray()), ctx.Catalog, AiConstants.RoleAntiTank);
+            pins.Add(PinFor(FirstRole(ctx, AiConstants.RoleAntiTank), 9));
+            AssertRole(Select(ctx, pins.ToArray()), ctx.Catalog, AiConstants.RoleLineInfantry);
+            pins.Add(PinFor(FirstRole(ctx, AiConstants.RoleLineInfantry), 10));
+            AssertRole(Select(ctx, pins.ToArray()), ctx.Catalog, AiConstants.RoleLineInfantry);
+            pins.Add(PinFor(FirstRole(ctx, AiConstants.RoleLineInfantry), 11));
+            AssertRole(Select(ctx, pins.ToArray()), ctx.Catalog, AiConstants.RoleAntiTank);
+        }
+
+        [Fact]
         public void Compact_FirstThreeRaises_IncludeAntiTankWhenArmourUnseen()
         {
             MixContext ctx = CompactUnseen();

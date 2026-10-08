@@ -56,6 +56,8 @@ namespace Wasteland.Sim.Ai
         public const string RoleAntiTank = "anti_tank";
         public const string RoleGarrisonInfantry = "garrison_infantry";
         public const string RoleEngineer = "engineer";
+        public const string RoleReconSpotter = "recon_spotter";
+        public const string RoleReconStrike = "recon_strike";
         public const string TargetClassArmored = "armored";
         public const string TargetClassSoft = "soft";
         public const string BuildingRoleHq = "hq";
@@ -80,8 +82,8 @@ namespace Wasteland.Sim.Ai
             "assault_infantry",
             "breakthrough",
             "indirect_fire",
-            "recon_spotter",
-            "recon_strike",
+            RoleReconSpotter,
+            RoleReconStrike,
             "supply"
         };
 

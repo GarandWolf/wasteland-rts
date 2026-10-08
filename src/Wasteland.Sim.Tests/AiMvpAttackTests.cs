@@ -271,6 +271,28 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void CompactPrizeGroup_WaitsForTaskForceRiflesThenLeavesTogether()
+        {
+            Harness harness = Harness.Line();
+            harness.TaskForceTargetSize = 2;
+            harness.Towns[10] = Own(1);
+            harness.Towns[30] = Unowned();
+            harness.PrizeTerritoryKey = 3UL;
+            harness.PrizeTargetBonusPpt = 300;
+            AiBattalionPin scout = new AiBattalionPin(4, 0, 0, 1, "compact_scouts", false);
+            harness.SetBattalions(Idle(5, 1), scout);
+            harness.Tick();
+            Assert.Equal(30, harness.Faction.AttackTargetTownId);
+            AssertNoPrizeMarch(harness, 0);
+
+            harness.SetBattalions(Idle(5, 1), Idle(7, 1), scout);
+            int from = harness.Sink.Log.Count;
+            harness.Tick(1);
+            AssertPrizeMarchMembers(harness, from, new[] { 4, 5, 7 });
+            Assert.Equal(3, harness.Faction.OrderCount);
+        }
+
+        [Fact]
         public void Attack_SkipsWhenBelowRatio()
         {
             Harness harness = Harness.Line();
@@ -608,6 +630,66 @@ namespace Wasteland.Sim.Tests
             return best;
         }
 
+        private static void AssertNoPrizeMarch(Harness harness, int from)
+        {
+            for (int i = from; i < harness.Sink.Log.Count; i++)
+            {
+                AiIssuedCommand cmd = harness.Sink.Log[i];
+                Assert.NotEqual(AiIssuedKind.ClaimTown, cmd.Kind);
+                if (cmd.Kind == AiIssuedKind.Move)
+                {
+                    Assert.False(cmd.Arg1 == 2000 && cmd.Arg2 == 0);
+                }
+            }
+        }
+
+        private static void AssertPrizeMarchMembers(Harness harness, int from, int[] ids)
+        {
+            bool[] moved = new bool[ids.Length];
+            bool[] claimed = new bool[ids.Length];
+            for (int i = from; i < harness.Sink.Log.Count; i++)
+            {
+                AiIssuedCommand cmd = harness.Sink.Log[i];
+                if (cmd.Kind != AiIssuedKind.Move && cmd.Kind != AiIssuedKind.ClaimTown)
+                {
+                    continue;
+                }
+
+                int member = IndexOf(ids, cmd.Arg0);
+                Assert.True(member >= 0, "prize march issued for a battalion outside the group");
+                if (cmd.Kind == AiIssuedKind.Move)
+                {
+                    Assert.Equal(2000, cmd.Arg1);
+                    Assert.Equal(0, cmd.Arg2);
+                    moved[member] = true;
+                }
+                else
+                {
+                    Assert.Equal(30, cmd.Arg1);
+                    claimed[member] = true;
+                }
+            }
+
+            for (int i = 0; i < ids.Length; i++)
+            {
+                Assert.True(moved[i], "prize member " + ids[i] + " did not Move");
+                Assert.True(claimed[i], "prize member " + ids[i] + " did not ClaimTown");
+            }
+        }
+
+        private static int IndexOf(int[] ids, int id)
+        {
+            for (int i = 0; i < ids.Length; i++)
+            {
+                if (ids[i] == id)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
         private static AiBattalionPin Idle(int id, int nodeId)
         {
             return Pin(id, nodeId, AiConstants.RoleLineInfantry);
@@ -693,6 +775,7 @@ namespace Wasteland.Sim.Tests
             public int PrizeTargetBonusPpt;
             public int LineUnitsPerAntiArmour;
             public int MinGarrisonPerTown;
+            public int TaskForceTargetSize = 1;
             public AiScenarioSeatView Seat;
             private AiBattalionPin[] _battalions = System.Array.Empty<AiBattalionPin>();
 
@@ -845,7 +928,8 @@ namespace Wasteland.Sim.Tests
                     Catalog,
                     Buildings,
                     LineUnitsPerAntiArmour,
-                    MinGarrisonPerTown);
+                    MinGarrisonPerTown,
+                    TaskForceTargetSize);
                 AssertNoAiCausedTierOrPopRequest(from, injected);
             }
 

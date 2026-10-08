@@ -45,6 +45,20 @@ namespace Wasteland.Sim.Ai
 
         public static readonly AiAutoResearch[] DefaultResearch = Array.Empty<AiAutoResearch>();
 
+        public static readonly AiStartingUnit[] CompactAuthoredStartingUnits =
+        {
+            new AiStartingUnit("compact_engineers", 1),
+            new AiStartingUnit("compact_militia", 4),
+            new AiStartingUnit("compact_scouts", 1)
+        };
+
+        public static readonly AiStartingUnit[] RemnantAuthoredStartingUnits =
+        {
+            new AiStartingUnit("remnant_engineers", 1),
+            new AiStartingUnit("remnant_motor_rifles", 2),
+            new AiStartingUnit("remnant_recon", 1)
+        };
+
         private readonly AiScenarioSeatView[] _seats;
         private readonly string[] _mapDiagnostics;
         private readonly bool _fuelEnabled;
@@ -180,7 +194,8 @@ namespace Wasteland.Sim.Ai
                     CopyAuthoredIds(row.RaisableUnits, RuleIdRaisableUnits),
                     CopyAuthoredIds(row.BuildableBuildings, RuleIdBuildableBuildings),
                     research,
-                    row.HomeTownId);
+                    row.HomeTownId,
+                    CopyStartingUnits(row.StartingUnits));
             }
 
             return Create(
@@ -218,14 +233,17 @@ namespace Wasteland.Sim.Ai
                         HomeKeyOf(map, map.GoldendaleTownId),
                         RemnantRaisableUnits,
                         map.GoldendaleTownId,
-                        new[] { new AiAutoResearch(AutoResearchTier2, 1200) }),
+                        new[] { new AiAutoResearch(AutoResearchTier2, 1200) },
+                        RemnantAuthoredStartingUnits),
                     LaunchSeat(
                         1,
                         compact.EconomyFactionId,
                         compact.Id,
                         HomeKeyOf(map, map.HoodRiverTownId),
                         DefaultRaisableUnits,
-                        map.HoodRiverTownId)
+                        map.HoodRiverTownId,
+                        DefaultResearch,
+                        CompactAuthoredStartingUnits)
                 },
                 false,
                 SimultaneousHqLossDraw,
@@ -277,7 +295,8 @@ namespace Wasteland.Sim.Ai
                 homeTerritoryKey,
                 raisableUnits,
                 homeTownId,
-                DefaultResearch);
+                DefaultResearch,
+                Array.Empty<AiStartingUnit>());
         }
 
         public static AiScenarioSeatView LaunchSeat(
@@ -289,6 +308,27 @@ namespace Wasteland.Sim.Ai
             int homeTownId,
             AiAutoResearch[] research)
         {
+            return LaunchSeat(
+                slot,
+                faction,
+                aiPersonality,
+                homeTerritoryKey,
+                raisableUnits,
+                homeTownId,
+                research,
+                Array.Empty<AiStartingUnit>());
+        }
+
+        public static AiScenarioSeatView LaunchSeat(
+            int slot,
+            string faction,
+            string? aiPersonality,
+            ulong homeTerritoryKey,
+            string[] raisableUnits,
+            int homeTownId,
+            AiAutoResearch[] research,
+            AiStartingUnit[] startingUnits)
+        {
             return new AiScenarioSeatView(
                 slot,
                 faction,
@@ -298,7 +338,8 @@ namespace Wasteland.Sim.Ai
                 raisableUnits,
                 DefaultBuildableBuildings,
                 research ?? DefaultResearch,
-                homeTownId);
+                homeTownId,
+                startingUnits);
         }
 
         public bool TryGetByFaction(string faction, out AiScenarioSeatView seat)
@@ -383,7 +424,8 @@ namespace Wasteland.Sim.Ai
                 units,
                 buildings,
                 research,
-                seat.HomeTownId);
+                seat.HomeTownId,
+                CopyStartingUnits(seat.StartingUnits));
         }
 
         private static AiAutoResearch[] CopyResearch(AiAutoResearch[] source)
@@ -423,6 +465,22 @@ namespace Wasteland.Sim.Ai
                 }
 
                 copy[i] = new AiAutoResearch(rows[i].Item, rows[i].NotBeforeTick);
+            }
+
+            return copy;
+        }
+
+        private static AiStartingUnit[] CopyStartingUnits(AiStartingUnit[] source)
+        {
+            if (source == null || source.Length < 1)
+            {
+                return Array.Empty<AiStartingUnit>();
+            }
+
+            AiStartingUnit[] copy = new AiStartingUnit[source.Length];
+            for (int i = 0; i < source.Length; i++)
+            {
+                copy[i] = new AiStartingUnit(source[i].UnitId, source[i].Count);
             }
 
             return copy;

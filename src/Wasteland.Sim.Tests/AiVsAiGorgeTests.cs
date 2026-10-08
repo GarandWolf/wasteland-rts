@@ -121,6 +121,82 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void CompactPrizeForce_IsNotReassignedToClaimWhilePrizeUncaptured()
+        {
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
+            host.Run(700);
+            AssertPrizeForceStaysOnPrize(host, AiConstants.DefaultAiFactionB, 2, false);
+            host.Run(700);
+            AssertPrizeForceStaysOnPrize(host, AiConstants.DefaultAiFactionB, 2, true);
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void RemnantPrizeForce_IsNotReassignedToClaimWhilePrizeUncaptured()
+        {
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
+            host.Run(2200);
+            AiFactionState remnant = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA);
+            Assert.Equal(host.Ai.Map.TheDallesTownId, remnant.AttackTargetTownId);
+            AssertPrizeForceStaysOnPrize(host, AiConstants.DefaultAiFactionA, 3, true);
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void CompactHomeGarrison_PrefersFootOverPrizeRifles()
+        {
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
+            host.Run(2100);
+            Assert.True(host.Ai.Map.TryGetTown(host.Ai.Map.TheDallesTownId, out AiTownRecord dalles));
+            Assert.True(host.Ai.Map.TryGetTown(host.Ai.Map.HoodRiverTownId, out AiTownRecord hood));
+            int compactId = AiConstants.DefaultAiFactionB;
+            int rifleOnPrize = 0;
+            int footAtHome = 0;
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.OwnerId != compactId)
+                {
+                    continue;
+                }
+
+                if (!host.World.TryGetBattalionView(battalion.Id, out BattalionView view))
+                {
+                    continue;
+                }
+
+                if (AiAttackDefend.IsPrizeRifle(host.Ai.Balance.UnitCatalog, view.UnitId)
+                    && Targeting(battalion, dalles))
+                {
+                    rifleOnPrize++;
+                }
+
+                if (AiAttackDefend.IsFootUnit(host.Ai.Balance.UnitCatalog, view.UnitId)
+                    && InHome(battalion, hood))
+                {
+                    footAtHome++;
+                }
+            }
+
+            Assert.True(rifleOnPrize >= 2, "prize rifles must leave; foot fills garrison");
+            Assert.True(footAtHome >= 1, "foot AT/militia stay home to fill garrison");
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void AuthoredScenarioSeats_DoNotGetGenericOpeningBattalion()
+        {
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
+            Assert.True(host.Ai.Seats.SeatAt(0).HasAuthoredStartingUnits);
+            Assert.True(host.Ai.Seats.SeatAt(1).HasAuthoredStartingUnits);
+            Assert.Equal(0, host.World.BattalionCount);
+            host.Run(30);
+            Assert.Equal(0, host.World.BattalionCount);
+            host.Shutdown();
+        }
+
+        [Fact]
         public void MarshHoldTable_AtTwoThousandTickMarks()
         {
             AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
@@ -318,6 +394,108 @@ namespace Wasteland.Sim.Tests
             }
 
             throw new InvalidOperationException("missing hold sample tick=" + tick + " faction=" + factionId);
+        }
+
+        private static void AssertPrizeForceStaysOnPrize(
+            AiMatchHost host,
+            int factionId,
+            int rifleNeed,
+            bool mustHaveLeft)
+        {
+            Assert.True(host.Ai.Map.TryGetTown(host.Ai.Map.TheDallesTownId, out AiTownRecord dalles));
+            AiFactionState faction = host.Ai.Owned.GetFaction(factionId);
+            Assert.True(host.Ai.Map.TryGetTown(faction.HomeTownId, out AiTownRecord home));
+            int dallesIndex = host.Ai.Map.IndexOfTown(dalles.Id);
+            Assert.Equal(0, host.Ai.Owned.TownOwnerAt(dallesIndex));
+            List<int> rifles = new List<int>();
+            List<int> scouts = new List<int>();
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.OwnerId != factionId)
+                {
+                    continue;
+                }
+
+                if (!host.World.TryGetBattalionView(battalion.Id, out BattalionView view))
+                {
+                    continue;
+                }
+
+                if (AiAttackDefend.IsPrizeRifle(host.Ai.Balance.UnitCatalog, view.UnitId))
+                {
+                    rifles.Add(battalion.Id);
+                }
+                else if (AiAttackDefend.IsPrizeScout(host.Ai.Balance.UnitCatalog, view.UnitId))
+                {
+                    scouts.Add(battalion.Id);
+                }
+            }
+
+            rifles.Sort();
+            int prizeRifles = rifles.Count;
+            if (prizeRifles > rifleNeed)
+            {
+                prizeRifles = rifleNeed;
+            }
+
+            int onPrize = 0;
+            for (int i = 0; i < prizeRifles; i++)
+            {
+                onPrize += AssertNotStolen(host, rifles[i], dalles, home, mustHaveLeft);
+            }
+
+            for (int i = 0; i < scouts.Count; i++)
+            {
+                onPrize += AssertNotStolen(host, scouts[i], dalles, home, mustHaveLeft);
+            }
+
+            if (mustHaveLeft)
+            {
+                Assert.True(rifles.Count >= rifleNeed, "prize rifle group is not ready");
+                Assert.True(onPrize >= rifleNeed, "prize force was not sent to The Dalles");
+            }
+        }
+
+        private static int AssertNotStolen(
+            AiMatchHost host,
+            int battalionId,
+            AiTownRecord dalles,
+            AiTownRecord home,
+            bool mustHaveLeft)
+        {
+            SimBattalion battalion = host.World.GetBattalion(battalionId);
+            if (!battalion.HasTarget)
+            {
+                Assert.False(mustHaveLeft, "prize-force battalion " + battalionId + " has no dest");
+                return 0;
+            }
+
+            if (Targeting(battalion, dalles))
+            {
+                return 1;
+            }
+
+            Assert.True(
+                Targeting(battalion, home) && !mustHaveLeft,
+                "prize-force battalion " + battalionId + " was reassigned off The Dalles");
+            return 0;
+        }
+
+        private static bool Targeting(SimBattalion battalion, AiTownRecord town)
+        {
+            return battalion.HasTarget
+                && battalion.TargetXCm == town.XCm
+                && battalion.TargetYCm == town.YCm;
+        }
+
+        private static bool InHome(SimBattalion battalion, AiTownRecord home)
+        {
+            long dx = (long)battalion.PositionXCm - home.XCm;
+            long dy = (long)battalion.PositionYCm - home.YCm;
+            const long homeRadiusCm = 500000;
+            return (dx * dx) + (dy * dy) <= homeRadiusCm * homeRadiusCm;
         }
     }
 }

@@ -30,6 +30,7 @@ namespace Wasteland.Sim.Ai
         public readonly string[] BuildableBuildings;
         public readonly AiMvpAutoResearchItem[] AutoResearch;
         public readonly int HomeTownId;
+        public readonly AiStartingUnit[] StartingUnits;
 
         public AiMvpSeatShape(
             int slot,
@@ -63,6 +64,31 @@ namespace Wasteland.Sim.Ai
             string[] buildableBuildings,
             AiMvpAutoResearchItem[] autoResearch,
             int homeTownId)
+            : this(
+                slot,
+                faction,
+                aiPersonality,
+                homeTerritoryKey,
+                startingManpower,
+                raisableUnits,
+                buildableBuildings,
+                autoResearch,
+                homeTownId,
+                Array.Empty<AiStartingUnit>())
+        {
+        }
+
+        public AiMvpSeatShape(
+            int slot,
+            string faction,
+            string? aiPersonality,
+            ulong homeTerritoryKey,
+            int startingManpower,
+            string[] raisableUnits,
+            string[] buildableBuildings,
+            AiMvpAutoResearchItem[] autoResearch,
+            int homeTownId,
+            AiStartingUnit[] startingUnits)
         {
             Slot = slot;
             Faction = faction;
@@ -73,6 +99,7 @@ namespace Wasteland.Sim.Ai
             BuildableBuildings = buildableBuildings;
             AutoResearch = autoResearch ?? Array.Empty<AiMvpAutoResearchItem>();
             HomeTownId = homeTownId;
+            StartingUnits = startingUnits ?? Array.Empty<AiStartingUnit>();
         }
     }
 

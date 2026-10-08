@@ -44,6 +44,13 @@ namespace Wasteland.Sim.Tests
                 Assert.Equal(model.RaisableUnits, adapted.RaisableUnits);
                 Assert.Equal(model.BuildableBuildings, adapted.BuildableBuildings);
                 Assert.Equal(model.HomeTownId, adapted.HomeTownId);
+                Assert.Equal(model.StartingUnits.Length, adapted.StartingUnits.Length);
+                for (int u = 0; u < model.StartingUnits.Length; u++)
+                {
+                    Assert.Equal(model.StartingUnits[u].UnitId, adapted.StartingUnits[u].UnitId);
+                    Assert.Equal(model.StartingUnits[u].Count, adapted.StartingUnits[u].Count);
+                }
+                Assert.True(adapted.HasAuthoredStartingUnits);
             }
         }
 

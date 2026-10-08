@@ -150,7 +150,24 @@ namespace Wasteland.Sim.Ai
                 seat.RaisableUnits,
                 seat.BuildableBuildings,
                 research,
-                seat.HomeTownId);
+                seat.HomeTownId,
+                MapStartingUnits(seat.StartingUnits));
+        }
+
+        private static AiStartingUnit[] MapStartingUnits(ScenarioUnitCount[] rows)
+        {
+            if (rows == null || rows.Length < 1)
+            {
+                return Array.Empty<AiStartingUnit>();
+            }
+
+            AiStartingUnit[] copy = new AiStartingUnit[rows.Length];
+            for (int i = 0; i < rows.Length; i++)
+            {
+                copy[i] = new AiStartingUnit(rows[i].UnitId, rows[i].Count);
+            }
+
+            return copy;
         }
 
         private static void SortBySlot(AiScenarioSeatView[] seats)

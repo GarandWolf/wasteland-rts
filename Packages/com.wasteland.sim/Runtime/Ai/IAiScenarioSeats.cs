@@ -20,6 +20,22 @@ namespace Wasteland.Sim.Ai
     }
 
     /// <summary>
+    /// Authored opening unit. The Lead's spawn path materializes these;
+    /// AI must not stack a generic opening battalion on top.
+    /// </summary>
+    public readonly struct AiStartingUnit
+    {
+        public readonly string UnitId;
+        public readonly int Count;
+
+        public AiStartingUnit(string unitId, int count)
+        {
+            UnitId = unitId ?? string.Empty;
+            Count = count;
+        }
+    }
+
+    /// <summary>
     /// One scenario seat. Home is a territory key; the AI finds HQ through
     /// that territory's seat town. Catalogs stay in authored order.
     /// </summary>
@@ -34,6 +50,7 @@ namespace Wasteland.Sim.Ai
         public readonly string[] BuildableBuildings;
         public readonly AiAutoResearch[] AutoResearch;
         public readonly int HomeTownId;
+        public readonly AiStartingUnit[] StartingUnits;
 
         public AiScenarioSeatView(
             int slot,
@@ -67,6 +84,31 @@ namespace Wasteland.Sim.Ai
             string[] buildableBuildings,
             AiAutoResearch[] autoResearch,
             int homeTownId)
+            : this(
+                slot,
+                faction,
+                aiPersonality,
+                homeTerritoryKey,
+                startingManpower,
+                raisableUnits,
+                buildableBuildings,
+                autoResearch,
+                homeTownId,
+                Array.Empty<AiStartingUnit>())
+        {
+        }
+
+        public AiScenarioSeatView(
+            int slot,
+            string faction,
+            string? aiPersonality,
+            ulong homeTerritoryKey,
+            int startingManpower,
+            string[] raisableUnits,
+            string[] buildableBuildings,
+            AiAutoResearch[] autoResearch,
+            int homeTownId,
+            AiStartingUnit[] startingUnits)
         {
             Slot = slot;
             Faction = faction;
@@ -77,6 +119,12 @@ namespace Wasteland.Sim.Ai
             BuildableBuildings = buildableBuildings;
             AutoResearch = autoResearch ?? Array.Empty<AiAutoResearch>();
             HomeTownId = homeTownId;
+            StartingUnits = startingUnits ?? Array.Empty<AiStartingUnit>();
+        }
+
+        public bool HasAuthoredStartingUnits
+        {
+            get { return StartingUnits != null && StartingUnits.Length > 0; }
         }
 
         public bool AllowsUnit(string unitId)

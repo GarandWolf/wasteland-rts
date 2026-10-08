@@ -52,6 +52,7 @@ namespace Wasteland.Sim.Ai
         private IAiBuildingCatalog _buildings = AiBuildingCatalog.Empty;
         private int _lineUnitsPerAntiArmour = 2;
         private int _minGarrisonPerTown;
+        private int _taskForceTargetSize = 1;
         private bool _budgetDeferred;
         private string[]? _queuedUnitIds;
         private int _queuedCount;
@@ -97,6 +98,7 @@ namespace Wasteland.Sim.Ai
             IAiBuildingCatalog buildings,
             int lineUnitsPerAntiArmour,
             int minGarrisonPerTown,
+            int taskForceTargetSize = 1,
             string[]? queuedUnitIds = null,
             int queuedCount = 0)
         {
@@ -127,8 +129,14 @@ namespace Wasteland.Sim.Ai
 
             _catalog = catalog;
             _buildings = buildings;
+            if (taskForceTargetSize < 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(taskForceTargetSize));
+            }
+
             _lineUnitsPerAntiArmour = lineUnitsPerAntiArmour;
             _minGarrisonPerTown = minGarrisonPerTown;
+            _taskForceTargetSize = taskForceTargetSize;
 
             if (towns == null)
             {
@@ -577,11 +585,56 @@ namespace Wasteland.Sim.Ai
             }
 
             bool prizeMarch = prizeTerritoryKey != 0UL && target.TerritoryStableKey == prizeTerritoryKey;
+            bool prizeGroupReady = !prizeMarch
+                || CountPrizeRifles(battalions, battalionCount) >= _taskForceTargetSize;
             int own = CountIdle(battalions, battalionCount) + readback.StrengthOf(faction.FactionId);
             int defender = readback.StrengthOf(readback.OwnerFactionId);
+            if (prizeMarch)
+            {
+                if (!prizeGroupReady)
+                {
+                    string waitRaiseId = SelectRaiseUnit(
+                        seat,
+                        _catalog,
+                        _seatView,
+                        battalions,
+                        battalionCount,
+                        _lineUnitsPerAntiArmour,
+                        false,
+                        GarrisonShort(faction, towns, townCount),
+                        _queuedUnitIds,
+                        _queuedCount,
+                        _pendingUnitIds,
+                        _pendingCount);
+                    int waitX;
+                    int waitY;
+                    RallyForRaise(
+                        true,
+                        false,
+                        waitRaiseId,
+                        towns,
+                        townCount,
+                        faction.HomeTownId,
+                        target.XCm,
+                        target.YCm,
+                        out waitX,
+                        out waitY);
+                    TryRaise(tick, faction, seat, waitRaiseId, waitX, waitY);
+                    return;
+                }
+
+                DispatchPrizeGroup(
+                    tick,
+                    faction,
+                    battalions,
+                    battalionCount,
+                    target);
+                return;
+            }
+
             if (!StrengthAllowsAttack(own, defender, attackStrengthRatioPpt))
             {
-                if (CountMarchIdle(battalions, battalionCount, prizeMarch) < 1)
+                if (CountMarchIdle(battalions, battalionCount, false) < 1)
                 {
                     string raiseId = SelectRaiseUnit(
                         seat,
@@ -598,7 +651,17 @@ namespace Wasteland.Sim.Ai
                         _pendingCount);
                     int raiseX;
                     int raiseY;
-                    RallyForRaise(prizeMarch, raiseId, towns, townCount, faction.HomeTownId, target.XCm, target.YCm, out raiseX, out raiseY);
+                    RallyForRaise(
+                        false,
+                        true,
+                        raiseId,
+                        towns,
+                        townCount,
+                        faction.HomeTownId,
+                        target.XCm,
+                        target.YCm,
+                        out raiseX,
+                        out raiseY);
                     TryRaise(tick, faction, seat, raiseId, raiseX, raiseY);
                 }
 
@@ -641,7 +704,7 @@ namespace Wasteland.Sim.Ai
                 battalions,
                 battalionCount,
                 string.Empty,
-                prizeMarch);
+                false);
             if (_budgetDeferred)
             {
                 return;
@@ -664,7 +727,17 @@ namespace Wasteland.Sim.Ai
                     _pendingCount);
                 int raiseX;
                 int raiseY;
-                RallyForRaise(prizeMarch, raiseId, towns, townCount, faction.HomeTownId, target.XCm, target.YCm, out raiseX, out raiseY);
+                RallyForRaise(
+                    prizeMarch,
+                    prizeGroupReady,
+                    raiseId,
+                    towns,
+                    townCount,
+                    faction.HomeTownId,
+                    target.XCm,
+                    target.YCm,
+                    out raiseX,
+                    out raiseY);
                 TryRaise(tick, faction, seat, raiseId, raiseX, raiseY);
                 return;
             }
@@ -898,15 +971,14 @@ namespace Wasteland.Sim.Ai
 
             int currentTier = seatView.CurrentTier;
             string atId = FirstRaisableRole(seat, catalog, currentTier, AiConstants.RoleAntiTank);
-            int line = CountRoleAcross(
+            int line = CountMixRiflesAcross(
                 battalions,
                 battalionCount,
                 queuedUnitIds,
                 queuedCount,
                 pendingUnitIds,
                 pendingCount,
-                catalog,
-                AiConstants.RoleLineInfantry);
+                catalog);
             int at = CountRoleAcross(
                 battalions,
                 battalionCount,
@@ -1450,22 +1522,12 @@ namespace Wasteland.Sim.Ai
 
         private bool IsFootUnit(string unitId)
         {
-            if (string.IsNullOrEmpty(unitId) || _catalog == null)
-            {
-                return false;
-            }
-
-            MovementClass moveClass;
-            if (!_catalog.TryGetMovementClass(unitId, out moveClass))
-            {
-                return false;
-            }
-
-            return moveClass == MovementClass.Foot;
+            return IsFootUnit(_catalog, unitId);
         }
 
         private void RallyForRaise(
             bool prizeMarch,
+            bool prizeGroupReady,
             string unitId,
             AiAttackTownInfo[] towns,
             int townCount,
@@ -1477,7 +1539,14 @@ namespace Wasteland.Sim.Ai
         {
             xCm = targetXCm;
             yCm = targetYCm;
-            if (!prizeMarch || !IsFootUnit(unitId))
+            if (!prizeMarch)
+            {
+                return;
+            }
+
+            bool holdAtHome = IsFootUnit(unitId)
+                || (!prizeGroupReady && (IsPrizeRifle(_catalog, unitId) || IsPrizeScout(_catalog, unitId)));
+            if (!holdAtHome)
             {
                 return;
             }
@@ -1489,6 +1558,218 @@ namespace Wasteland.Sim.Ai
                 xCm = homeX;
                 yCm = homeY;
             }
+        }
+
+        private void DispatchPrizeGroup(
+            int tick,
+            AiFactionState faction,
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            AiAttackTownInfo target)
+        {
+            int riflesTaken = 0;
+            for (int i = 0; i < battalionCount; i++)
+            {
+                AiBattalionPin pin = battalions[i];
+                if (!IsPrizeRifle(_catalog, pin.UnitId))
+                {
+                    continue;
+                }
+
+                if (riflesTaken >= _taskForceTargetSize)
+                {
+                    break;
+                }
+
+                DispatchPrizeBattalion(tick, faction, pin.Id, target);
+                riflesTaken++;
+            }
+
+            for (int i = 0; i < battalionCount; i++)
+            {
+                AiBattalionPin pin = battalions[i];
+                if (!IsPrizeScout(_catalog, pin.UnitId))
+                {
+                    continue;
+                }
+
+                DispatchPrizeBattalion(tick, faction, pin.Id, target);
+            }
+        }
+
+        private void DispatchPrizeBattalion(
+            int tick,
+            AiFactionState faction,
+            int battalionId,
+            AiAttackTownInfo target)
+        {
+            int moveId = _commands.SubmitMove(faction.FactionId, battalionId, target.XCm, target.YCm);
+            Issue(tick, faction, moveId);
+            if (_commands.RejectOf(moveId) != AiCommandReject.None)
+            {
+                return;
+            }
+
+            int claimId = _commands.SubmitClaimTown(faction.FactionId, battalionId, target.Id);
+            Issue(tick, faction, claimId);
+            EnsurePrizeOrder(faction, battalionId, target.Id, target.TerritoryId);
+        }
+
+        private static void EnsurePrizeOrder(
+            AiFactionState faction,
+            int battalionId,
+            int townId,
+            int territoryId)
+        {
+            if (faction == null || battalionId == 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < faction.OrderCount; i++)
+            {
+                if (faction.Orders[i].BattalionId == battalionId)
+                {
+                    return;
+                }
+            }
+
+            if (faction.OrderCount >= faction.MaxActiveOrders)
+            {
+                return;
+            }
+
+            AiOrder order = default;
+            order.Id = faction.NextOrderId++;
+            order.Type = AiGoalType.ClaimTown;
+            order.TargetTownId = townId;
+            order.TargetTerritoryId = territoryId;
+            order.BattalionId = battalionId;
+            faction.Orders[faction.OrderCount++] = order;
+        }
+
+        internal static bool CountsAsMixRifle(IAiUnitCatalog catalog, string unitId)
+        {
+            if (catalog == null || string.IsNullOrEmpty(unitId))
+            {
+                return false;
+            }
+
+            if (!catalog.TryGetRole(unitId, out string role))
+            {
+                return false;
+            }
+
+            if (role == AiConstants.RoleGarrisonInfantry
+                || role == AiConstants.RoleEngineer
+                || role == AiConstants.RoleReconSpotter
+                || role == AiConstants.RoleReconStrike)
+            {
+                return false;
+            }
+
+            return role == AiConstants.RoleLineInfantry;
+        }
+
+        internal static bool IsPrizeRifle(IAiUnitCatalog catalog, string unitId)
+        {
+            return CountsAsMixRifle(catalog, unitId) && !IsFootUnit(catalog, unitId);
+        }
+
+        internal static bool IsPrizeScout(IAiUnitCatalog catalog, string unitId)
+        {
+            if (catalog == null || string.IsNullOrEmpty(unitId) || IsFootUnit(catalog, unitId))
+            {
+                return false;
+            }
+
+            if (!catalog.TryGetRole(unitId, out string role))
+            {
+                return false;
+            }
+
+            return role == AiConstants.RoleReconSpotter || role == AiConstants.RoleReconStrike;
+        }
+
+        internal static bool IsFootUnit(IAiUnitCatalog catalog, string unitId)
+        {
+            if (catalog == null || string.IsNullOrEmpty(unitId))
+            {
+                return false;
+            }
+
+            MovementClass moveClass;
+            if (!catalog.TryGetMovementClass(unitId, out moveClass))
+            {
+                return false;
+            }
+
+            return moveClass == MovementClass.Foot;
+        }
+
+        private int CountPrizeRifles(AiBattalionPin[] battalions, int battalionCount)
+        {
+            int count = 0;
+            for (int i = 0; i < battalionCount; i++)
+            {
+                if (IsPrizeRifle(_catalog, battalions[i].UnitId))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static int CountMixRiflesAcross(
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            string[]? queuedUnitIds,
+            int queuedCount,
+            string[]? pendingUnitIds,
+            int pendingCount,
+            IAiUnitCatalog catalog)
+        {
+            int count = 0;
+            if (battalions != null)
+            {
+                for (int i = 0; i < battalionCount; i++)
+                {
+                    if (CountsAsMixRifle(catalog, battalions[i].UnitId))
+                    {
+                        count++;
+                    }
+                }
+            }
+
+            return count
+                + CountMixRifleIds(queuedUnitIds, queuedCount, catalog)
+                + CountMixRifleIds(pendingUnitIds, pendingCount, catalog);
+        }
+
+        private static int CountMixRifleIds(string[]? unitIds, int count, IAiUnitCatalog catalog)
+        {
+            if (unitIds == null)
+            {
+                return 0;
+            }
+
+            int n = count;
+            if (n > unitIds.Length)
+            {
+                n = unitIds.Length;
+            }
+
+            int found = 0;
+            for (int i = 0; i < n; i++)
+            {
+                if (CountsAsMixRifle(catalog, unitIds[i]))
+                {
+                    found++;
+                }
+            }
+
+            return found;
         }
 
         private static bool TryTownXy(
