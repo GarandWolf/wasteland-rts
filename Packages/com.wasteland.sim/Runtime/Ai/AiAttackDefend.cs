@@ -36,7 +36,7 @@ namespace Wasteland.Sim.Ai
         private readonly IAiTownQuery _towns;
         private readonly IAiDepotQuery _depots;
         private readonly AiRoadSupply _roads = new AiRoadSupply();
-        private IAiSideReadback _side = new FixtureAiSideReadback();
+        private IAiSeatView _seatView = new FixtureAiSeatView();
 
         public AiAttackDefend(IAiCommandSink commands, IAiTownQuery towns, IAiDepotQuery depots)
         {
@@ -69,19 +69,19 @@ namespace Wasteland.Sim.Ai
             Wasteland.Sim.Movement.RoadGraph graph,
             int attackStrengthRatioPpt,
             int supplyReachCm,
-            IAiSideReadback side)
+            IAiSeatView seatView)
         {
             if (faction == null)
             {
                 throw new ArgumentNullException(nameof(faction));
             }
 
-            if (side == null)
+            if (seatView == null)
             {
-                throw new ArgumentNullException(nameof(side));
+                throw new ArgumentNullException(nameof(seatView));
             }
 
-            _side = side;
+            _seatView = seatView;
 
             if (towns == null)
             {
@@ -119,7 +119,7 @@ namespace Wasteland.Sim.Ai
                 graph,
                 attackStrengthRatioPpt,
                 supplyReachCm,
-                side);
+                seatView);
         }
 
         public int PickAttackTarget(
@@ -329,7 +329,7 @@ namespace Wasteland.Sim.Ai
             Wasteland.Sim.Movement.RoadGraph graph,
             int attackStrengthRatioPpt,
             int supplyReachCm,
-            IAiSideReadback side)
+            IAiSeatView seatView)
         {
             faction.DefendTownId = 0;
             int fromNode = faction.HqNodeId;
@@ -420,7 +420,7 @@ namespace Wasteland.Sim.Ai
             int battalionId = NearestIdle(faction, graph, target.NodeId, battalions, battalionCount, 0);
             if (battalionId == 0)
             {
-                int currentTier = side.CurrentTier(faction.FactionId, tick);
+                int currentTier = seatView.CurrentTier;
                 int raiseKind = AiConstants.UnitKindInfantry;
                 if (seat.AllowsUnitForTier(AiConstants.UnitKindTierII, currentTier))
                 {
@@ -576,7 +576,7 @@ namespace Wasteland.Sim.Ai
 
         private void TryRaise(int tick, AiFactionState faction, AiScenarioSeatView seat, int unitKind, int xCm, int yCm)
         {
-            int currentTier = _side.CurrentTier(faction.FactionId, tick);
+            int currentTier = _seatView.CurrentTier;
             if (unitKind == AiConstants.UnitKindTierII && currentTier < 2)
             {
                 return;
@@ -592,9 +592,7 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            int used;
-            int cap;
-            if (_side.TryGetPopCap(faction.FactionId, out used, out cap) && used >= cap)
+            if (_seatView.PopCap > 0 && _seatView.PopUsed >= _seatView.PopCap)
             {
                 NoteReject(tick, faction, AiCommandReject.PopCapReached);
                 return;

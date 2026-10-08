@@ -35,7 +35,9 @@ namespace Wasteland.Sim.Ai
         private readonly int[] _networkScratch;
         private readonly AiRoadSupply _roadSupply = new AiRoadSupply();
         private readonly RecordingAiCommandSink _aiCommands;
-        private readonly FixtureAiSideReadback _side = new FixtureAiSideReadback();
+        // Friday: assign the Lead's live per-seat view here instead of the fixture.
+        private IAiSeatView _seatView;
+        private readonly FixtureAiSeatView _fixtureSeatView = new FixtureAiSeatView();
         private readonly AiAttackDefend _attackDefend;
         private readonly AiAttackTownInfo[] _attackTowns;
         private AiBattalionPin[] _attackBattalions;
@@ -74,6 +76,7 @@ namespace Wasteland.Sim.Ai
             _seats = seats ?? throw new ArgumentNullException(nameof(seats));
             _homes = new AiSeatHomeBinder(_seats);
             _aiCommands = new RecordingAiCommandSink();
+            _seatView = _fixtureSeatView;
             _attackDefend = new AiAttackDefend(_aiCommands, new WorldTownQuery(this), _aiCommands);
             _attackTowns = new AiAttackTownInfo[System.Math.Max(1, map.TownCount)];
             _attackBattalions = new AiBattalionPin[16];
@@ -1547,7 +1550,7 @@ namespace Wasteland.Sim.Ai
             }
 
             _aiCommands.Tick = _world.Tick;
-            _side.Bind(seat);
+            _fixtureSeatView.Refresh(seat, _world.Tick);
             _attackDefend.Tick(
                 _world.Tick,
                 faction,
@@ -1561,7 +1564,7 @@ namespace Wasteland.Sim.Ai
                 _map.Roads,
                 _difficulty.AttackStrengthRatioPpt,
                 AiConstants.DepotRangeCm,
-                _side);
+                _seatView);
         }
 
         private int FillAttackTowns()

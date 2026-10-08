@@ -341,7 +341,7 @@ namespace Wasteland.Sim.Tests
             public readonly AiAttackTownInfo[] TownRows;
             public readonly Dictionary<int, AiTownReadback> Towns = new Dictionary<int, AiTownReadback>();
             public readonly int[] Network = { 1 };
-            public readonly FixtureAiSideReadback Side = new FixtureAiSideReadback();
+            public readonly FixtureAiSeatView SeatView = new FixtureAiSeatView();
             public int SupplyReachCm = 100000;
             public AiScenarioSeatView Seat;
             private AiBattalionPin[] _battalions = System.Array.Empty<AiBattalionPin>();
@@ -425,7 +425,9 @@ namespace Wasteland.Sim.Tests
                     networkCount = 2;
                 }
 
-                Side.Bind(Seat);
+                AiCommandReject injected = Sink.NextReject;
+                int from = Sink.Log.Count;
+                SeatView.Refresh(Seat, tick);
                 Planner.Tick(
                     tick,
                     Faction,
@@ -439,7 +441,41 @@ namespace Wasteland.Sim.Tests
                     Roads,
                     1500,
                     SupplyReachCm,
-                    Side);
+                    SeatView);
+                AssertNoAiCausedTierOrPopRequest(from, injected);
+            }
+
+            private void AssertNoAiCausedTierOrPopRequest(int from, AiCommandReject injected)
+            {
+                for (int i = from; i < Sink.Log.Count; i++)
+                {
+                    AiIssuedCommand cmd = Sink.Log[i];
+                    AiCommandReject reject = Sink.RejectOf(cmd.Id);
+                    if (reject == AiCommandReject.TierLocked || reject == AiCommandReject.PopCapReached)
+                    {
+                        Assert.Equal(injected, reject);
+                    }
+
+                    if (cmd.Kind != AiIssuedKind.RaiseBattalion)
+                    {
+                        continue;
+                    }
+
+                    if (cmd.Arg0 == AiConstants.UnitKindTierII)
+                    {
+                        Assert.True(SeatView.CurrentTier >= 2);
+                    }
+
+                    if (cmd.Arg0 == AiConstants.UnitKindTierIII)
+                    {
+                        Assert.True(SeatView.CurrentTier >= 3);
+                    }
+
+                    if (SeatView.PopCap > 0)
+                    {
+                        Assert.True(SeatView.PopUsed < SeatView.PopCap);
+                    }
+                }
             }
 
             public bool TryGet(int townId, out AiTownReadback readback)

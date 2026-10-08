@@ -13,17 +13,32 @@ namespace Wasteland.Sim.Tests
         private const int RemnantTicks = 90;
 
         [Fact]
+        public void IAiSeatView_MirrorsLeadFieldNames()
+        {
+            IAiSeatView view = new FixtureAiSeatView();
+            Assert.Equal(1, view.CurrentTier);
+            Assert.Equal(-1, view.TierResearchCompleteTick);
+            Assert.Equal(0, view.Manpower);
+            Assert.Equal(0, view.Materials);
+            Assert.Equal(0, view.PopUsed);
+            Assert.Equal(0, view.PopCap);
+        }
+
+        [Fact]
         public void CompactStyleSeat_EmptyResearch_NeverReachesTierII()
         {
             FixtureAiScenarioSeats seats = CompactSeats();
             Assert.False(seats.FuelEnabled);
             Assert.True(seats.TryGetByFaction("homestead_compact", out AiScenarioSeatView seat));
-            FixtureAiSideReadback side = Bound(seat);
+            FixtureAiSeatView view = ViewAt(seat, 0);
             Assert.True(seat.AllowsUnit(AiConstants.UnitKindInfantry, 0));
             Assert.True(seat.AllowsUnit(AiConstants.UnitKindEngineer, 0));
-            Assert.Equal(1, side.CurrentTier(1, 0));
-            Assert.Equal(1, side.CurrentTier(1, 10000));
-            Assert.False(seat.AllowsUnitForTier(AiConstants.UnitKindTierII, side.CurrentTier(1, 10000)));
+            Assert.Equal(1, view.CurrentTier);
+            Assert.Equal(-1, view.TierResearchCompleteTick);
+            view.Refresh(seat, 10000);
+            Assert.Equal(1, view.CurrentTier);
+            Assert.Equal(-1, view.TierResearchCompleteTick);
+            Assert.False(seat.AllowsUnitForTier(AiConstants.UnitKindTierII, view.CurrentTier));
             Assert.False(seat.AllowsUnit(AiConstants.UnitKindTierIII, 0));
             Assert.True(seat.AllowsBuilding(AiConstants.BuildingTagDepot));
             Assert.True(seat.AllowsBuilding(AiConstants.BuildingTagFortL1));
@@ -48,7 +63,7 @@ namespace Wasteland.Sim.Tests
             {
                 int before = harness.Sink.Log.Count;
                 harness.Tick(tick);
-                AssertSinkRespectsSeat(harness.Sink, harness.Side, before, seat, tick, false);
+                AssertSinkRespectsSeat(harness.Sink, harness.SeatView, before, seat, tick, false);
             }
         }
 
@@ -58,11 +73,14 @@ namespace Wasteland.Sim.Tests
             FixtureAiScenarioSeats seats = RemnantSeats();
             Assert.False(seats.FuelEnabled);
             Assert.True(seats.TryGetByFaction("remnant_command", out AiScenarioSeatView seat));
-            FixtureAiSideReadback side = Bound(seat);
-            Assert.Equal(1, side.CurrentTier(1, RemnantAvailableTick - 1));
-            Assert.Equal(2, side.CurrentTier(1, RemnantAvailableTick));
-            Assert.False(seat.AllowsUnitForTier(AiConstants.UnitKindTierII, side.CurrentTier(1, RemnantAvailableTick - 1)));
-            Assert.True(seat.AllowsUnitForTier(AiConstants.UnitKindTierII, side.CurrentTier(1, RemnantAvailableTick)));
+            FixtureAiSeatView beforeDone = ViewAt(seat, RemnantAvailableTick - 1);
+            Assert.Equal(1, beforeDone.CurrentTier);
+            Assert.Equal(RemnantAvailableTick, beforeDone.TierResearchCompleteTick);
+            FixtureAiSeatView afterDone = ViewAt(seat, RemnantAvailableTick);
+            Assert.Equal(2, afterDone.CurrentTier);
+            Assert.Equal(-1, afterDone.TierResearchCompleteTick);
+            Assert.False(seat.AllowsUnitForTier(AiConstants.UnitKindTierII, beforeDone.CurrentTier));
+            Assert.True(seat.AllowsUnitForTier(AiConstants.UnitKindTierII, afterDone.CurrentTier));
 
             AiMvpAttackTests.Harness harness = AiMvpAttackTests.Harness.Line();
             harness.Seat = seat;
@@ -76,7 +94,7 @@ namespace Wasteland.Sim.Tests
             {
                 int before = harness.Sink.Log.Count;
                 harness.Tick(tick);
-                AssertSinkRespectsSeat(harness.Sink, harness.Side, before, seat, tick, true);
+                AssertSinkRespectsSeat(harness.Sink, harness.SeatView, before, seat, tick, true);
                 for (int i = before; i < harness.Sink.Log.Count; i++)
                 {
                     AiIssuedCommand cmd = harness.Sink.Log[i];
@@ -101,10 +119,10 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void Sink_NeverRecordsTierLockedRaiseRequest()
+        public void Sink_NeverRecordsAiCausedTierLockedOrPopCapReached()
         {
-            RunCompactAndAssertNoTierLocked();
-            RunRemnantAndAssertNoTierLocked();
+            RunCompactAndAssertNoIllegalReject();
+            RunRemnantAndAssertNoIllegalReject();
         }
 
         [Fact]
@@ -114,8 +132,8 @@ namespace Wasteland.Sim.Tests
             Assert.True(seats.TryGetByFaction("remnant_command", out AiScenarioSeatView seat));
             AiMvpAttackTests.Harness harness = AiMvpAttackTests.Harness.Line();
             harness.Seat = seat;
-            harness.Side.PopUsed = 4;
-            harness.Side.PopCap = 4;
+            harness.SeatView.PopUsed = 4;
+            harness.SeatView.PopCap = 4;
             harness.SupplyReachCm = 100000;
             harness.Towns[10] = new AiTownReadback(1, false, 1, 2, 0, 0);
             harness.Towns[30] = new AiTownReadback(2, false, 2, 1, 1, 2);
@@ -159,7 +177,7 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(40 + tables.Tier2ResearchTicks, research.AvailableTick);
         }
 
-        private static void RunCompactAndAssertNoTierLocked()
+        private static void RunCompactAndAssertNoIllegalReject()
         {
             FixtureAiScenarioSeats seats = CompactSeats();
             Assert.True(seats.TryGetByFaction("homestead_compact", out AiScenarioSeatView seat));
@@ -176,10 +194,10 @@ namespace Wasteland.Sim.Tests
                 harness.Tick(tick);
             }
 
-            AssertNoTierLockedRequest(harness);
+            AssertNoAiCausedTierOrPopReject(harness);
         }
 
-        private static void RunRemnantAndAssertNoTierLocked()
+        private static void RunRemnantAndAssertNoIllegalReject()
         {
             FixtureAiScenarioSeats seats = RemnantSeats();
             Assert.True(seats.TryGetByFaction("remnant_command", out AiScenarioSeatView seat));
@@ -194,15 +212,17 @@ namespace Wasteland.Sim.Tests
                 harness.Tick(tick);
             }
 
-            AssertNoTierLockedRequest(harness);
+            AssertNoAiCausedTierOrPopReject(harness);
         }
 
-        private static void AssertNoTierLockedRequest(AiMvpAttackTests.Harness harness)
+        private static void AssertNoAiCausedTierOrPopReject(AiMvpAttackTests.Harness harness)
         {
             for (int i = 0; i < harness.Sink.Log.Count; i++)
             {
                 AiIssuedCommand cmd = harness.Sink.Log[i];
-                Assert.NotEqual(AiCommandReject.TierLocked, harness.Sink.RejectOf(cmd.Id));
+                AiCommandReject reject = harness.Sink.RejectOf(cmd.Id);
+                Assert.NotEqual(AiCommandReject.TierLocked, reject);
+                Assert.NotEqual(AiCommandReject.PopCapReached, reject);
                 if (cmd.Kind != AiIssuedKind.RaiseBattalion)
                 {
                     continue;
@@ -210,14 +230,19 @@ namespace Wasteland.Sim.Tests
 
                 if (cmd.Arg0 == AiConstants.UnitKindTierII)
                 {
-                    Assert.True(harness.Side.CurrentTier(cmd.FactionId, cmd.Tick) >= 2);
+                    Assert.True(harness.SeatView.CurrentTier >= 2);
+                }
+
+                if (harness.SeatView.PopCap > 0)
+                {
+                    Assert.True(harness.SeatView.PopUsed < harness.SeatView.PopCap);
                 }
             }
         }
 
         private static void AssertSinkRespectsSeat(
             RecordingAiCommandSink sink,
-            IAiSideReadback side,
+            IAiSeatView view,
             int from,
             AiScenarioSeatView seat,
             int tick,
@@ -227,13 +252,14 @@ namespace Wasteland.Sim.Tests
             {
                 AiIssuedCommand cmd = sink.Log[i];
                 Assert.Equal(tick, cmd.Tick);
+                Assert.NotEqual(AiCommandReject.TierLocked, sink.RejectOf(cmd.Id));
+                Assert.NotEqual(AiCommandReject.PopCapReached, sink.RejectOf(cmd.Id));
                 if (cmd.Kind == AiIssuedKind.RaiseBattalion)
                 {
                     int unitKind = cmd.Arg0;
-                    int currentTier = side.CurrentTier(cmd.FactionId, tick);
-                    Assert.True(seat.AllowsUnitForTier(unitKind, currentTier));
+                    Assert.True(seat.AllowsUnitForTier(unitKind, view.CurrentTier));
                     Assert.NotEqual(AiConstants.UnitKindTierIII, unitKind);
-                    if (!allowTierIIAfterAvailable || currentTier < 2)
+                    if (!allowTierIIAfterAvailable || view.CurrentTier < 2)
                     {
                         Assert.NotEqual(AiConstants.UnitKindTierII, unitKind);
                     }
@@ -251,11 +277,11 @@ namespace Wasteland.Sim.Tests
             }
         }
 
-        private static FixtureAiSideReadback Bound(AiScenarioSeatView seat)
+        private static FixtureAiSeatView ViewAt(AiScenarioSeatView seat, int tick)
         {
-            FixtureAiSideReadback side = new FixtureAiSideReadback();
-            side.Bind(seat);
-            return side;
+            FixtureAiSeatView view = new FixtureAiSeatView();
+            view.Refresh(seat, tick);
+            return view;
         }
 
         private static FixtureAiScenarioSeats CompactSeats()
