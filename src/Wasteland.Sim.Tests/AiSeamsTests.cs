@@ -630,6 +630,21 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void AiSaveLoad_RejectsSchema8_WithVersionMismatch()
+        {
+            AiMatchHost host = StartHost();
+            int sentinel = host.Ai.Owned.FactionAt(0).Manpower;
+            host.Ai.Owned.FactionAt(0).Manpower = sentinel + 1;
+            byte[] schema8 = { 8, 0, 0, 0 };
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => host.Ai.Load(schema8));
+            Assert.Equal(
+                "AI state schema version 8 is unsupported; expected 9.",
+                ex.Message);
+            Assert.Equal(sentinel + 1, host.Ai.Owned.FactionAt(0).Manpower);
+            host.Shutdown();
+        }
+
+        [Fact]
         public void OverflowDrop_RemovesWholeSpawnOrderAndBuildDepot()
         {
             AiMatchHost host = StartHost();

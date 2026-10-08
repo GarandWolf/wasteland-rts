@@ -164,6 +164,73 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void SaveLoadContinue_ForwardDepot_RestoresDepotTicksAndReplaysCommands()
+        {
+            Harness live = Harness.Line();
+            live.SupplyReachCm = 1500;
+            live.Towns[10] = Own(1);
+            live.Towns[30] = Enemy(2, 1);
+            live.SetBattalions(Idle(5, 1), Engineer(7, 1));
+            live.Tick(5);
+            Assert.True(live.Faction.DepotSiteTick > 0);
+            Assert.True(live.Faction.DepotActiveTick > live.Faction.DepotSiteTick);
+            int siteTick = live.Faction.DepotSiteTick;
+            int activeTick = live.Faction.DepotActiveTick;
+            int depotNode = 0;
+            for (int i = 0; i < live.Sink.Log.Count; i++)
+            {
+                if (live.Sink.Log[i].Kind == AiIssuedKind.BuildDepot)
+                {
+                    depotNode = live.Sink.Log[i].Arg1;
+                    break;
+                }
+            }
+
+            Assert.True(depotNode > 0);
+            Assert.True(live.Sink.TryGet(live.Faction.FactionId, depotNode, out AiDepotReadback placed));
+            Assert.Equal(siteTick, placed.SiteTick);
+            Assert.Equal(activeTick, placed.ActiveTick);
+            int logAtSave = live.Sink.Log.Count;
+            ulong hashAtSave = HashOf(live.Faction);
+            AiOwnedState saved = new AiOwnedState(new[] { live.Faction }, 1);
+            byte[] blob = saved.Save(0xA11UL, 0xB22UL, 0xC33UL);
+
+            Harness restored = Harness.Line();
+            restored.SupplyReachCm = 1500;
+            restored.Towns[10] = Own(1);
+            restored.Towns[30] = Enemy(2, 1);
+            restored.SetBattalions(Idle(5, 1), Engineer(7, 1));
+            AiOwnedState loaded = new AiOwnedState(new[] { restored.Faction }, 1);
+            loaded.Load(blob, 0xA11UL, 0xB22UL, 0xC33UL);
+            Assert.Equal(siteTick, restored.Faction.DepotSiteTick);
+            Assert.Equal(activeTick, restored.Faction.DepotActiveTick);
+            Assert.Equal(hashAtSave, HashOf(restored.Faction));
+            restored.Sink.RecordSite(restored.Faction.FactionId, depotNode, siteTick, activeTick);
+
+            live.Tick(6);
+            live.Tick(7);
+            restored.Tick(6);
+            restored.Tick(7);
+            Assert.Equal(HashOf(live.Faction), HashOf(restored.Faction));
+            Assert.Equal(siteTick, restored.Faction.DepotSiteTick);
+            Assert.Equal(activeTick, restored.Faction.DepotActiveTick);
+            Assert.Equal(live.Sink.Log.Count - logAtSave, restored.Sink.Log.Count);
+            for (int i = 0; i < restored.Sink.Log.Count; i++)
+            {
+                AiIssuedCommand expected = live.Sink.Log[logAtSave + i];
+                AiIssuedCommand actual = restored.Sink.Log[i];
+                Assert.Equal(expected.Tick, actual.Tick);
+                Assert.Equal(expected.FactionId, actual.FactionId);
+                Assert.Equal(expected.Kind, actual.Kind);
+                Assert.Equal(expected.Arg0, actual.Arg0);
+                Assert.Equal(expected.Arg1, actual.Arg1);
+                Assert.Equal(expected.Arg2, actual.Arg2);
+                Assert.Equal(expected.Arg3, actual.Arg3);
+                Assert.Equal(expected.UnitId, actual.UnitId);
+            }
+        }
+
+        [Fact]
         public void ForwardDepot_RaisesEngineerWhenNoneIdle()
         {
             Harness harness = Harness.Line();

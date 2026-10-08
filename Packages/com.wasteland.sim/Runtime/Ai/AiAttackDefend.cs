@@ -50,6 +50,7 @@ namespace Wasteland.Sim.Ai
         private IAiBuildingCatalog _buildings = AiBuildingCatalog.Empty;
         private int _lineUnitsPerAntiArmour = 2;
         private int _minGarrisonPerTown;
+        private bool _budgetDeferred;
 
         public AiAttackDefend(IAiCommandSink commands, IAiTownQuery towns, IAiDepotQuery depots)
         {
@@ -138,9 +139,15 @@ namespace Wasteland.Sim.Ai
 
             SortTowns(towns, townCount);
             SortBattalions(battalions, battalionCount);
+            _budgetDeferred = false;
 
             if (TryDefend(tick, faction, towns, townCount, battalions, battalionCount, graph))
             {
+                if (_budgetDeferred)
+                {
+                    ClearDecision(faction);
+                }
+
                 return;
             }
 
@@ -160,6 +167,27 @@ namespace Wasteland.Sim.Ai
                 prizeTerritoryKey,
                 prizeTargetBonusPpt,
                 seatView);
+            if (_budgetDeferred)
+            {
+                ClearDecision(faction);
+            }
+        }
+
+        private static void ClearDecision(AiFactionState faction)
+        {
+            faction.AttackTargetTownId = 0;
+            faction.DefendTownId = 0;
+        }
+
+        private bool DeferIfExhausted(AiSupplyResult result)
+        {
+            if (!result.IsBudgetExhausted)
+            {
+                return false;
+            }
+
+            _budgetDeferred = true;
+            return true;
         }
 
         public int PickAttackTarget(
@@ -195,7 +223,7 @@ namespace Wasteland.Sim.Ai
                 }
 
                 AiSupplyResult dist = _roads.DistanceCm(graph, fromNodeId, town.NodeId, faction);
-                if (dist.IsBudgetExhausted)
+                if (DeferIfExhausted(dist))
                 {
                     return 0;
                 }
@@ -226,6 +254,11 @@ namespace Wasteland.Sim.Ai
                     networkNodeIds,
                     networkCount,
                     faction);
+                if (DeferIfExhausted(supply))
+                {
+                    return 0;
+                }
+
                 if (supply.IsReached && supply.DistanceCm <= supplyReachCm)
                 {
                     return hqId;
@@ -431,7 +464,7 @@ namespace Wasteland.Sim.Ai
             }
 
             int battalionId = NearestIdle(faction, graph, defendNodeId, battalions, battalionCount, string.Empty);
-            if (battalionId == 0)
+            if (_budgetDeferred || battalionId == 0)
             {
                 return true;
             }
@@ -531,7 +564,7 @@ namespace Wasteland.Sim.Ai
                 networkNodeIds,
                 networkCount,
                 faction);
-            if (supply.IsBudgetExhausted)
+            if (DeferIfExhausted(supply))
             {
                 return;
             }
@@ -555,6 +588,11 @@ namespace Wasteland.Sim.Ai
             }
 
             int battalionId = NearestIdle(faction, graph, target.NodeId, battalions, battalionCount, string.Empty);
+            if (_budgetDeferred)
+            {
+                return;
+            }
+
             if (battalionId == 0)
             {
                 string raiseId = SelectRaiseUnit(
@@ -601,7 +639,7 @@ namespace Wasteland.Sim.Ai
             }
 
             AiSupplyResult fromNet = _roads.FillFromSources(graph, networkNodeIds, networkCount, faction);
-            if (fromNet.IsBudgetExhausted)
+            if (DeferIfExhausted(fromNet))
             {
                 return;
             }
@@ -612,7 +650,7 @@ namespace Wasteland.Sim.Ai
             }
 
             AiSupplyResult fromTarget = _roads.FillFromNode(graph, targetNodeId, faction);
-            if (fromTarget.IsBudgetExhausted)
+            if (DeferIfExhausted(fromTarget))
             {
                 return;
             }
@@ -673,6 +711,11 @@ namespace Wasteland.Sim.Ai
                 battalions,
                 battalionCount,
                 AiConstants.RoleEngineer);
+            if (_budgetDeferred)
+            {
+                return;
+            }
+
             if (engineerId == 0)
             {
                 string engineerIdToRaise = SelectRaiseUnit(
@@ -689,9 +732,20 @@ namespace Wasteland.Sim.Ai
             }
 
             AiBattalionPin engineer = FindPin(battalions, battalionCount, engineerId);
-            if (PathNearEnemy(faction, towns, townCount, graph, engineer.RoadNodeId, bestNode))
+            bool nearEnemy = PathNearEnemy(faction, towns, townCount, graph, engineer.RoadNodeId, bestNode);
+            if (_budgetDeferred)
+            {
+                return;
+            }
+
+            if (nearEnemy)
             {
                 int escortId = NearestIdle(faction, graph, bestNode, battalions, battalionCount, AiConstants.RoleLineInfantry);
+                if (_budgetDeferred)
+                {
+                    return;
+                }
+
                 if (escortId != 0 && escortId != engineerId)
                 {
                     int escortCmd = _commands.SubmitMove(faction.FactionId, escortId, bestX, bestY);
@@ -936,7 +990,7 @@ namespace Wasteland.Sim.Ai
             int toNodeId)
         {
             AiSupplyResult path = _roads.DistanceCm(graph, fromNodeId, toNodeId, faction);
-            if (!path.IsReached)
+            if (DeferIfExhausted(path) || !path.IsReached)
             {
                 return false;
             }
@@ -957,12 +1011,22 @@ namespace Wasteland.Sim.Ai
                 }
 
                 AiSupplyResult viaResult = _roads.DistanceCm(graph, fromNodeId, town.NodeId, faction);
+                if (DeferIfExhausted(viaResult))
+                {
+                    return false;
+                }
+
                 if (!viaResult.IsReached)
                 {
                     continue;
                 }
 
                 AiSupplyResult restResult = _roads.DistanceCm(graph, town.NodeId, toNodeId, faction);
+                if (DeferIfExhausted(restResult))
+                {
+                    return false;
+                }
+
                 if (!restResult.IsReached)
                 {
                     continue;
@@ -1080,9 +1144,9 @@ namespace Wasteland.Sim.Ai
                 }
 
                 AiSupplyResult dist = _roads.DistanceCm(graph, pin.RoadNodeId, toNodeId, faction);
-                if (dist.IsBudgetExhausted)
+                if (DeferIfExhausted(dist))
                 {
-                    continue;
+                    return 0;
                 }
 
                 int d = dist.IsReached ? dist.DistanceCm : AiConstants.UnreachableCm;

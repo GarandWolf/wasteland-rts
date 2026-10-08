@@ -38,6 +38,39 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void Attack_BudgetExhausted_IssuesNoCommand_ThenDecidesNextTick()
+        {
+            AiMvpAttackTests.Harness harness = AiMvpAttackTests.Harness.Line(3);
+            harness.SupplyReachCm = 1500;
+            harness.Towns[10] = new AiTownReadback(1, false, 1, 1, 0, 0);
+            harness.Towns[30] = new AiTownReadback(2, false, 2, 1, 0, 0);
+            harness.SetBattalions(
+                AiMvpAttackTests.PinWithRole(5, 1000, 0, 1, AiConstants.RoleLineInfantry),
+                AiMvpAttackTests.PinWithRole(7, 1000, 0, 1, AiConstants.RoleEngineer));
+            harness.Tick(0);
+            Assert.Empty(harness.Sink.Log);
+            Assert.Equal(0, harness.Faction.AttackTargetTownId);
+            Assert.Equal(0, harness.Faction.DefendTownId);
+            Assert.True(harness.Faction.SupplyBudgetDefers > 0);
+
+            harness.Faction.WorkUnitsPerTick = 50000;
+            harness.Tick(1);
+            Assert.NotEmpty(harness.Sink.Log);
+            bool built = false;
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                if (harness.Sink.Log[i].Kind == AiIssuedKind.BuildDepot)
+                {
+                    built = true;
+                    break;
+                }
+            }
+
+            Assert.True(built);
+            Assert.Equal(30, harness.Faction.AttackTargetTownId);
+        }
+
+        [Fact]
         public void Attack_DefersDepotWhenSupplySearchBudgetExhausted_ThenPlacesWhenBudgetAllows()
         {
             AiMvpAttackTests.Harness harness = AiMvpAttackTests.Harness.Line(3);

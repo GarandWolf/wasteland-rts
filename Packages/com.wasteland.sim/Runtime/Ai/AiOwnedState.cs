@@ -569,7 +569,9 @@ namespace Wasteland.Sim.Ai
             int schema = reader.ReadInt32();
             if (schema != AiConstants.StateSchemaVersion)
             {
-                throw new InvalidDataException("Unsupported AI state schema.");
+                throw new InvalidDataException(
+                    "AI state schema version " + schema
+                    + " is unsupported; expected " + AiConstants.StateSchemaVersion + ".");
             }
 
             ulong savedSeed = reader.ReadUInt64();
