@@ -12,7 +12,6 @@ namespace Wasteland.Sim.Ai
     public sealed class ForwardAiCommandSink
     {
         private readonly SimWorld _world;
-        private int _nextBattalionId;
 
         public ForwardAiCommandSink(SimWorld world)
         {
@@ -22,7 +21,6 @@ namespace Wasteland.Sim.Ai
             }
 
             _world = world;
-            _nextBattalionId = 1;
         }
 
         public int Tick
@@ -42,10 +40,8 @@ namespace Wasteland.Sim.Ai
         /// </summary>
         public int SubmitRaiseBattalion(int factionId, string unitId, int xCm, int yCm)
         {
-            int battalionId = _nextBattalionId;
-            _nextBattalionId++;
-            _world.SubmitRaiseBattalion(factionId, battalionId, unitId, xCm, yCm);
-            return battalionId;
+            SimCommand stamped = _world.SubmitRaiseBattalion(factionId, unitId, xCm, yCm);
+            return stamped.BattalionId;
         }
 
         public CommandRejectReason RejectOf(int subjectId)

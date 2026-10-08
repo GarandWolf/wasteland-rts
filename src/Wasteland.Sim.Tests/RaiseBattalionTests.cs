@@ -34,14 +34,14 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(2, world.Tick);
 
             world.Step();
-            Assert.Equal(2, world.BattalionCount);
+            Assert.Equal(0, world.BattalionCount);
             Assert.Equal(3, world.Tick);
 
             int firstSpawn = -1;
             int secondSpawn = -1;
             for (int i = 0; i < world.Events.Count; i++)
             {
-                if (world.Events[i].Kind != SimEventKind.BattalionSpawned)
+                if (world.Events[i].Kind != SimEventKind.BattalionRaiseStarted)
                 {
                     continue;
                 }
@@ -162,6 +162,16 @@ namespace Wasteland.Sim.Tests
             BindCornerRoads(world);
             world.SubmitRaiseBattalion(Faction, 1, LineUnit, 10000, 10000);
             world.Step();
+            Assert.Equal(0, world.BattalionCount);
+            Assert.True(world.TryGetSeat(Faction, out SeatView charged));
+            Assert.Equal(1000 - 70, charged.Manpower);
+            Assert.Equal(1, charged.PopUsed);
+
+            int buildTicks = BuildTicks(LineUnit);
+            Assert.Equal(600, buildTicks);
+            StepUntilTick(world, buildTicks);
+            Assert.Equal(0, world.BattalionCount);
+            world.Step();
 
             SimBattalion battalion = world.GetBattalion(1);
             Assert.Equal(0, battalion.PositionXCm);
@@ -184,6 +194,7 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(1, seat.PopUsed);
             Assert.Equal(4, seat.PopCap);
             Assert.Equal(1000, seat.VisibleStrength);
+            Assert.Equal(buildTicks, SpawnTick(world, 1));
             Assert.Equal(7, seat.HomeTownId);
         }
 
@@ -217,9 +228,9 @@ namespace Wasteland.Sim.Tests
             Assert.True(world.TryGetSeat(Faction, out SeatView after));
             Assert.Equal(2, after.CurrentTier);
             Assert.Equal(-1, after.TierResearchCompleteTick);
-            Assert.Equal(1, world.BattalionCount);
-            Assert.Equal(0, world.GetBattalion(4).PositionXCm);
-            Assert.Equal(0, world.GetBattalion(4).PositionYCm);
+            Assert.Equal(0, world.BattalionCount);
+            Assert.Equal(SimEventKind.BattalionRaiseStarted, world.Events[world.Events.Count - 1].Kind);
+            Assert.Equal(4, world.Events[world.Events.Count - 1].SubjectId);
         }
 
         [Fact]
@@ -236,6 +247,11 @@ namespace Wasteland.Sim.Tests
 
             Assert.Equal(CommandRejectReason.None, sink.RejectOf(raised));
             Assert.Equal(CommandRejectReason.TierLocked, sink.RejectOf(locked));
+            Assert.Equal(0, world.BattalionCount);
+            Assert.NotEqual(raised, locked);
+
+            StepUntilTick(world, BuildTicks(LineUnit));
+            world.Step();
 
             SimBattalion battalion = world.GetBattalion(raised);
             Assert.Equal(0, battalion.PositionXCm);
@@ -293,6 +309,276 @@ namespace Wasteland.Sim.Tests
             Assert.False(catalog.TryGetUnitTargetClass("no_such_unit", out missingClass));
             Assert.False(catalog.TryGetManpowerCost("no_such_unit", out missingCost));
             Assert.False(catalog.TryGetBuildingRole("no_such_building", out missingBuilding));
+        }
+
+        [Fact]
+        public void Reject_UnknownSeat_ChargesNothing()
+        {
+            SimWorld world = NewWorld(0);
+            world.BindCatalog(Catalog());
+            world.SubmitRaiseBattalion(Faction, 3, LineUnit, 1, 1);
+            world.Step();
+            AssertParams(world, 3, CommandRejectReason.UnknownSeat, 0, 0);
+            Assert.False(world.TryCopyProductionQueue(Faction, new List<ProductionQueueItem>()));
+            Assert.Equal(0, world.BattalionCount);
+        }
+
+        [Fact]
+        public void Reject_DuplicateBattalion_ChargesNothing()
+        {
+            SimWorld world = Rich(popCap: 4, manpower: 1000, materials: 1000, fuel: 50, fuelEnabled: true);
+            SeatView before = SeatOf(world);
+            world.Submit(SimCommand.SpawnBattalion(0, Faction, 4, 0, 0, 10));
+            world.SubmitRaiseBattalion(Faction, 4, LineUnit, 1, 1);
+            world.Step();
+            AssertParams(world, 4, CommandRejectReason.DuplicateBattalion, 0, 0);
+            AssertUntouched(before, SeatOf(world));
+            Assert.Equal(50, world.FuelOf(Faction));
+            Assert.Empty(Queue(world));
+        }
+
+        [Fact]
+        public void Reject_UnknownUnit_ChargesNothing()
+        {
+            SimWorld world = Rich(popCap: 4, manpower: 1000, materials: 1000, fuel: 50, fuelEnabled: true);
+            SeatView before = SeatOf(world);
+            world.SubmitRaiseBattalion(Faction, 3, "no_such_unit", 1, 1);
+            world.Step();
+            AssertParams(world, 3, CommandRejectReason.UnitNotRaisable, -1, 0);
+            AssertUntouched(before, SeatOf(world));
+            Assert.Equal(50, world.FuelOf(Faction));
+            Assert.Empty(Queue(world));
+        }
+
+        [Fact]
+        public void Reject_PopCapReached_ChargesNothingExtra()
+        {
+            SimWorld world = Rich(popCap: 1, manpower: 1000, materials: 1000, fuel: 0, fuelEnabled: false);
+            world.SubmitRaiseBattalion(Faction, 1, LineUnit, 5, 5);
+            world.SubmitRaiseBattalion(Faction, 2, LineUnit, 6, 6);
+            world.Step();
+            AssertParams(world, 2, CommandRejectReason.PopCapReached, 1, 1);
+            SeatView seat = SeatOf(world);
+            Assert.Equal(1, seat.PopUsed);
+            Assert.Equal(1000 - 70, seat.Manpower);
+            Assert.Equal(1000 - 40, seat.Materials);
+            Assert.Single(Queue(world));
+        }
+
+        [Fact]
+        public void Reject_InsufficientManpower_ChargesNothing()
+        {
+            SimWorld world = Rich(popCap: 4, manpower: 69, materials: 1000, fuel: 0, fuelEnabled: false);
+            SeatView before = SeatOf(world);
+            world.SubmitRaiseBattalion(Faction, 1, LineUnit, 5, 5);
+            world.Step();
+            AssertParams(world, 1, CommandRejectReason.InsufficientManpower, 70, 69);
+            AssertUntouched(before, SeatOf(world));
+            Assert.Empty(Queue(world));
+        }
+
+        [Fact]
+        public void Reject_InsufficientMaterials_ChargesNothing()
+        {
+            SimWorld world = Rich(popCap: 4, manpower: 1000, materials: 39, fuel: 0, fuelEnabled: false);
+            SeatView before = SeatOf(world);
+            world.SubmitRaiseBattalion(Faction, 1, LineUnit, 5, 5);
+            world.Step();
+            AssertParams(world, 1, CommandRejectReason.InsufficientMaterials, 40, 39);
+            AssertUntouched(before, SeatOf(world));
+            Assert.Empty(Queue(world));
+        }
+
+        [Fact]
+        public void Reject_InsufficientFuel_ChargesNothing()
+        {
+            SimWorld world = Rich(popCap: 4, manpower: 1000, materials: 1000, fuel: 29, fuelEnabled: true);
+            SeatView before = SeatOf(world);
+            world.SubmitRaiseBattalion(Faction, 1, LineUnit, 5, 5);
+            world.Step();
+            AssertParams(world, 1, CommandRejectReason.InsufficientFuel, 30, 29);
+            AssertUntouched(before, SeatOf(world));
+            Assert.Equal(29, world.FuelOf(Faction));
+            Assert.Empty(Queue(world));
+        }
+
+        [Fact]
+        public void FuelDisabled_SkipsFuelCheck()
+        {
+            SimWorld world = Rich(popCap: 4, manpower: 1000, materials: 1000, fuel: 0, fuelEnabled: false);
+            world.SubmitRaiseBattalion(Faction, 1, LineUnit, 0, 0);
+            world.Step();
+            Assert.Equal(CommandRejectReason.None, RejectionOrNone(world, 1));
+            Assert.Equal(0, world.FuelOf(Faction));
+            Assert.Equal(1000 - 70, SeatOf(world).Manpower);
+            Assert.Equal(1, SeatOf(world).PopUsed);
+            Assert.Single(Queue(world));
+        }
+
+        [Fact]
+        public void Reject_NoPath_ChargesNothing()
+        {
+            SimWorld world = Rich(popCap: 4, manpower: 1000, materials: 1000, fuel: 40, fuelEnabled: true);
+            SeatView before = SeatOf(world);
+            BindDisconnected(world);
+            world.Submit(SimCommand.SpawnBattalion(0, Faction, 8, 0, 0, 1000));
+            world.Submit(SimCommand.Move(0, Faction, 8, 50000, 0));
+            world.Step();
+            AssertParams(world, 8, CommandRejectReason.NoPath, 1, 2);
+            AssertUntouched(before, SeatOf(world));
+            Assert.Equal(40, world.FuelOf(Faction));
+        }
+
+        [Fact]
+        public void CostsAndPop_ChargedOnExecuteTick_NotBefore()
+        {
+            SimWorld world = NewWorld(delay: 2);
+            BindRichSeat(world, Faction, tier: 1, popCap: 4);
+            world.SubmitRaiseBattalion(Faction, 1, LineUnit, 4, 4);
+            world.Step();
+            world.Step();
+            Assert.Equal(2, world.Tick);
+            Assert.Equal(1000, SeatOf(world).Manpower);
+            Assert.Equal(1000, SeatOf(world).Materials);
+            Assert.Equal(0, SeatOf(world).PopUsed);
+            Assert.Empty(Queue(world));
+            Assert.Equal(0, world.BattalionCount);
+
+            world.Step();
+            Assert.Equal(1000 - 70, SeatOf(world).Manpower);
+            Assert.Equal(1000 - 40, SeatOf(world).Materials);
+            Assert.Equal(1, SeatOf(world).PopUsed);
+            Assert.Equal(0, world.BattalionCount);
+            ProductionQueueItem job = Queue(world)[0];
+            Assert.Equal(LineUnit, job.UnitId);
+            Assert.Equal(2, job.StartTick);
+            Assert.Equal(2 + 600, job.CompleteTick);
+        }
+
+        [Fact]
+        public void ArmourRaise_SpawnsAtHq_AfterBuildTicks()
+        {
+            const string armour = "remnant_armoured_battalion";
+            Assert.Equal(1200, BuildTicks(armour));
+            SimWorld world = NewWorld(0);
+            world.BindCatalog(Catalog());
+            world.BindSeat(Seat(Faction, 2, -1, 1000, 1000, 0, false, 4, armour));
+            world.SubmitRaiseBattalion(Faction, 11, armour, 10000, 0);
+            world.Step();
+            Assert.Equal(0, world.BattalionCount);
+            ProductionQueueItem job = Queue(world)[0];
+            Assert.Equal(0, job.StartTick);
+            Assert.Equal(1200, job.CompleteTick);
+
+            StepUntilTick(world, 1200);
+            Assert.Equal(0, world.BattalionCount);
+            world.Step();
+
+            Assert.Equal(1200, SpawnTick(world, 11));
+            SimBattalion battalion = world.GetBattalion(11);
+            Assert.Equal(0, battalion.PositionYCm);
+            Assert.InRange(battalion.PositionXCm, 1, 2000);
+            Assert.NotEqual(10000, battalion.PositionXCm);
+            Assert.True(battalion.HasTarget);
+            Assert.Equal(10000, battalion.TargetXCm);
+            Assert.Equal(0, battalion.TargetYCm);
+        }
+
+        [Fact]
+        public void HeavyWorksRaises_CompleteSerially()
+        {
+            const string armour = "remnant_armoured_battalion";
+            Assert.Equal(1200, BuildTicks(armour));
+            Assert.Equal(900, BuildTicks(TierTwoUnit));
+            SimWorld world = NewWorld(0);
+            world.BindCatalog(Catalog());
+            world.BindSeat(Seat(Faction, 2, -1, 1000, 1000, 0, false, 4, armour, TierTwoUnit));
+            world.SubmitRaiseBattalion(Faction, 11, armour, 0, 0);
+            world.SubmitRaiseBattalion(Faction, 12, TierTwoUnit, 0, 0);
+            world.Step();
+
+            List<ProductionQueueItem> queued = Queue(world);
+            Assert.Equal(2, queued.Count);
+            Assert.Equal(armour, queued[0].UnitId);
+            Assert.Equal(0, queued[0].StartTick);
+            Assert.Equal(1200, queued[0].CompleteTick);
+            Assert.Equal(TierTwoUnit, queued[1].UnitId);
+            Assert.Equal(1200, queued[1].StartTick);
+            Assert.Equal(2100, queued[1].CompleteTick);
+            Assert.Equal(2, SeatOf(world).PopUsed);
+
+            StepUntilTick(world, 1200);
+            Assert.Equal(0, world.BattalionCount);
+            world.Step();
+            Assert.Equal(1200, SpawnTick(world, 11));
+            Assert.Equal(0, world.GetBattalion(11).PositionXCm);
+            Assert.Equal(0, world.GetBattalion(11).PositionYCm);
+            Assert.False(world.TryGetBattalionView(12, out _));
+
+            StepUntilTick(world, 2100);
+            Assert.False(world.TryGetBattalionView(12, out _));
+            world.Step();
+            Assert.Equal(2100, SpawnTick(world, 12));
+            Assert.Equal(0, world.GetBattalion(12).PositionXCm);
+            Assert.Equal(0, world.GetBattalion(12).PositionYCm);
+        }
+
+        [Fact]
+        public void DifferentProducedAtBuildings_RunInParallel()
+        {
+            const string armour = "remnant_armoured_battalion";
+            SimWorld world = NewWorld(0);
+            world.BindCatalog(Catalog());
+            world.BindSeat(Seat(Faction, 2, -1, 1000, 1000, 0, false, 4, LineUnit, armour));
+            world.SubmitRaiseBattalion(Faction, 1, LineUnit, 0, 0);
+            world.SubmitRaiseBattalion(Faction, 11, armour, 0, 0);
+            world.Step();
+
+            ProductionQueueItem rifles = FindJob(world, LineUnit);
+            ProductionQueueItem armourJob = FindJob(world, armour);
+            Assert.Equal(0, rifles.StartTick);
+            Assert.Equal(600, rifles.CompleteTick);
+            Assert.Equal(0, armourJob.StartTick);
+            Assert.Equal(1200, armourJob.CompleteTick);
+
+            StepUntilTick(world, 600);
+            world.Step();
+            Assert.Equal(600, SpawnTick(world, 1));
+            Assert.False(world.TryGetBattalionView(11, out _));
+
+            StepUntilTick(world, 1200);
+            world.Step();
+            Assert.Equal(1200, SpawnTick(world, 11));
+        }
+
+        [Fact]
+        public void TwoSinks_AllocateDistinctBattalionIds()
+        {
+            SimWorld world = NewWorld(0);
+            BindRichSeat(world, Faction, tier: 1, popCap: 4);
+            BindRichSeat(world, OtherFaction, tier: 1, popCap: 4);
+            world.Submit(SimCommand.SpawnBattalion(0, Faction, 5, 0, 0, 10));
+            world.Submit(SimCommand.SpawnBattalion(3, Faction, 20, 1, 1, 10));
+
+            ForwardAiCommandSink first = new ForwardAiCommandSink(world);
+            ForwardAiCommandSink second = new ForwardAiCommandSink(world);
+            int left = first.SubmitRaiseBattalion(Faction, LineUnit, 0, 0);
+            int right = second.SubmitRaiseBattalion(OtherFaction, LineUnit, 0, 0);
+            int again = first.SubmitRaiseBattalion(Faction, LineUnit, 1, 1);
+
+            Assert.Equal(21, left);
+            Assert.Equal(22, right);
+            Assert.Equal(23, again);
+            Assert.NotEqual(left, right);
+        }
+
+        [Fact]
+        public void ProductionQueue_Replay_MatchesHashEveryTick()
+        {
+            List<ulong> first = RunProductionReplay();
+            List<ulong> second = RunProductionReplay();
+            Assert.Equal(first, second);
+            Assert.True(first.Count > 1200);
         }
 
         private static List<ulong> RunReplay()
@@ -421,6 +707,101 @@ namespace Wasteland.Sim.Tests
         private static SimWorld NewWorld(int delay)
         {
             return new SimWorld(new MatchConfig(42UL, delay));
+        }
+
+        private static void StepUntilTick(SimWorld world, int tick)
+        {
+            while (world.Tick < tick)
+            {
+                world.Step();
+            }
+        }
+
+        private static int BuildTicks(string unitId)
+        {
+            BalanceCatalog catalog = Catalog();
+            Assert.True(catalog.TryGetUnitIndex(unitId, out int index));
+            return catalog.UnitBuildTicksAt(index);
+        }
+
+        private static int SpawnTick(SimWorld world, int battalionId)
+        {
+            for (int i = 0; i < world.Events.Count; i++)
+            {
+                SimEvent ev = world.Events[i];
+                if (ev.Kind == SimEventKind.BattalionSpawned && ev.SubjectId == battalionId)
+                {
+                    return ev.Tick;
+                }
+            }
+
+            Assert.Fail("missing spawn " + battalionId);
+            return -1;
+        }
+
+        private static SeatView SeatOf(SimWorld world)
+        {
+            Assert.True(world.TryGetSeat(Faction, out SeatView seat));
+            return seat;
+        }
+
+        private static List<ProductionQueueItem> Queue(SimWorld world)
+        {
+            List<ProductionQueueItem> items = new List<ProductionQueueItem>();
+            Assert.True(world.TryCopyProductionQueue(Faction, items));
+            return items;
+        }
+
+        private static ProductionQueueItem FindJob(SimWorld world, string unitId)
+        {
+            List<ProductionQueueItem> items = Queue(world);
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (items[i].UnitId == unitId)
+                {
+                    return items[i];
+                }
+            }
+
+            Assert.Fail("missing job " + unitId);
+            return new ProductionQueueItem(unitId, 0, 0);
+        }
+
+        private static void AssertUntouched(SeatView before, SeatView after)
+        {
+            Assert.Equal(before.Manpower, after.Manpower);
+            Assert.Equal(before.Materials, after.Materials);
+            Assert.Equal(before.PopUsed, after.PopUsed);
+        }
+
+        private static CommandRejectReason RejectionOrNone(SimWorld world, int subject)
+        {
+            CommandRejectReason code;
+            int param0;
+            int param1;
+            if (world.TryGetRejection(subject, out code, out param0, out param1))
+            {
+                return code;
+            }
+
+            return CommandRejectReason.None;
+        }
+
+        private static List<ulong> RunProductionReplay()
+        {
+            const string armour = "remnant_armoured_battalion";
+            SimWorld world = NewWorld(0);
+            world.BindCatalog(Catalog());
+            world.BindSeat(Seat(Faction, 2, -1, 1000, 1000, 0, false, 4, armour, TierTwoUnit));
+            world.SubmitRaiseBattalion(Faction, 11, armour, 3, 4);
+            world.SubmitRaiseBattalion(Faction, 12, TierTwoUnit, 5, 6);
+            List<ulong> hashes = new List<ulong>();
+            for (int i = 0; i < 1211; i++)
+            {
+                hashes.Add(world.Step());
+            }
+
+            return hashes;
         }
 
         private static SeatSetup Seat(
