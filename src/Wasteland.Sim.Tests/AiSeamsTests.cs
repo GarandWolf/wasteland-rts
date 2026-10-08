@@ -136,7 +136,7 @@ namespace Wasteland.Sim.Tests
             byte[] blob = host.Ai.Save();
             host.Shutdown();
 
-            int postureOffset = FirstFactionIntOffset(blob) + (9 * sizeof(int));
+            int postureOffset = FirstFactionIntOffset(blob) + (8 * sizeof(int));
             byte[] mutated = (byte[])blob.Clone();
             mutated[postureOffset] = (byte)((int)AiPosture.Counterattack + 1);
 
@@ -156,7 +156,7 @@ namespace Wasteland.Sim.Tests
             byte[] blob = host.Ai.Save();
             host.Shutdown();
 
-            int orderCountOffset = FirstFactionIntOffset(blob) + (9 * sizeof(int)) + 1 + sizeof(int);
+            int orderCountOffset = FirstFactionIntOffset(blob) + (8 * sizeof(int)) + 1 + sizeof(int);
             byte[] mutated = (byte[])blob.Clone();
             mutated[orderCountOffset] = 0xFF;
             mutated[orderCountOffset + 1] = 0xFF;
@@ -704,9 +704,11 @@ namespace Wasteland.Sim.Tests
             faction.WorkUnitsThisTick = 0;
             AiRoadSupply supply = new AiRoadSupply();
             int first = supply.DistanceCm(roads, from, to, faction);
-            Assert.Equal(1, faction.WorkUnitsThisTick);
+            Assert.True(faction.WorkUnitsThisTick > 0);
+            Assert.True(faction.WorkUnitsThisTick <= faction.WorkUnitsPerTick);
+            int charged = faction.WorkUnitsThisTick;
             int second = supply.DistanceCm(roads, from, to, faction);
-            Assert.Equal(2, faction.WorkUnitsThisTick);
+            Assert.Equal(charged * 2, faction.WorkUnitsThisTick);
             Assert.Equal(first, second);
             host.Shutdown();
         }

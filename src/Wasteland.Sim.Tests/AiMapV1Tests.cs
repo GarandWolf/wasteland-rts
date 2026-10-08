@@ -142,8 +142,8 @@ namespace Wasteland.Sim.Tests
                 AiConstants.DifficultyBrutal,
                 balance);
 
-            Assert.Equal(0, normal.Ai.Difficulty.EconomyBonusPpt);
-            Assert.Equal(100, brutal.Ai.Difficulty.EconomyBonusPpt);
+            Assert.Equal(1000, normal.Ai.Balance.IncomeMultiplierPpt(AiConstants.DifficultyNormal));
+            Assert.Equal(1100, brutal.Ai.Balance.IncomeMultiplierPpt(AiConstants.DifficultyBrutal));
             Assert.Equal(AiConstants.FogCheatNone, brutal.Ai.Difficulty.FogCheat);
 
             int normalIncome = normal.Ai.ManpowerIncomePerMinute(AiConstants.DefaultAiFactionA);

@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "dataVersion": 1,
+  "workUnitsPerTick": 50000,
   "difficulties": [
     {
       "id": "easy",
@@ -10,7 +11,6 @@
       "scoutCadenceTicks": 160,
       "fogCheat": "none",
       "memoryDecayPerCadencePpt": 250,
-      "economyBonusPpt": 0,
       "buildSpeedBonusPpt": 0,
       "visionRadiusBonusCm": 0,
       "microQuality": 0,
@@ -29,7 +29,6 @@
       "scoutCadenceTicks": 80,
       "fogCheat": "none",
       "memoryDecayPerCadencePpt": 120,
-      "economyBonusPpt": 0,
       "buildSpeedBonusPpt": 0,
       "visionRadiusBonusCm": 0,
       "microQuality": 1,
@@ -48,7 +47,6 @@
       "scoutCadenceTicks": 48,
       "fogCheat": "none",
       "memoryDecayPerCadencePpt": 80,
-      "economyBonusPpt": 0,
       "buildSpeedBonusPpt": 0,
       "visionRadiusBonusCm": 0,
       "microQuality": 2,
@@ -67,7 +65,6 @@
       "scoutCadenceTicks": 32,
       "fogCheat": "none",
       "memoryDecayPerCadencePpt": 40,
-      "economyBonusPpt": 100,
       "buildSpeedBonusPpt": 0,
       "visionRadiusBonusCm": 0,
       "microQuality": 3,

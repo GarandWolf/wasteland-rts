@@ -230,7 +230,16 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.TownOwnerAt(townIndex));
 
             SpawnAt(host, AiConstants.DefaultAiFactionB, secondId, town.XCm, town.YCm, 0);
-            WaitUntilOwned(host, townIndex, AiConstants.DefaultAiFactionB);
+            WaitUntilHeld(host, townIndex, 1);
+            int need = host.Ai.Balance.CaptureTicksForClass(town.PopulationClass);
+            Assert.Equal(AiCaptureTests.ExpectedHamletTicks, need);
+            int held = host.Ai.Owned.CaptureHeldTicksAt(townIndex);
+            Assert.True(held < need);
+            host.Run(need - held - 1);
+            Assert.Equal(need - 1, host.Ai.Owned.CaptureHeldTicksAt(townIndex));
+            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.TownOwnerAt(townIndex));
+            host.Run(1);
+            Assert.Equal(AiConstants.DefaultAiFactionB, host.Ai.Owned.TownOwnerAt(townIndex));
             host.Shutdown();
         }
 
@@ -238,7 +247,7 @@ namespace Wasteland.Sim.Tests
         public void EconomyAccrual_MatchesEconomyJsonPerMinute()
         {
             AiMatchHost host = StartOneFaction();
-            AiEconomyStub economy = new AiEconomyStub(host.Ai.Map, host.Ai.Owned, host.Ai.Balance);
+            AiEconomyStub economy = new AiEconomyStub(host.Ai.Map, host.Ai.Owned, host.Ai.Balance, (ICaptureOccupancyView)host.Ai.Commands);
             int remnant = AiConstants.DefaultAiFactionA;
             int start = host.Ai.ManpowerOf(remnant);
             Assert.Equal(AiHomeSeeder.StartingManpower, start);
