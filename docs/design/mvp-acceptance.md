@@ -67,7 +67,7 @@ Formula: `ticks = timerTicksByTier[seatTier] × (1000 + min(L × fortificationTi
 | **C1a Goldendale uninterrupted** | The capture condition first holds on tick *a* in the Goldendale zone and keeps holding. | Goldendale changes owner on tick *a* + 1500. Not on *a* + 1499. |
 | **C2a Hood River uninterrupted** | The capture condition first holds on tick *a* in the Hood River zone and keeps holding. | Hood River changes owner on tick *a* + 3000 (W1 resolves at end of that tick). Not on *a* + 2999. |
 
-**When the condition breaks**, the timer follows `rules.json capture` exactly: `onContest` `"pause"`, `resetOnContest` false, `onCapturerAbsent` `"pause_then_decay"` with decay starting after `decayStartsAfterTicks` 1200 at `decayTicksPerTick` 1. **Lead to confirm sim matches rules.json** (the Lead described this as "resets", which differs from the data).
+**When the condition breaks**, the timer follows `rules.json capture` exactly: `onContest` `"pause"`, `resetOnContest` false, `onCapturerAbsent` `"pause_then_decay"` with decay starting after `decayStartsAfterTicks` 1200 at `decayTicksPerTick` 1. **Decided, confirmed by the Lead 2026-10-08.**
 
 Timer behaviour, unchanged from `rules.json capture`:
 
@@ -138,7 +138,7 @@ The §5 timeline estimates live in `data/design/mvp_targets.json` (ticks, tolera
 
 ## 5. Decisions (2026-10-08)
 
-- **LD1 Capture tick. Lead decision, 2026-10-08.** A capture lands on tick *a* + N, where *a* is the first tick the capture condition holds (C1a, C2a). After a break, the timer follows `rules.json capture` (pause on contest without reset; pause then decay after 1200 ticks at 1 tick per tick when the capturer is absent). Lead to confirm sim matches rules.json.
+- **LD1 Capture tick. Lead decision, 2026-10-08.** A capture lands on tick *a* + N, where *a* is the first tick the capture condition holds (C1a, C2a). After a break, the timer follows `rules.json capture` (pause on contest without reset; pause then decay after 1200 ticks at 1 tick per tick when the capturer is absent). Decided, confirmed by the Lead 2026-10-08.
 - **DD1 Depots under construction. Designer decision, 2026-10-08.** A depot under construction counts for spacing (`depotMinSpacingCm`), the one-per-node limit (`maxDepotsPerNode`) and the 16 cap (`maxDepotsPerFaction`) from the tick its `BuildDepot` executes. It is destroyed if its territory is captured, exactly like a completed depot (K1).
 - **DD2 Cost timing. Designer decision, 2026-10-08.** The 200 materiel is charged when the command executes, on tick *T* + `commandDelayTicks` for a command issued on tick *T*. Nothing is charged when `BuildDepot` is rejected.
 - **DD3 Range boundary. Designer decision, 2026-10-08.** A site exactly at `depotRangeCm` (4828032) or `hqRangeCm` (6437376) counts as in range: road distance ≤ range. Spacing passes at ≥ 804670.
