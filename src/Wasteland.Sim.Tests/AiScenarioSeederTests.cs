@@ -31,7 +31,7 @@ namespace Wasteland.Sim.Tests
             Assert.False(string.IsNullOrEmpty(armored));
             Assert.False(ai.AllowsUnitForTier(armored, 1, catalog));
             Assert.True(ai.AllowsUnitForTier(armored, 2, catalog));
-            Assert.True(ai.AllowsBuilding(AiConstants.BuildingTagDepot));
+            Assert.True(ai.AllowsBuilding(AiConstants.BuildingIdSupplyDepot));
             Assert.Equal("homestead_compact_settler", ai.AiPersonality);
             Assert.Equal(AiGenericPersonality.ParameterSetId, AiGenericPersonality.Map(ai.AiPersonality));
             Assert.Single(ai.AutoResearch);
@@ -200,7 +200,7 @@ namespace Wasteland.Sim.Tests
             Assert.True(HasRole(ai, catalog, AiConstants.RoleEngineer, 1));
             string armored = FirstArmored(ai, catalog);
             Assert.False(ai.AllowsUnitForTier(armored, 1, catalog));
-            Assert.True(ai.AllowsBuilding(AiConstants.BuildingTagDepot));
+            Assert.True(ai.AllowsBuilding("depot"));
             Assert.Equal("tier2", ai.AutoResearch[0].Item);
             Assert.Equal(40, ai.AutoResearch[0].NotBeforeTick);
             Assert.Contains(
@@ -221,7 +221,7 @@ namespace Wasteland.Sim.Tests
                     11UL,
                     100,
                     new[] { FixtureAiScenarioSeats.RemnantRaisableUnits[0] },
-                    new[] { AiConstants.BuildingTagDepot },
+                    FixtureAiScenarioSeats.DefaultBuildableBuildings,
                     Array.Empty<AiAutoResearch>()),
                 new AiScenarioSeatView(
                     1,
@@ -230,7 +230,7 @@ namespace Wasteland.Sim.Tests
                     7UL,
                     250,
                     FixtureAiScenarioSeats.RemnantRaisableUnits,
-                    new[] { AiConstants.BuildingTagDepot },
+                    FixtureAiScenarioSeats.DefaultBuildableBuildings,
                     new[] { new AiAutoResearch("tier2", 40) }));
         }
 
@@ -241,7 +241,7 @@ namespace Wasteland.Sim.Tests
             ulong homeTerritoryKey = 7UL,
             int startingManpower = 10,
             string[]? raisableUnits = null,
-            int[]? buildableBuildings = null,
+            string[]? buildableBuildings = null,
             AiAutoResearch[]? autoResearch = null)
         {
             return new AiScenarioSeatView(

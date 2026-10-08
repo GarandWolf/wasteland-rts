@@ -216,6 +216,7 @@ namespace Wasteland.Sim.Tests
             AiTownRecord town = host.Ai.Map.TownAt(townIndex);
             const int firstId = 9000401;
             const int secondId = 9000402;
+            QuietAi(host, AiConstants.DefaultAiFactionA);
             SpawnAt(host, AiConstants.DefaultAiFactionA, firstId, town.XCm, town.YCm, 25000);
             WaitUntilOwned(host, townIndex, AiConstants.DefaultAiFactionA);
 
@@ -350,6 +351,14 @@ namespace Wasteland.Sim.Tests
             }
 
             throw new InvalidOperationException("capture zone did not empty.");
+        }
+
+        private static void QuietAi(AiMatchHost host, int factionId)
+        {
+            AiFactionState faction = host.Ai.Owned.GetFaction(factionId);
+            faction.OpeningForceIssued = true;
+            faction.OrderCount = 0;
+            faction.RejectBackoffUntilTick = int.MaxValue;
         }
 
         private static void EvacuateFactionFromTown(AiMatchHost host, int factionId, AiTownRecord town)

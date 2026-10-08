@@ -149,7 +149,8 @@ namespace Wasteland.Sim.Ai
                 seat.StartingManpower,
                 seat.RaisableUnits,
                 seat.BuildableBuildings,
-                research);
+                research,
+                seat.HomeTownId);
         }
 
         private static void SortBySlot(AiScenarioSeatView[] seats)

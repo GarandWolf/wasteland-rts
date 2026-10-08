@@ -47,6 +47,7 @@ namespace Wasteland.Sim.Ai
         private readonly AiRoadSupply _roads = new AiRoadSupply();
         private IAiSeatView _seatView = new FixtureAiSeatView();
         private IAiUnitCatalog _catalog = AiUnitCatalog.Empty;
+        private IAiBuildingCatalog _buildings = AiBuildingCatalog.Empty;
         private int _lineUnitsPerAntiArmour = 2;
         private int _minGarrisonPerTown;
 
@@ -85,6 +86,7 @@ namespace Wasteland.Sim.Ai
             int prizeTargetBonusPpt,
             IAiSeatView seatView,
             IAiUnitCatalog catalog,
+            IAiBuildingCatalog buildings,
             int lineUnitsPerAntiArmour,
             int minGarrisonPerTown)
         {
@@ -103,6 +105,11 @@ namespace Wasteland.Sim.Ai
                 throw new ArgumentNullException(nameof(catalog));
             }
 
+            if (buildings == null)
+            {
+                throw new ArgumentNullException(nameof(buildings));
+            }
+
             if (lineUnitsPerAntiArmour < 1)
             {
                 throw new ArgumentOutOfRangeException(nameof(lineUnitsPerAntiArmour));
@@ -110,6 +117,7 @@ namespace Wasteland.Sim.Ai
 
             _seatView = seatView;
             _catalog = catalog;
+            _buildings = buildings;
             _lineUnitsPerAntiArmour = lineUnitsPerAntiArmour;
             _minGarrisonPerTown = minGarrisonPerTown;
 
@@ -189,7 +197,7 @@ namespace Wasteland.Sim.Ai
                 AiSupplyResult dist = _roads.DistanceCm(graph, fromNodeId, town.NodeId, faction);
                 if (dist.IsBudgetExhausted)
                 {
-                    continue;
+                    return 0;
                 }
 
                 int d = dist.IsReached ? dist.DistanceCm : AiConstants.UnreachableCm;
@@ -498,11 +506,6 @@ namespace Wasteland.Sim.Ai
 
             int own = CountIdle(battalions, battalionCount) + readback.StrengthOf(faction.FactionId);
             int defender = readback.StrengthOf(readback.OwnerFactionId);
-            if (defender < 1)
-            {
-                defender = 1;
-            }
-
             if (!StrengthAllowsAttack(own, defender, attackStrengthRatioPpt))
             {
                 return;
@@ -578,7 +581,24 @@ namespace Wasteland.Sim.Ai
             int targetNodeId,
             int supplyReachCm)
         {
-            if (!seat.AllowsBuilding(AiConstants.BuildingTagDepot))
+            if (!CanBuildDepot(seat, _buildings))
+            {
+                return;
+            }
+
+            AiSupplyResult fromNet = _roads.FillFromSources(graph, networkNodeIds, networkCount, faction);
+            if (fromNet.IsBudgetExhausted)
+            {
+                return;
+            }
+
+            if (!graph.TryGetNodeIndex(targetNodeId, out int targetIndex))
+            {
+                return;
+            }
+
+            AiSupplyResult fromTarget = _roads.FillFromNode(graph, targetNodeId, faction);
+            if (fromTarget.IsBudgetExhausted)
             {
                 return;
             }
@@ -590,18 +610,8 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < graph.NodeCount; i++)
             {
                 int nodeId = graph.GetNodeId(i);
-                AiSupplyResult fromNet = _roads.DistanceToNearestCm(
-                    graph,
-                    nodeId,
-                    networkNodeIds,
-                    networkCount,
-                    faction);
-                if (fromNet.IsBudgetExhausted)
-                {
-                    continue;
-                }
-
-                if (!fromNet.IsReached || fromNet.DistanceCm > supplyReachCm)
+                int netDist = _roads.NetworkDistanceAt(i);
+                if (netDist > supplyReachCm)
                 {
                     continue;
                 }
@@ -616,13 +626,7 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                AiSupplyResult toTarget = _roads.DistanceCm(graph, nodeId, targetNodeId, faction);
-                if (toTarget.IsBudgetExhausted)
-                {
-                    continue;
-                }
-
-                int remain = toTarget.IsReached ? toTarget.DistanceCm : AiConstants.UnreachableCm;
+                int remain = _roads.TargetDistanceAt(i);
                 if (bestNode != 0)
                 {
                     int cmp = remain.CompareTo(bestRemain);
@@ -731,9 +735,26 @@ namespace Wasteland.Sim.Ai
             }
 
             int currentTier = seatView.CurrentTier;
+            string atId = FirstRaisableRole(seat, catalog, currentTier, AiConstants.RoleAntiTank);
+            int line = CountRole(battalions, battalionCount, catalog, AiConstants.RoleLineInfantry);
+            int at = CountRole(battalions, battalionCount, catalog, AiConstants.RoleAntiTank);
+            bool atDue = !string.IsNullOrEmpty(atId)
+                && line >= (long)lineUnitsPerAntiArmour * ((long)at + 1L);
+            bool frontAt = atDue && seatView.HasSeenEnemyArmourOrMech;
+
             if (forDepot)
             {
+                if (frontAt)
+                {
+                    return atId;
+                }
+
                 return FirstRaisableRole(seat, catalog, currentTier, AiConstants.RoleEngineer);
+            }
+
+            if (frontAt)
+            {
+                return atId;
             }
 
             string lineId = FirstRaisableRole(seat, catalog, currentTier, AiConstants.RoleLineInfantry);
@@ -750,19 +771,7 @@ namespace Wasteland.Sim.Ai
                 }
             }
 
-            string atId = FirstRaisableRole(seat, catalog, currentTier, AiConstants.RoleAntiTank);
-            int line = CountRole(battalions, battalionCount, catalog, AiConstants.RoleLineInfantry);
-            int at = CountRole(battalions, battalionCount, catalog, AiConstants.RoleAntiTank);
-            bool wantAt = false;
-            if (!string.IsNullOrEmpty(atId))
-            {
-                bool ratioDue = line >= (long)lineUnitsPerAntiArmour * ((long)at + 1L);
-                bool ratioShort = line > (long)lineUnitsPerAntiArmour * at;
-                wantAt = ratioDue
-                    || (seatView.HasSeenEnemyArmourOrMech && ratioShort);
-            }
-
-            if (wantAt)
+            if (atDue)
             {
                 return atId;
             }
@@ -832,6 +841,37 @@ namespace Wasteland.Sim.Ai
             return false;
         }
 
+        internal static bool CanBuildDepot(AiScenarioSeatView seat, IAiBuildingCatalog catalog)
+        {
+            if (catalog == null)
+            {
+                return false;
+            }
+
+            string[] ids = seat.BuildableBuildings;
+            if (ids == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < ids.Length; i++)
+            {
+                string id = ids[i];
+                if (!seat.AllowsBuilding(id))
+                {
+                    continue;
+                }
+
+                if (catalog.TryGetBuildingRole(id, out string role)
+                    && role == AiConstants.BuildingRoleSupplyDepot)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static bool CanAfford(IAiSeatView seatView, IAiUnitCatalog catalog, string unitId)
         {
             if (string.IsNullOrEmpty(unitId) || !catalog.TryGetManpowerCost(unitId, out int cost))
@@ -854,7 +894,6 @@ namespace Wasteland.Sim.Ai
                 return string.Empty;
             }
 
-            string best = string.Empty;
             for (int i = 0; i < ids.Length; i++)
             {
                 string id = ids[i];
@@ -868,13 +907,10 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                if (best.Length < 1 || string.CompareOrdinal(id, best) < 0)
-                {
-                    best = id;
-                }
+                return id;
             }
 
-            return best;
+            return string.Empty;
         }
 
         private bool PathNearEnemy(

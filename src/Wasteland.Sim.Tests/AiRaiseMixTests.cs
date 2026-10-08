@@ -59,13 +59,36 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void Compact_RaisesAntiTankNext_WhenArmourSeenAndRatioShort()
+        public void Compact_FrontsDueAntiTankOnly_WhenArmourSeen()
         {
-            MixContext ctx = CompactSeen();
-            AssertRole(Select(ctx, Pins(1, 0)), ctx.Catalog, AiConstants.RoleAntiTank);
-            AssertRole(Select(ctx, Pins(3, 1)), ctx.Catalog, AiConstants.RoleAntiTank);
-            Assert.True(ctx.Catalog.TryGetTargetClass(FirstArmored(RemnantSeat(), ctx.Catalog), out string seenClass));
+            MixContext unseen = CompactUnseen();
+            MixContext seen = CompactSeen();
+            AssertRole(Select(unseen, Pins(1, 0)), unseen.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(seen, Pins(1, 0)), seen.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(unseen, Pins(2, 0)), unseen.Catalog, AiConstants.RoleAntiTank);
+            AssertRole(Select(seen, Pins(2, 0)), seen.Catalog, AiConstants.RoleAntiTank);
+            AssertRole(Select(seen, Pins(4, 2)), seen.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(seen, Pins(5, 2)), seen.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(seen, Pins(4, 1)), seen.Catalog, AiConstants.RoleAntiTank);
+            Assert.True(seen.Catalog.TryGetTargetClass(FirstArmored(RemnantSeat(), seen.Catalog), out string seenClass));
             Assert.Equal(AiConstants.TargetClassArmored, seenClass);
+        }
+
+        [Fact]
+        public void Compact_FromFourLineTwoAt_RaisesLineLineAntiTank()
+        {
+            MixContext ctx = CompactUnseen();
+            AssertRole(Select(ctx, Pins(4, 2)), ctx.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(ctx, Pins(5, 2)), ctx.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(ctx, Pins(6, 2)), ctx.Catalog, AiConstants.RoleAntiTank);
+        }
+
+        [Fact]
+        public void Compact_LostAntiTank_MakesAntiTankDueAgain()
+        {
+            MixContext ctx = CompactUnseen();
+            AssertRole(Select(ctx, Pins(4, 2)), ctx.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(ctx, Pins(4, 1)), ctx.Catalog, AiConstants.RoleAntiTank);
         }
 
         [Fact]

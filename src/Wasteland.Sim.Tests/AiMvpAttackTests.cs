@@ -290,7 +290,7 @@ namespace Wasteland.Sim.Tests
                 1UL,
                 300,
                 FixtureAiScenarioSeats.RemnantRaisableUnits,
-                new[] { AiConstants.BuildingTagDepot },
+                FixtureAiScenarioSeats.DefaultBuildableBuildings,
                 new[] { new AiAutoResearch("tier2", 50) });
             FixtureAiSeatView view = new FixtureAiSeatView();
             view.Tier2ResearchTicks = 10;
@@ -387,7 +387,7 @@ namespace Wasteland.Sim.Tests
                     }
                 }
 
-                if (best.Length < 1 || string.CompareOrdinal(id, best) < 0)
+                if (best.Length < 1)
                 {
                     best = id;
                 }
@@ -460,7 +460,7 @@ namespace Wasteland.Sim.Tests
                 1UL,
                 300,
                 new[] { lineId },
-                new[] { AiConstants.BuildingTagDepot },
+                FixtureAiScenarioSeats.DefaultBuildableBuildings,
                 FixtureAiScenarioSeats.DefaultResearch)).SeatAt(0);
         }
 
@@ -475,6 +475,7 @@ namespace Wasteland.Sim.Tests
             public readonly int[] Network = { 1 };
             public readonly FixtureAiSeatView SeatView = new FixtureAiSeatView();
             public readonly IAiUnitCatalog Catalog;
+            public IAiBuildingCatalog Buildings;
             public int SupplyReachCm = 100000;
             public ulong PrizeTerritoryKey;
             public int PrizeTargetBonusPpt;
@@ -514,6 +515,8 @@ namespace Wasteland.Sim.Tests
                 Seat = FixtureAiScenarioSeats.LaunchSeat("homestead_compact", 1UL);
                 AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
                 Catalog = tables.UnitCatalog;
+                Buildings = AiBuildingCatalog.Parse(
+                    "{\"buildings\":{\"supply_depot\":{\"role\":\"supply_depot\"}}}");
                 AiPersonalityProfile settler = tables.GetPersonality(AiConstants.PersonalitySettler);
                 LineUnitsPerAntiArmour = settler.LineUnitsPerAntiArmour;
                 MinGarrisonPerTown = settler.MinGarrisonPerTown;
@@ -628,6 +631,7 @@ namespace Wasteland.Sim.Tests
                     PrizeTargetBonusPpt,
                     SeatView,
                     Catalog,
+                    Buildings,
                     LineUnitsPerAntiArmour,
                     MinGarrisonPerTown);
                 AssertNoAiCausedTierOrPopRequest(from, injected);

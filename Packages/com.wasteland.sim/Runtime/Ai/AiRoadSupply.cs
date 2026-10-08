@@ -14,6 +14,8 @@ namespace Wasteland.Sim.Ai
     internal sealed class AiRoadSupply
     {
         private long[] _dist = Array.Empty<long>();
+        private int[] _fromNet = Array.Empty<int>();
+        private int[] _fromTarget = Array.Empty<int>();
         private bool[] _seen = Array.Empty<bool>();
         private readonly MinHeap _heap = new MinHeap(8);
 
@@ -71,6 +73,158 @@ namespace Wasteland.Sim.Ai
             return Search(graph, fromIndex, -1, networkNodeIds, networkCount, faction);
         }
 
+        public AiSupplyResult FillFromSources(
+            RoadGraph graph,
+            int[] sourceNodeIds,
+            int sourceCount,
+            AiFactionState faction)
+        {
+            if (graph == null)
+            {
+                throw new ArgumentNullException(nameof(graph));
+            }
+
+            Ensure(graph.NodeCount);
+            AiSupplyResult result = SearchFromMany(graph, sourceNodeIds, sourceCount, faction);
+            CopyDistances(_fromNet);
+            return result;
+        }
+
+        public AiSupplyResult FillFromNode(RoadGraph graph, int fromNodeId, AiFactionState faction)
+        {
+            if (graph == null)
+            {
+                throw new ArgumentNullException(nameof(graph));
+            }
+
+            if (!graph.TryGetNodeIndex(fromNodeId, out int fromIndex))
+            {
+                return AiSupplyResult.Unreachable();
+            }
+
+            Ensure(graph.NodeCount);
+            AiSupplyResult result = Search(graph, fromIndex, -1, Array.Empty<int>(), 0, faction);
+            CopyDistances(_fromTarget);
+            return result;
+        }
+
+        public int NetworkDistanceAt(int nodeIndex)
+        {
+            if (nodeIndex < 0 || nodeIndex >= _fromNet.Length)
+            {
+                return AiConstants.UnreachableCm;
+            }
+
+            return _fromNet[nodeIndex];
+        }
+
+        public int TargetDistanceAt(int nodeIndex)
+        {
+            if (nodeIndex < 0 || nodeIndex >= _fromTarget.Length)
+            {
+                return AiConstants.UnreachableCm;
+            }
+
+            return _fromTarget[nodeIndex];
+        }
+
+        private void CopyDistances(int[] dest)
+        {
+            for (int i = 0; i < dest.Length; i++)
+            {
+                long d = _dist[i];
+                dest[i] = d > int.MaxValue ? AiConstants.UnreachableCm : (int)d;
+            }
+        }
+
+        private AiSupplyResult SearchFromMany(
+            RoadGraph graph,
+            int[] sourceNodeIds,
+            int sourceCount,
+            AiFactionState faction)
+        {
+            if (sourceNodeIds == null || sourceCount < 1)
+            {
+                return AiSupplyResult.Unreachable();
+            }
+
+            int nodeCount = graph.NodeCount;
+            for (int i = 0; i < nodeCount; i++)
+            {
+                _dist[i] = long.MaxValue / 4;
+                _seen[i] = false;
+            }
+
+            _heap.Clear();
+            int seeded = 0;
+            for (int s = 0; s < sourceCount; s++)
+            {
+                if (!graph.TryGetNodeIndex(sourceNodeIds[s], out int index))
+                {
+                    continue;
+                }
+
+                if (_dist[index] == 0)
+                {
+                    continue;
+                }
+
+                _dist[index] = 0;
+                _heap.Push(0, graph.GetNodeId(index), index);
+                seeded++;
+            }
+
+            if (seeded < 1)
+            {
+                return AiSupplyResult.Unreachable();
+            }
+
+            while (_heap.TryPop(out int index, out long f))
+            {
+                if (_seen[index])
+                {
+                    continue;
+                }
+
+                if (!TryCharge(faction))
+                {
+                    if (faction.SupplyBudgetDefers < int.MaxValue)
+                    {
+                        faction.SupplyBudgetDefers++;
+                    }
+
+                    return AiSupplyResult.BudgetExhausted();
+                }
+
+                _seen[index] = true;
+                if (f != _dist[index])
+                {
+                    continue;
+                }
+
+                int start = graph.AdjOffset[index];
+                int end = graph.AdjOffset[index + 1];
+                for (int e = start; e < end; e++)
+                {
+                    int edgeIndex = graph.AdjEdgeIndex[e];
+                    if (graph.IsCut(edgeIndex))
+                    {
+                        continue;
+                    }
+
+                    int neighbor = graph.AdjNeighborIndex[e];
+                    long next = _dist[index] + graph.EdgeLengthCm[edgeIndex];
+                    if (next < _dist[neighbor])
+                    {
+                        _dist[neighbor] = next;
+                        _heap.Push(next, graph.GetNodeId(neighbor), neighbor);
+                    }
+                }
+            }
+
+            return AiSupplyResult.Reached(0);
+        }
+
         public bool ConnectedToNetwork(
             RoadGraph graph,
             int fromNodeId,
@@ -116,7 +270,11 @@ namespace Wasteland.Sim.Ai
 
                 if (!TryCharge(faction))
                 {
-                    faction.SupplyBudgetDefers++;
+                    if (faction.SupplyBudgetDefers < int.MaxValue)
+                    {
+                        faction.SupplyBudgetDefers++;
+                    }
+
                     return AiSupplyResult.BudgetExhausted();
                 }
 
@@ -202,6 +360,8 @@ namespace Wasteland.Sim.Ai
             }
 
             _dist = new long[nodeCount];
+            _fromNet = new int[nodeCount];
+            _fromTarget = new int[nodeCount];
             _seen = new bool[nodeCount];
         }
     }

@@ -38,9 +38,9 @@ namespace Wasteland.Sim.Ai
             "remnant_engineers"
         };
 
-        public static readonly int[] DefaultBuildableBuildings =
+        public static readonly string[] DefaultBuildableBuildings =
         {
-            AiConstants.BuildingTagDepot
+            AiConstants.BuildingIdSupplyDepot
         };
 
         public static readonly AiAutoResearch[] DefaultResearch = Array.Empty<AiAutoResearch>();
@@ -178,8 +178,9 @@ namespace Wasteland.Sim.Ai
                     row.HomeTerritoryKey,
                     row.StartingManpower,
                     CopyAuthoredIds(row.RaisableUnits, RuleIdRaisableUnits),
-                    MapBuildingCatalog(row.BuildableBuildings),
-                    research);
+                    CopyAuthoredIds(row.BuildableBuildings, RuleIdBuildableBuildings),
+                    research,
+                    row.HomeTownId);
             }
 
             return Create(
@@ -213,13 +214,15 @@ namespace Wasteland.Sim.Ai
                     remnant.EconomyFactionId,
                     remnant.Id,
                     HomeKeyOf(map, map.GoldendaleTownId),
-                    RemnantRaisableUnits),
+                    RemnantRaisableUnits,
+                    map.GoldendaleTownId),
                 LaunchSeat(
                     1,
                     compact.EconomyFactionId,
                     compact.Id,
                     HomeKeyOf(map, map.HoodRiverTownId),
-                    DefaultRaisableUnits));
+                    DefaultRaisableUnits,
+                    map.HoodRiverTownId));
         }
 
         public static AiScenarioSeatView LaunchSeat(string faction, ulong homeTerritoryKey)
@@ -238,7 +241,8 @@ namespace Wasteland.Sim.Ai
                 faction,
                 aiPersonality,
                 homeTerritoryKey,
-                DefaultRaisableUnits);
+                DefaultRaisableUnits,
+                0);
         }
 
         public static AiScenarioSeatView LaunchSeat(
@@ -248,6 +252,17 @@ namespace Wasteland.Sim.Ai
             ulong homeTerritoryKey,
             string[] raisableUnits)
         {
+            return LaunchSeat(slot, faction, aiPersonality, homeTerritoryKey, raisableUnits, 0);
+        }
+
+        public static AiScenarioSeatView LaunchSeat(
+            int slot,
+            string faction,
+            string? aiPersonality,
+            ulong homeTerritoryKey,
+            string[] raisableUnits,
+            int homeTownId)
+        {
             return new AiScenarioSeatView(
                 slot,
                 faction,
@@ -256,7 +271,8 @@ namespace Wasteland.Sim.Ai
                 300,
                 raisableUnits,
                 DefaultBuildableBuildings,
-                DefaultResearch);
+                DefaultResearch,
+                homeTownId);
         }
 
         public bool TryGetByFaction(string faction, out AiScenarioSeatView seat)
@@ -331,7 +347,7 @@ namespace Wasteland.Sim.Ai
 
             AiAutoResearch[] research = CopyResearch(seat.AutoResearch);
             string[] units = CopyAuthoredIds(seat.RaisableUnits, RuleIdRaisableUnits);
-            int[] buildings = CopyAuthoredPositive(seat.BuildableBuildings, RuleIdBuildableBuildings);
+            string[] buildings = CopyAuthoredIds(seat.BuildableBuildings, RuleIdBuildableBuildings);
             return new AiScenarioSeatView(
                 seat.Slot,
                 seat.Faction,
@@ -340,7 +356,8 @@ namespace Wasteland.Sim.Ai
                 seat.StartingManpower,
                 units,
                 buildings,
-                research);
+                research,
+                seat.HomeTownId);
         }
 
         private static AiAutoResearch[] CopyResearch(AiAutoResearch[] source)
@@ -364,42 +381,6 @@ namespace Wasteland.Sim.Ai
             return copy;
         }
 
-        private static int[] MapBuildingCatalog(string[] names)
-        {
-            if (names == null || names.Length < 1)
-            {
-                throw new InvalidDataException(RuleIdBuildableBuildings);
-            }
-
-            int[] ids = new int[names.Length];
-            for (int i = 0; i < names.Length; i++)
-            {
-                ids[i] = MapBuildingName(names[i]);
-            }
-
-            return CopyAuthoredPositive(ids, RuleIdBuildableBuildings);
-        }
-
-        private static int MapBuildingName(string name)
-        {
-            if (string.IsNullOrEmpty(name))
-            {
-                throw new InvalidDataException(RuleIdBuildableBuildings);
-            }
-
-            if (ContainsToken(name, "l2") || ContainsToken(name, "level2"))
-            {
-                return AiConstants.BuildingTagFortL2;
-            }
-
-            if (ContainsToken(name, "l1") || ContainsToken(name, "level1") || ContainsToken(name, "wall"))
-            {
-                return AiConstants.BuildingTagFortL1;
-            }
-
-            return AiConstants.BuildingTagDepot;
-        }
-
         private static AiAutoResearch[] MapAutoResearch(AiMvpAutoResearchItem[] rows)
         {
             if (rows == null || rows.Length < 1)
@@ -419,28 +400,6 @@ namespace Wasteland.Sim.Ai
             }
 
             return copy;
-        }
-
-        private static bool ContainsToken(string name, string token)
-        {
-            int start = 0;
-            while (start + token.Length <= name.Length)
-            {
-                int i = 0;
-                while (i < token.Length && name[start + i] == token[i])
-                {
-                    i++;
-                }
-
-                if (i == token.Length)
-                {
-                    return true;
-                }
-
-                start++;
-            }
-
-            return false;
         }
 
         private static string[] CopyAuthoredIds(string[] source, string ruleId)

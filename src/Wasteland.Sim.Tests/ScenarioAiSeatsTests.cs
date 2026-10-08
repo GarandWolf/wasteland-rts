@@ -41,7 +41,9 @@ namespace Wasteland.Sim.Tests
 
                 Assert.True(seats.TryGetByFaction(model.Faction, out AiScenarioSeatView byFaction));
                 Assert.Equal(model.HomeTerritoryKey, byFaction.HomeTerritoryKey);
-                AssertCatalogMatchesModel(model, adapted);
+                Assert.Equal(model.RaisableUnits, adapted.RaisableUnits);
+                Assert.Equal(model.BuildableBuildings, adapted.BuildableBuildings);
+                Assert.Equal(model.HomeTownId, adapted.HomeTownId);
             }
         }
 
@@ -108,7 +110,11 @@ namespace Wasteland.Sim.Tests
             ScenarioAiSeats seats = ScenarioAiSeats.From(scenario);
             for (int i = 0; i < scenario.SeatCount; i++)
             {
-                AssertCatalogMatchesModel(scenario.SeatAt(i), seats.SeatAt(i));
+                ScenarioSeat model = scenario.SeatAt(i);
+                AiScenarioSeatView adapted = seats.SeatAt(i);
+                Assert.Equal(model.RaisableUnits, adapted.RaisableUnits);
+                Assert.Equal(model.BuildableBuildings, adapted.BuildableBuildings);
+                Assert.Equal(new[] { "supply_depot" }, adapted.BuildableBuildings);
             }
         }
 
@@ -169,43 +175,6 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(territory.Id, faction.HomeTerritoryId);
             Assert.Equal(town.RoadNodeId, faction.HqNodeId);
             Assert.Equal(2, owned.TownOwnerAt(townIndex));
-        }
-
-        private static void AssertCatalogMatchesModel(ScenarioSeat model, AiScenarioSeatView adapted)
-        {
-            FixtureAiScenarioSeats expected = FixtureAiScenarioSeats.FromMvpShape(
-                new[]
-                {
-                    new AiMvpSeatShape(
-                        model.Slot,
-                        model.Faction,
-                        model.AiPersonality,
-                        model.HomeTerritoryKey,
-                        model.StartingManpower,
-                        model.RaisableUnits,
-                        model.BuildableBuildings,
-                        MapResearch(model.AutoResearch))
-                },
-                new AiMvpMatchRulesShape(false, "draw"));
-            Assert.True(expected.TryGetByFaction(model.Faction, out AiScenarioSeatView mapped));
-            Assert.Equal(mapped.RaisableUnits, adapted.RaisableUnits);
-            Assert.Equal(mapped.BuildableBuildings, adapted.BuildableBuildings);
-        }
-
-        private static AiMvpAutoResearchItem[] MapResearch(ScenarioAutoResearch[] rows)
-        {
-            if (rows == null || rows.Length < 1)
-            {
-                return System.Array.Empty<AiMvpAutoResearchItem>();
-            }
-
-            AiMvpAutoResearchItem[] copy = new AiMvpAutoResearchItem[rows.Length];
-            for (int i = 0; i < rows.Length; i++)
-            {
-                copy[i] = new AiMvpAutoResearchItem(rows[i].Item, rows[i].NotBeforeTick);
-            }
-
-            return copy;
         }
 
         private static SimScenario LoadMvp()

@@ -58,6 +58,10 @@ namespace Wasteland.Sim.Ai
         public const string RoleEngineer = "engineer";
         public const string TargetClassArmored = "armored";
         public const string TargetClassSoft = "soft";
+        public const string BuildingRoleSupplyDepot = "supply_depot";
+        public const string BuildingRoleWall = "wall";
+        public const string BuildingRoleProduction = "production";
+        public const string BuildingIdSupplyDepot = "supply_depot";
 
         public const string TierIITickNone = "none";
         public const int ClaimMarchSpeedCmPerSecond = 25000;

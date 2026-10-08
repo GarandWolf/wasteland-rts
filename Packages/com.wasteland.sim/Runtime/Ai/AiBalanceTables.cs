@@ -210,6 +210,7 @@ namespace Wasteland.Sim.Ai
         public const string RuleIdPrizeTargetBonusPpt = "prizeTargetBonusPpt";
         public const string RuleIdLineUnitsPerAntiArmour = "lineUnitsPerAntiArmour";
         public const string RuleIdTier2ResearchTicks = "tech.tier2.researchTicks";
+        public const string RuleIdDepotRangeCm = "supply.depotRangeCm";
 
         private readonly AiPersonalityProfile[] _personalities;
         private readonly AiDifficultyProfile[] _difficulties;
@@ -220,6 +221,7 @@ namespace Wasteland.Sim.Ai
         private readonly int _workUnitsPerTick;
         private readonly RulesState _rules;
         private readonly IAiUnitCatalog _unitCatalog;
+        private readonly IAiBuildingCatalog _buildingCatalog;
 
         private AiBalanceTables(
             ulong balanceKey,
@@ -231,7 +233,8 @@ namespace Wasteland.Sim.Ai
             int[] bindingFactionIds,
             string[] bindingPersonalityIds,
             RulesState rules,
-            IAiUnitCatalog unitCatalog)
+            IAiUnitCatalog unitCatalog,
+            IAiBuildingCatalog buildingCatalog)
         {
             _balanceKey = balanceKey;
             PersonalityJsonHash = personalityJsonHash;
@@ -243,6 +246,7 @@ namespace Wasteland.Sim.Ai
             _bindingPersonalityIds = bindingPersonalityIds;
             _rules = rules ?? new RulesState();
             _unitCatalog = unitCatalog ?? AiUnitCatalog.Empty;
+            _buildingCatalog = buildingCatalog ?? AiBuildingCatalog.Empty;
         }
 
         public ulong BalanceKey
@@ -257,6 +261,21 @@ namespace Wasteland.Sim.Ai
         public IAiUnitCatalog UnitCatalog
         {
             get { return _unitCatalog; }
+        }
+
+        public IAiBuildingCatalog BuildingCatalog
+        {
+            get { return _buildingCatalog; }
+        }
+
+        public int BindingCount
+        {
+            get { return _bindingFactionIds.Length; }
+        }
+
+        public int BindingFactionIdAt(int index)
+        {
+            return _bindingFactionIds[index];
         }
 
         public int PersonalityCount
@@ -299,6 +318,15 @@ namespace Wasteland.Sim.Ai
             {
                 RequireRulesLimits();
                 return _rules.ConnectivityScratchSize;
+            }
+        }
+
+        public int DepotRangeCm
+        {
+            get
+            {
+                RequireRulesLimits();
+                return _rules.DepotRangeCm;
             }
         }
 
@@ -377,6 +405,20 @@ namespace Wasteland.Sim.Ai
         /// </summary>
         public static AiBalanceTables FromDirectory(string balanceDirectory, string? unitsJson)
         {
+            return FromDirectory(balanceDirectory, unitsJson, null);
+        }
+
+        /// <summary>
+        /// <paramref name="buildingsJson"/> is the already-loaded
+        /// <c>buildings.json</c> document. This method does not read that
+        /// file. Pass null until the Designer's <c>role</c> field lands;
+        /// the real pack is not parsed here.
+        /// </summary>
+        public static AiBalanceTables FromDirectory(
+            string balanceDirectory,
+            string? unitsJson,
+            string? buildingsJson)
+        {
             if (balanceDirectory == null)
             {
                 throw new ArgumentNullException(nameof(balanceDirectory));
@@ -394,8 +436,14 @@ namespace Wasteland.Sim.Ai
             IAiUnitCatalog units = unitsJson == null
                 ? AiUnitCatalog.Empty
                 : AiUnitCatalog.Parse(unitsJson);
-            return tables.WithUnitCatalog(units).WithRules(rules).WithBalanceKey(
-                global::Wasteland.Sim.Movement.BalanceKey.For(balanceDirectory));
+            IAiBuildingCatalog buildings = buildingsJson == null
+                ? AiBuildingCatalog.Empty
+                : AiBuildingCatalog.Parse(buildingsJson);
+            return tables
+                .WithUnitCatalog(units)
+                .WithBuildingCatalog(buildings)
+                .WithRules(rules)
+                .WithBalanceKey(global::Wasteland.Sim.Movement.BalanceKey.For(balanceDirectory));
         }
 
         public AiBalanceTables WithBalanceKey(ulong balanceKey)
@@ -442,7 +490,24 @@ namespace Wasteland.Sim.Ai
                 _bindingFactionIds,
                 _bindingPersonalityIds,
                 _rules,
-                unitCatalog ?? AiUnitCatalog.Empty);
+                unitCatalog ?? AiUnitCatalog.Empty,
+                _buildingCatalog);
+        }
+
+        public AiBalanceTables WithBuildingCatalog(IAiBuildingCatalog buildingCatalog)
+        {
+            return new AiBalanceTables(
+                _balanceKey,
+                PersonalityJsonHash,
+                DifficultyJsonHash,
+                _workUnitsPerTick,
+                _personalities,
+                _difficulties,
+                _bindingFactionIds,
+                _bindingPersonalityIds,
+                _rules,
+                _unitCatalog,
+                buildingCatalog ?? AiBuildingCatalog.Empty);
         }
 
         public int CaptureTicksForClass(int populationClass)
@@ -567,7 +632,8 @@ namespace Wasteland.Sim.Ai
                 _bindingFactionIds,
                 _bindingPersonalityIds,
                 rules,
-                _unitCatalog);
+                _unitCatalog,
+                _buildingCatalog);
         }
 
         public static ulong HashUtf8(string text)
@@ -676,7 +742,8 @@ namespace Wasteland.Sim.Ai
                 bindingFactionIds,
                 bindingPersonalityIds,
                 new RulesState(),
-                AiUnitCatalog.Empty);
+                AiUnitCatalog.Empty,
+                AiBuildingCatalog.Empty);
         }
 
         public static void ParseCaptureRules(
@@ -777,6 +844,14 @@ namespace Wasteland.Sim.Ai
             {
                 throw new FormatException(
                     RuleIdSupplyScratch + " must be >= " + RuleIdSupplyMaxDepots + ".");
+            }
+
+            rules.DepotRangeCm = JsonUtil.Int32(
+                JsonUtil.Field(supply, "depotRangeCm"),
+                RuleIdDepotRangeCm);
+            if (rules.DepotRangeCm < 1)
+            {
+                throw new FormatException(RuleIdDepotRangeCm + " must be >= 1.");
             }
 
             JsonValue ai = JsonUtil.Field(root, "ai");
@@ -1173,15 +1248,9 @@ namespace Wasteland.Sim.Ai
 
         private static int ParseAttackStrengthRatioPpt(JsonValue row, string difficultyId)
         {
-            bool required = difficultyId == AiConstants.DifficultyNormal;
             if (!JsonUtil.TryField(row, RuleIdAttackStrengthRatioPpt, out JsonValue field))
             {
-                if (required)
-                {
-                    throw new FormatException(RuleIdAttackStrengthRatioPpt);
-                }
-
-                return 0;
+                throw new FormatException(RuleIdAttackStrengthRatioPpt);
             }
 
             int value = JsonUtil.Int32(field, RuleIdAttackStrengthRatioPpt);
@@ -1418,6 +1487,7 @@ namespace Wasteland.Sim.Ai
             public bool HasLimits;
             public int MaxDepotsPerFaction;
             public int ConnectivityScratchSize;
+            public int DepotRangeCm;
             public int MaxCandidateGoalsCeiling;
             public int Tier2ResearchTicks;
             public string[] DifficultyIds = Array.Empty<string>();
@@ -1444,6 +1514,7 @@ namespace Wasteland.Sim.Ai
                 copy.HasLimits = HasLimits;
                 copy.MaxDepotsPerFaction = MaxDepotsPerFaction;
                 copy.ConnectivityScratchSize = ConnectivityScratchSize;
+                copy.DepotRangeCm = DepotRangeCm;
                 copy.MaxCandidateGoalsCeiling = MaxCandidateGoalsCeiling;
                 copy.Tier2ResearchTicks = Tier2ResearchTicks;
                 copy.DifficultyIds = (string[])DifficultyIds.Clone();

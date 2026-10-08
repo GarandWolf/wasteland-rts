@@ -3,8 +3,8 @@ using System.Collections.Generic;
 namespace Wasteland.Sim.Ai
 {
     /// <summary>
-    /// In-memory command sink used until the Lead's real queue exists.
-    /// Records every submit and optional reject codes for readback.
+    /// Test-only recording sink. Production uses
+    /// <see cref="ForwardingAiCommandSink"/> and keeps no command log.
     /// </summary>
     public sealed class RecordingAiCommandSink : IAiCommandSink, IAiDepotQuery
     {

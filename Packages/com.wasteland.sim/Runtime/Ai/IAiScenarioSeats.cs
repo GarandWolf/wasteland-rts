@@ -31,8 +31,9 @@ namespace Wasteland.Sim.Ai
         public readonly ulong HomeTerritoryKey;
         public readonly int StartingManpower;
         public readonly string[] RaisableUnits;
-        public readonly int[] BuildableBuildings;
+        public readonly string[] BuildableBuildings;
         public readonly AiAutoResearch[] AutoResearch;
+        public readonly int HomeTownId;
 
         public AiScenarioSeatView(
             int slot,
@@ -41,8 +42,31 @@ namespace Wasteland.Sim.Ai
             ulong homeTerritoryKey,
             int startingManpower,
             string[] raisableUnits,
-            int[] buildableBuildings,
+            string[] buildableBuildings,
             AiAutoResearch[] autoResearch)
+            : this(
+                slot,
+                faction,
+                aiPersonality,
+                homeTerritoryKey,
+                startingManpower,
+                raisableUnits,
+                buildableBuildings,
+                autoResearch,
+                0)
+        {
+        }
+
+        public AiScenarioSeatView(
+            int slot,
+            string faction,
+            string? aiPersonality,
+            ulong homeTerritoryKey,
+            int startingManpower,
+            string[] raisableUnits,
+            string[] buildableBuildings,
+            AiAutoResearch[] autoResearch,
+            int homeTownId)
         {
             Slot = slot;
             Faction = faction;
@@ -52,6 +76,7 @@ namespace Wasteland.Sim.Ai
             RaisableUnits = raisableUnits;
             BuildableBuildings = buildableBuildings;
             AutoResearch = autoResearch ?? Array.Empty<AiAutoResearch>();
+            HomeTownId = homeTownId;
         }
 
         public bool AllowsUnit(string unitId)
@@ -74,9 +99,9 @@ namespace Wasteland.Sim.Ai
             return tier <= currentTier;
         }
 
-        public bool AllowsBuilding(int buildingKind)
+        public bool AllowsBuilding(string buildingId)
         {
-            return Contains(BuildableBuildings, buildingKind);
+            return Contains(BuildableBuildings, buildingId);
         }
 
         internal static bool Contains(int[] ids, int value)
@@ -175,6 +200,11 @@ namespace Wasteland.Sim.Ai
                 AiFactionState faction = owned.FactionAt(i);
                 AiPersonalityProfile personality = balance.GetPersonalityOrGeneric(faction.PersonalityId);
                 if (!_seats.TryGetByFaction(personality.EconomyFactionId, out AiScenarioSeatView seat))
+                {
+                    throw new InvalidDataException(RuleIdFaction);
+                }
+
+                if (string.IsNullOrEmpty(seat.AiPersonality))
                 {
                     throw new InvalidDataException(RuleIdFaction);
                 }

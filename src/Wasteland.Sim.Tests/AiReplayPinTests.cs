@@ -12,7 +12,7 @@ namespace Wasteland.Sim.Tests
         /// xxHash64 (seed 0) of the Compact raise-replay command buffer.
         /// Behaviour pin; not the <see cref="AiBalanceTablesTests.ExpectedAiOwnedBalanceKey"/> data hash.
         /// </summary>
-        public const ulong ExpectedCompactReplayKey = 0x85187CC3E63A91CDUL;
+        public const ulong ExpectedCompactReplayKey = 0x9B9FBF4797CFF1D1UL;
 
         public const int ReplayTicks = 12;
         public const int ArmourFlipTick = 6;
@@ -27,6 +27,13 @@ namespace Wasteland.Sim.Tests
             AiConstants.RoleAntiTank
         };
 
+        private static readonly string[] ExpectedAfterFlipRaiseRoles =
+        {
+            AiConstants.RoleLineInfantry,
+            AiConstants.RoleLineInfantry,
+            AiConstants.RoleAntiTank
+        };
+
         [Fact]
         public void CompactRaiseReplay_MatchesPinnedCommandLogKey()
         {
@@ -36,7 +43,7 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(ExpectedCompactReplayKey, first.Key);
             Assert.Equal(
                 AiBalanceTablesTests.ExpectedAiOwnedBalanceKey,
-                0xAE81980AAB5CBC4FUL);
+                0xE7008C30BE1FC2F0UL);
         }
 
         [Fact]
@@ -154,7 +161,28 @@ namespace Wasteland.Sim.Tests
             }
 
             Assert.True(raiseRoles.Count > ExpectedUnseenRaiseRoles.Length);
-            Assert.Equal(AiConstants.RoleLineInfantry, raiseRoles[ExpectedUnseenRaiseRoles.Length]);
+            int afterFlip = raiseRoles.Count - ExpectedUnseenRaiseRoles.Length;
+            Assert.True(afterFlip >= ExpectedAfterFlipRaiseRoles.Length);
+            for (int i = 0; i < ExpectedAfterFlipRaiseRoles.Length; i++)
+            {
+                Assert.Equal(
+                    ExpectedAfterFlipRaiseRoles[i],
+                    raiseRoles[ExpectedUnseenRaiseRoles.Length + i]);
+            }
+
+            List<AiBattalionPin> afterLoss = new List<AiBattalionPin>(pins);
+            DropFirstRole(afterLoss, harness.Catalog, AiConstants.RoleAntiTank);
+            string lostRaise = AiAttackDefend.SelectRaiseUnit(
+                harness.Seat,
+                harness.Catalog,
+                harness.SeatView,
+                afterLoss.ToArray(),
+                afterLoss.Count,
+                harness.LineUnitsPerAntiArmour,
+                false,
+                false);
+            Assert.True(harness.Catalog.TryGetRole(lostRaise, out string lostRole));
+            Assert.Equal(AiConstants.RoleAntiTank, lostRole);
 
             ulong key = HashLog(harness.Sink.Log, harness.Seat.Slot);
             return new ReplayRun(key, raiseRoles.ToArray());
@@ -180,6 +208,20 @@ namespace Wasteland.Sim.Tests
             harness.SeatView.Manpower = harness.Seat.StartingManpower;
             harness.SupplyReachCm = 100000;
             return harness;
+        }
+
+        private static void DropFirstRole(List<AiBattalionPin> pins, IAiUnitCatalog catalog, string role)
+        {
+            for (int i = 0; i < pins.Count; i++)
+            {
+                if (!pins[i].HasRole(catalog, role))
+                {
+                    continue;
+                }
+
+                pins.RemoveAt(i);
+                return;
+            }
         }
 
         private static void UnassignFirstLine(List<AiBattalionPin> pins, IAiUnitCatalog catalog)

@@ -150,6 +150,20 @@ namespace Wasteland.Sim.Ai
             byte[] aiBlob,
             int tick)
         {
+            return ReplayTo(match, mapBlob, factionIds, difficultyId, balance, commands, aiBlob, tick, null);
+        }
+
+        public static AiMatchHost ReplayTo(
+            MatchConfig match,
+            byte[] mapBlob,
+            int[] factionIds,
+            string difficultyId,
+            AiBalanceTables balance,
+            IReadOnlyList<SimCommand> commands,
+            byte[] aiBlob,
+            int tick,
+            IAiScenarioSeats? seats)
+        {
             if (commands == null)
             {
                 throw new ArgumentNullException(nameof(commands));
@@ -165,7 +179,7 @@ namespace Wasteland.Sim.Ai
             MatchConfig withKeys = BindKeys(match, mapBlob, balance);
             SimWorld world = new SimWorld(withKeys);
             LoggingCommandSink sink = new LoggingCommandSink(world);
-            IAiScenarioSeats bound = LaunchSeats(mapBlob, balance);
+            IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
             int cursor = 0;
             while (world.Tick < tick)

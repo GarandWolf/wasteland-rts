@@ -134,6 +134,11 @@ namespace Wasteland.Sim.Ai
                 string targetClass = row.TargetClass ?? string.Empty;
                 RequireKnownRole(row.Id, role);
                 RequireKnownTargetClass(row.Id, targetClass);
+                if (row.ManpowerCost < 0)
+                {
+                    throw new FormatException("units.json $.units." + row.Id + ".cost.manpower must be >= 0.");
+                }
+
                 ids[i] = row.Id;
                 tiers[i] = row.TechTier;
                 roles[i] = role;

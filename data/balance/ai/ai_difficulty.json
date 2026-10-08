@@ -19,7 +19,8 @@
       "maxActiveOrders": 6,
       "maxCandidateGoals": 32,
       "manpowerReserveSeconds": 60,
-      "battalionManpowerCost": 20
+      "battalionManpowerCost": 20,
+      "attackStrengthRatioPpt": 1500
     },
     {
       "id": "normal",
@@ -56,7 +57,8 @@
       "maxActiveOrders": 12,
       "maxCandidateGoals": 64,
       "manpowerReserveSeconds": 60,
-      "battalionManpowerCost": 20
+      "battalionManpowerCost": 20,
+      "attackStrengthRatioPpt": 1500
     },
     {
       "id": "brutal",
@@ -74,7 +76,8 @@
       "maxActiveOrders": 16,
       "maxCandidateGoals": 64,
       "manpowerReserveSeconds": 60,
-      "battalionManpowerCost": 20
+      "battalionManpowerCost": 20,
+      "attackStrengthRatioPpt": 1500
     }
   ]
 }

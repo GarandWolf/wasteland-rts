@@ -42,9 +42,9 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(1, view.CurrentTier);
             Assert.Equal(-1, view.TierResearchCompleteTick);
             Assert.False(HasRaisableAboveTier(seat, catalog, 1));
-            Assert.True(seat.AllowsBuilding(AiConstants.BuildingTagDepot));
-            Assert.True(seat.AllowsBuilding(AiConstants.BuildingTagFortL1));
-            Assert.False(seat.AllowsBuilding(AiConstants.BuildingTagFortL2));
+            Assert.True(seat.AllowsBuilding(AiConstants.BuildingIdSupplyDepot));
+            Assert.True(seat.AllowsBuilding("town_walls_l1"));
+            Assert.False(seat.AllowsBuilding("town_walls_l2"));
         }
 
         [Fact]
@@ -291,7 +291,7 @@ namespace Wasteland.Sim.Tests
 
                 if (cmd.Kind == AiIssuedKind.BuildDepot)
                 {
-                    Assert.True(seat.AllowsBuilding(AiConstants.BuildingTagDepot));
+                    Assert.True(seat.AllowsBuilding(AiConstants.BuildingIdSupplyDepot));
                     continue;
                 }
 
