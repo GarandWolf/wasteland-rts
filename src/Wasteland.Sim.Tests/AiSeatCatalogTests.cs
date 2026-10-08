@@ -61,7 +61,7 @@ namespace Wasteland.Sim.Tests
             harness.Seat = seat;
             harness.SupplyReachCm = 100000;
             harness.Towns[10] = new AiTownReadback(1, false, 1, 2, 0, 0);
-            harness.Towns[30] = new AiTownReadback(2, false, 2, 1, 0, 0);
+            harness.Towns[30] = new AiTownReadback(2, false, 2, 1, 1, 2);
             harness.SetBattalions();
 
             bool sawTierII = false;
