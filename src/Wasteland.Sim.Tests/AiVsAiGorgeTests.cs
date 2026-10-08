@@ -209,7 +209,8 @@ namespace Wasteland.Sim.Tests
         /// <summary>
         /// Authored starting units are on the field at tick 0. IssueOpeningForce
         /// still adds its generic battalions. At the M1 sample Remnant holds
-        /// The Dalles and the zone is empty.
+        /// The Dalles. The road march finishes on the town point, so the captor
+        /// can still be standing there; Compact is not in the zone.
         /// </summary>
         private static void AssertDallesHeldByRemnant(AiMatchHost host)
         {
@@ -223,8 +224,12 @@ namespace Wasteland.Sim.Tests
                 radius);
             Assert.True(host.Ai.Map.Adjacency.AreNeighbors(AiHomeSeeder.RemnantHomeTerritoryId, host.Ai.Map.TheDallesTerritoryId));
             Assert.True(host.Ai.Map.Adjacency.AreNeighbors(AiHomeSeeder.CompactHomeTerritoryId, host.Ai.Map.TheDallesTerritoryId));
-            Assert.Equal(CaptureOccupancyKind.Empty, zone.Kind);
-            Assert.Equal(0, zone.FactionId);
+            if (zone.Kind != CaptureOccupancyKind.Empty)
+            {
+                Assert.Equal(CaptureOccupancyKind.OneFaction, zone.Kind);
+                Assert.Equal(AiConstants.DefaultAiFactionA, zone.FactionId);
+            }
+
             Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.TownOwnerAt(index));
         }
 
