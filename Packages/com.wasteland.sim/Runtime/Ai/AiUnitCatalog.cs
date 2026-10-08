@@ -1,14 +1,10 @@
 using System;
-using Wasteland.Sim.Movement;
 
 namespace Wasteland.Sim.Ai
 {
     /// <summary>
-    /// Read-only unit rows for AI decisions. Parses already-loaded
-    /// <c>units.json</c> bytes from the same load as
-    /// <c>BalanceCatalog</c> — this type never opens that file and
-    /// keeps no static cache of parsed units. Friday replaces the
-    /// backing with a one-line adapter.
+    /// Fixture unit rows for tests. Production load uses
+    /// <see cref="BalanceAiUnitCatalog"/> over <c>BalanceCatalog</c>.
     /// </summary>
     public sealed class AiUnitCatalog : IAiUnitCatalog
     {
@@ -17,6 +13,7 @@ namespace Wasteland.Sim.Ai
             Array.Empty<int>(),
             Array.Empty<string>(),
             Array.Empty<string>(),
+            Array.Empty<int>(),
             Array.Empty<int>());
 
         private readonly string[] _ids;
@@ -24,85 +21,27 @@ namespace Wasteland.Sim.Ai
         private readonly string[] _roles;
         private readonly string[] _targetClasses;
         private readonly int[] _manpower;
+        private readonly int[] _pop;
 
         private AiUnitCatalog(
             string[] ids,
             int[] tiers,
             string[] roles,
             string[] targetClasses,
-            int[] manpower)
+            int[] manpower,
+            int[] pop)
         {
             _ids = ids;
             _tiers = tiers;
             _roles = roles;
             _targetClasses = targetClasses;
             _manpower = manpower;
+            _pop = pop;
         }
 
         public int Count
         {
             get { return _ids.Length; }
-        }
-
-        public static AiUnitCatalog Parse(string unitsJson)
-        {
-            if (unitsJson == null)
-            {
-                throw new ArgumentNullException(nameof(unitsJson));
-            }
-
-            JsonValue root = IntegerJsonParser.Parse(unitsJson);
-            JsonValue units = JsonUtil.Field(root, "units");
-            if (units.Kind != JsonKind.Object || units.ObjectValue.Count < 1)
-            {
-                throw new FormatException("units.json $.units must be a non-empty object.");
-            }
-
-            int count = units.ObjectValue.Count;
-            string[] ids = new string[count];
-            int[] tiers = new int[count];
-            string[] roles = new string[count];
-            string[] targetClasses = new string[count];
-            int[] manpower = new int[count];
-            for (int i = 0; i < count; i++)
-            {
-                JsonField field = units.ObjectValue[i];
-                string id = field.Name;
-                if (string.IsNullOrEmpty(id))
-                {
-                    throw new FormatException("units.json unit id must be a non-empty string.");
-                }
-
-                JsonValue row = field.Value;
-                string path = "units.json $.units." + id;
-                int tier = JsonUtil.Int32(JsonUtil.Field(row, "techTier"), path + ".techTier");
-                if (tier < 1)
-                {
-                    throw new FormatException(path + ".techTier must be >= 1.");
-                }
-
-                string role = RequireFieldString(row, id, "role");
-                RequireKnownRole(id, role);
-                string targetClass = RequireFieldString(row, id, "targetClass");
-                RequireKnownTargetClass(id, targetClass);
-
-                JsonValue cost = JsonUtil.Field(row, "cost");
-                int mp = JsonUtil.Int32(JsonUtil.Field(cost, "manpower"), path + ".cost.manpower");
-                if (mp < 0)
-                {
-                    throw new FormatException(path + ".cost.manpower must be >= 0.");
-                }
-
-                ids[i] = id;
-                tiers[i] = tier;
-                roles[i] = role;
-                targetClasses[i] = targetClass;
-                manpower[i] = mp;
-            }
-
-            SortRows(ids, tiers, roles, targetClasses, manpower);
-            RequireUniqueIds(ids);
-            return new AiUnitCatalog(ids, tiers, roles, targetClasses, manpower);
         }
 
         public static AiUnitCatalog FromRows(params AiUnitCatalogRow[] rows)
@@ -117,6 +56,7 @@ namespace Wasteland.Sim.Ai
             string[] roles = new string[rows.Length];
             string[] targetClasses = new string[rows.Length];
             int[] manpower = new int[rows.Length];
+            int[] pop = new int[rows.Length];
             for (int i = 0; i < rows.Length; i++)
             {
                 AiUnitCatalogRow row = rows[i];
@@ -144,11 +84,12 @@ namespace Wasteland.Sim.Ai
                 roles[i] = role;
                 targetClasses[i] = targetClass;
                 manpower[i] = row.ManpowerCost;
+                pop[i] = 1;
             }
 
-            SortRows(ids, tiers, roles, targetClasses, manpower);
+            SortRows(ids, tiers, roles, targetClasses, manpower, pop);
             RequireUniqueIds(ids);
-            return new AiUnitCatalog(ids, tiers, roles, targetClasses, manpower);
+            return new AiUnitCatalog(ids, tiers, roles, targetClasses, manpower, pop);
         }
 
         public bool TryGetTier(string unitId, out int tier)
@@ -203,15 +144,17 @@ namespace Wasteland.Sim.Ai
             return true;
         }
 
-        internal static string RequireFieldString(JsonValue row, string unitId, string field)
+        public bool TryGetPopCost(string unitId, out int pop)
         {
-            string path = "units.json $.units." + unitId;
-            if (!JsonUtil.TryField(row, field, out JsonValue value))
+            int index = IndexOf(unitId);
+            if (index < 0)
             {
-                throw new FormatException(path + " missing " + field + ".");
+                pop = 0;
+                return false;
             }
 
-            return JsonUtil.String(value, path + "." + field);
+            pop = _pop[index];
+            return true;
         }
 
         /// <summary>
@@ -221,18 +164,12 @@ namespace Wasteland.Sim.Ai
         /// </summary>
         internal static void RequireKnownRole(string unitId, string role)
         {
-            if (role == AiConstants.RoleLineInfantry
-                || role == AiConstants.RoleAntiTank
-                || role == AiConstants.RoleGarrisonInfantry
-                || role == AiConstants.RoleEngineer
-                || role == "assault_infantry"
-                || role == "breakthrough"
-                || role == "indirect_fire"
-                || role == "recon_spotter"
-                || role == "recon_strike"
-                || role == "supply")
+            for (int i = 0; i < AiConstants.UnitRoles.Length; i++)
             {
-                return;
+                if (role == AiConstants.UnitRoles[i])
+                {
+                    return;
+                }
             }
 
             throw new FormatException(
@@ -287,7 +224,8 @@ namespace Wasteland.Sim.Ai
             int[] tiers,
             string[] roles,
             string[] targetClasses,
-            int[] manpower)
+            int[] manpower,
+            int[] pop)
         {
             for (int i = 1; i < ids.Length; i++)
             {
@@ -296,6 +234,7 @@ namespace Wasteland.Sim.Ai
                 string role = roles[i];
                 string targetClass = targetClasses[i];
                 int mp = manpower[i];
+                int popCost = pop[i];
                 int j = i - 1;
                 while (j >= 0 && string.CompareOrdinal(ids[j], id) > 0)
                 {
@@ -304,6 +243,7 @@ namespace Wasteland.Sim.Ai
                     roles[j + 1] = roles[j];
                     targetClasses[j + 1] = targetClasses[j];
                     manpower[j + 1] = manpower[j];
+                    pop[j + 1] = pop[j];
                     j--;
                 }
 
@@ -312,6 +252,7 @@ namespace Wasteland.Sim.Ai
                 roles[j + 1] = role;
                 targetClasses[j + 1] = targetClass;
                 manpower[j + 1] = mp;
+                pop[j + 1] = popCost;
             }
         }
 

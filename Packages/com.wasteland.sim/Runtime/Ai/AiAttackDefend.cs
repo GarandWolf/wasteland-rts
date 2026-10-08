@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Wasteland.Sim.Ai
 {
@@ -51,6 +52,11 @@ namespace Wasteland.Sim.Ai
         private int _lineUnitsPerAntiArmour = 2;
         private int _minGarrisonPerTown;
         private bool _budgetDeferred;
+        private string[]? _queuedUnitIds;
+        private int _queuedCount;
+        private readonly string[] _pendingUnitIdScratch = new string[AiConstants.PendingCommandCapacity];
+        private string[]? _pendingUnitIds;
+        private int _pendingCount;
 
         public AiAttackDefend(IAiCommandSink commands, IAiTownQuery towns, IAiDepotQuery depots)
         {
@@ -89,7 +95,9 @@ namespace Wasteland.Sim.Ai
             IAiUnitCatalog catalog,
             IAiBuildingCatalog buildings,
             int lineUnitsPerAntiArmour,
-            int minGarrisonPerTown)
+            int minGarrisonPerTown,
+            string[]? queuedUnitIds = null,
+            int queuedCount = 0)
         {
             if (faction == null)
             {
@@ -116,7 +124,6 @@ namespace Wasteland.Sim.Ai
                 throw new ArgumentOutOfRangeException(nameof(lineUnitsPerAntiArmour));
             }
 
-            _seatView = seatView;
             _catalog = catalog;
             _buildings = buildings;
             _lineUnitsPerAntiArmour = lineUnitsPerAntiArmour;
@@ -132,10 +139,41 @@ namespace Wasteland.Sim.Ai
                 recorded.Tick = tick;
             }
 
+            PollLateReject(tick, faction);
             if (faction.RejectBackoffUntilTick > 0 && tick < faction.RejectBackoffUntilTick)
             {
                 return;
             }
+
+            int reservedManpower;
+            int reservedPop;
+            SumPendingRaises(
+                _commands,
+                tick,
+                faction.FactionId,
+                catalog,
+                out reservedManpower,
+                out reservedPop);
+            ReservedSeatView reserved = new ReservedSeatView(seatView);
+            reserved.Add(reservedManpower, reservedPop);
+            _seatView = reserved;
+            _queuedUnitIds = queuedUnitIds;
+            _queuedCount = 0;
+            if (queuedUnitIds != null)
+            {
+                _queuedCount = queuedCount;
+                if (_queuedCount > queuedUnitIds.Length)
+                {
+                    _queuedCount = queuedUnitIds.Length;
+                }
+            }
+
+            _pendingUnitIds = _pendingUnitIdScratch;
+            _pendingCount = CopyPendingRaiseUnitIds(
+                _commands,
+                tick,
+                faction.FactionId,
+                _pendingUnitIdScratch);
 
             SortTowns(towns, townCount);
             SortBattalions(battalions, battalionCount);
@@ -541,12 +579,16 @@ namespace Wasteland.Sim.Ai
                     string raiseId = SelectRaiseUnit(
                         seat,
                         _catalog,
-                        seatView,
+                        _seatView,
                         battalions,
                         battalionCount,
                         _lineUnitsPerAntiArmour,
                         false,
-                        GarrisonShort(faction, towns, townCount));
+                        GarrisonShort(faction, towns, townCount),
+                        _queuedUnitIds,
+                        _queuedCount,
+                        _pendingUnitIds,
+                        _pendingCount);
                     TryRaise(tick, faction, seat, raiseId, target.XCm, target.YCm);
                 }
 
@@ -593,12 +635,16 @@ namespace Wasteland.Sim.Ai
                 string raiseId = SelectRaiseUnit(
                     seat,
                     _catalog,
-                    seatView,
+                    _seatView,
                     battalions,
                     battalionCount,
                     _lineUnitsPerAntiArmour,
                     false,
-                    GarrisonShort(faction, towns, townCount));
+                    GarrisonShort(faction, towns, townCount),
+                    _queuedUnitIds,
+                    _queuedCount,
+                    _pendingUnitIds,
+                    _pendingCount);
                 TryRaise(tick, faction, seat, raiseId, target.XCm, target.YCm);
                 return;
             }
@@ -721,7 +767,11 @@ namespace Wasteland.Sim.Ai
                     battalionCount,
                     _lineUnitsPerAntiArmour,
                     true,
-                    false);
+                    false,
+                    _queuedUnitIds,
+                    _queuedCount,
+                    _pendingUnitIds,
+                    _pendingCount);
                 TryRaise(tick, faction, seat, engineerIdToRaise, bestX, bestY);
                 return;
             }
@@ -782,6 +832,35 @@ namespace Wasteland.Sim.Ai
             bool forDepot,
             bool garrisonShort)
         {
+            return SelectRaiseUnit(
+                seat,
+                catalog,
+                seatView,
+                battalions,
+                battalionCount,
+                lineUnitsPerAntiArmour,
+                forDepot,
+                garrisonShort,
+                null,
+                0,
+                null,
+                0);
+        }
+
+        public static string SelectRaiseUnit(
+            AiScenarioSeatView seat,
+            IAiUnitCatalog catalog,
+            IAiSeatView seatView,
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            int lineUnitsPerAntiArmour,
+            bool forDepot,
+            bool garrisonShort,
+            string[]? queuedUnitIds,
+            int queuedCount,
+            string[]? pendingUnitIds,
+            int pendingCount)
+        {
             if (catalog == null)
             {
                 throw new ArgumentNullException(nameof(catalog));
@@ -799,8 +878,24 @@ namespace Wasteland.Sim.Ai
 
             int currentTier = seatView.CurrentTier;
             string atId = FirstRaisableRole(seat, catalog, currentTier, AiConstants.RoleAntiTank);
-            int line = CountRole(battalions, battalionCount, catalog, AiConstants.RoleLineInfantry);
-            int at = CountRole(battalions, battalionCount, catalog, AiConstants.RoleAntiTank);
+            int line = CountRoleAcross(
+                battalions,
+                battalionCount,
+                queuedUnitIds,
+                queuedCount,
+                pendingUnitIds,
+                pendingCount,
+                catalog,
+                AiConstants.RoleLineInfantry);
+            int at = CountRoleAcross(
+                battalions,
+                battalionCount,
+                queuedUnitIds,
+                queuedCount,
+                pendingUnitIds,
+                pendingCount,
+                catalog,
+                AiConstants.RoleAntiTank);
             bool atDue = !string.IsNullOrEmpty(atId)
                 && line >= (long)lineUnitsPerAntiArmour * ((long)at + 1L);
             bool frontAt = atDue && seatView.HasSeenEnemyArmourOrMech;
@@ -872,8 +967,37 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
+            if (!CanAfford(_seatView, _catalog, unitId))
+            {
+                return;
+            }
+
+            int popCost = 1;
+            if (_catalog.TryGetPopCost(unitId, out int havePop))
+            {
+                popCost = havePop;
+            }
+
+            if (_seatView.PopCap > 0 && _seatView.PopUsed + popCost > _seatView.PopCap)
+            {
+                return;
+            }
+
             // xCm/yCm is the rally or march target. Spawn is the seat HQ.
-            Issue(tick, faction, _commands.SubmitRaiseBattalion(faction.FactionId, unitId, xCm, yCm));
+            int commandId = _commands.SubmitRaiseBattalion(faction.FactionId, unitId, xCm, yCm);
+            Issue(tick, faction, commandId);
+            if (_commands.RejectOf(commandId) != AiCommandReject.None)
+            {
+                return;
+            }
+
+            int cost = 0;
+            _catalog.TryGetManpowerCost(unitId, out cost);
+            ReservedSeatView? reserved = _seatView as ReservedSeatView;
+            if (reserved != null)
+            {
+                reserved.Add(cost, popCost);
+            }
         }
 
         private bool GarrisonShort(AiFactionState faction, AiAttackTownInfo[] towns, int townCount)
@@ -1077,6 +1201,195 @@ namespace Wasteland.Sim.Ai
             faction.RejectBackoffUntilTick = tick + delay;
         }
 
+        private void PollLateReject(int tick, AiFactionState faction)
+        {
+            if (faction.LastIssuedCommandId == 0 || faction.LastRejectCode != 0)
+            {
+                return;
+            }
+
+            AiCommandReject reject = _commands.RejectOf(faction.LastIssuedCommandId);
+            if (reject == AiCommandReject.None)
+            {
+                return;
+            }
+
+            NoteReject(tick, faction, reject);
+        }
+
+        internal static void SumPendingRaises(
+            IAiCommandSink commands,
+            int tick,
+            int factionId,
+            IAiUnitCatalog catalog,
+            out int manpower,
+            out int pop)
+        {
+            manpower = 0;
+            pop = 0;
+            if (commands == null || catalog == null)
+            {
+                return;
+            }
+
+            int delay = commands.CommandDelayTicks;
+            IReadOnlyList<AiIssuedCommand> issued = commands.IssuedCommands;
+            if (issued == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < issued.Count; i++)
+            {
+                AiIssuedCommand cmd = issued[i];
+                if (cmd.Kind != AiIssuedKind.RaiseBattalion || cmd.FactionId != factionId)
+                {
+                    continue;
+                }
+
+                if (!IsPendingRaise(commands, cmd, tick, delay))
+                {
+                    continue;
+                }
+
+                int cost = 0;
+                catalog.TryGetManpowerCost(cmd.UnitId, out cost);
+                manpower += cost;
+                int unitPop = 1;
+                if (catalog.TryGetPopCost(cmd.UnitId, out int havePop))
+                {
+                    unitPop = havePop;
+                }
+
+                pop += unitPop;
+            }
+        }
+
+        internal static int CopyPendingRaiseUnitIds(
+            IAiCommandSink commands,
+            int tick,
+            int factionId,
+            string[] into)
+        {
+            int count = 0;
+            if (commands == null || into == null)
+            {
+                return 0;
+            }
+
+            int delay = commands.CommandDelayTicks;
+            IReadOnlyList<AiIssuedCommand> issued = commands.IssuedCommands;
+            if (issued == null)
+            {
+                return 0;
+            }
+
+            for (int i = 0; i < issued.Count; i++)
+            {
+                AiIssuedCommand cmd = issued[i];
+                if (cmd.Kind != AiIssuedKind.RaiseBattalion || cmd.FactionId != factionId)
+                {
+                    continue;
+                }
+
+                if (!IsPendingRaise(commands, cmd, tick, delay))
+                {
+                    continue;
+                }
+
+                if (count >= into.Length)
+                {
+                    break;
+                }
+
+                into[count] = cmd.UnitId;
+                count++;
+            }
+
+            return count;
+        }
+
+        private static bool IsPendingRaise(
+            IAiCommandSink commands,
+            AiIssuedCommand cmd,
+            int tick,
+            int delay)
+        {
+            if (cmd.Tick + delay <= tick)
+            {
+                return false;
+            }
+
+            if (commands.RejectOf(cmd.Id) != AiCommandReject.None)
+            {
+                return false;
+            }
+
+            if (commands.RaiseHasStarted(cmd.Id))
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        private sealed class ReservedSeatView : IAiSeatView
+        {
+            private readonly IAiSeatView _inner;
+            private int _reservedManpower;
+            private int _reservedPop;
+
+            public ReservedSeatView(IAiSeatView inner)
+            {
+                _inner = inner;
+            }
+
+            public int CurrentTier
+            {
+                get { return _inner.CurrentTier; }
+            }
+
+            public int TierResearchCompleteTick
+            {
+                get { return _inner.TierResearchCompleteTick; }
+            }
+
+            public int Manpower
+            {
+                get
+                {
+                    int value = _inner.Manpower - _reservedManpower;
+                    return value < 0 ? 0 : value;
+                }
+            }
+
+            public int Materials
+            {
+                get { return _inner.Materials; }
+            }
+
+            public int PopUsed
+            {
+                get { return _inner.PopUsed + _reservedPop; }
+            }
+
+            public int PopCap
+            {
+                get { return _inner.PopCap; }
+            }
+
+            public bool HasSeenEnemyArmourOrMech
+            {
+                get { return _inner.HasSeenEnemyArmourOrMech; }
+            }
+
+            public void Add(int manpower, int pop)
+            {
+                _reservedManpower += manpower;
+                _reservedPop += pop;
+            }
+        }
+
         private static int CountIdle(AiBattalionPin[] battalions, int battalionCount)
         {
             int idle = 0;
@@ -1114,6 +1427,56 @@ namespace Wasteland.Sim.Ai
             }
 
             return count;
+        }
+
+        private static int CountRoleAcross(
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            string[]? queuedUnitIds,
+            int queuedCount,
+            string[]? pendingUnitIds,
+            int pendingCount,
+            IAiUnitCatalog catalog,
+            string role)
+        {
+            return CountRole(battalions, battalionCount, catalog, role)
+                + CountUnitIds(queuedUnitIds, queuedCount, catalog, role)
+                + CountUnitIds(pendingUnitIds, pendingCount, catalog, role);
+        }
+
+        private static int CountUnitIds(
+            string[]? unitIds,
+            int count,
+            IAiUnitCatalog catalog,
+            string role)
+        {
+            if (unitIds == null || catalog == null || role == null)
+            {
+                return 0;
+            }
+
+            int n = count;
+            if (n > unitIds.Length)
+            {
+                n = unitIds.Length;
+            }
+
+            int found = 0;
+            for (int i = 0; i < n; i++)
+            {
+                string id = unitIds[i];
+                if (string.IsNullOrEmpty(id))
+                {
+                    continue;
+                }
+
+                if (catalog.TryGetRole(id, out string have) && have == role)
+                {
+                    found++;
+                }
+            }
+
+            return found;
         }
 
         private int NearestIdle(

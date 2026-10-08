@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using Wasteland.Sim.Hashing;
 using Wasteland.Sim.Movement;
+using Wasteland.Sim.Scenario;
 
 namespace Wasteland.Sim.Ai
 {
@@ -194,8 +195,8 @@ namespace Wasteland.Sim.Ai
         /// <c>rules.json</c> capture, supply caps, AI goal ceiling, difficulty
         /// income multipliers, <c>economy.json</c> holding-tier / HQ /
         /// faction manpower plus <c>contestedHoldingPaysIncome</c>, and
-        /// parses <c>buildings.json</c> through
-        /// <see cref="AiBuildingCatalog.Parse"/>.
+        /// binds unit and building roles through
+        /// <c>BalanceCatalog</c>.
         /// </summary>
     public sealed partial class AiBalanceTables
     {
@@ -224,6 +225,7 @@ namespace Wasteland.Sim.Ai
         private readonly RulesState _rules;
         private readonly IAiUnitCatalog _unitCatalog;
         private readonly IAiBuildingCatalog _buildingCatalog;
+        private readonly BalanceCatalog? _scenarioCatalog;
 
         private AiBalanceTables(
             ulong balanceKey,
@@ -236,7 +238,8 @@ namespace Wasteland.Sim.Ai
             string[] bindingPersonalityIds,
             RulesState rules,
             IAiUnitCatalog unitCatalog,
-            IAiBuildingCatalog buildingCatalog)
+            IAiBuildingCatalog buildingCatalog,
+            BalanceCatalog? scenarioCatalog = null)
         {
             _balanceKey = balanceKey;
             PersonalityJsonHash = personalityJsonHash;
@@ -249,6 +252,7 @@ namespace Wasteland.Sim.Ai
             _rules = rules ?? new RulesState();
             _unitCatalog = unitCatalog ?? AiUnitCatalog.Empty;
             _buildingCatalog = buildingCatalog ?? AiBuildingCatalog.Empty;
+            _scenarioCatalog = scenarioCatalog;
         }
 
         public ulong BalanceKey
@@ -268,6 +272,16 @@ namespace Wasteland.Sim.Ai
         public IAiBuildingCatalog BuildingCatalog
         {
             get { return _buildingCatalog; }
+        }
+
+        /// <summary>
+        /// Designer pack used to back <see cref="UnitCatalog"/> and
+        /// <see cref="BuildingCatalog"/> after <see cref="FromDirectory"/>.
+        /// Null when tables were parsed without a balance directory.
+        /// </summary>
+        public BalanceCatalog? ScenarioCatalog
+        {
+            get { return _scenarioCatalog; }
         }
 
         public int BindingCount
@@ -397,19 +411,6 @@ namespace Wasteland.Sim.Ai
 
         public static AiBalanceTables FromDirectory(string balanceDirectory)
         {
-            return FromDirectory(balanceDirectory, null);
-        }
-
-        /// <summary>
-        /// <paramref name="unitsJson"/> is the already-loaded
-        /// <c>units.json</c> document from the same load as
-        /// <c>BalanceCatalog</c>. This method does not read that file.
-        /// Buildings are read once from <c>buildings.json</c> in
-        /// <paramref name="balanceDirectory"/> and parsed through
-        /// <see cref="AiBuildingCatalog.Parse"/>.
-        /// </summary>
-        public static AiBalanceTables FromDirectory(string balanceDirectory, string? unitsJson)
-        {
             if (balanceDirectory == null)
             {
                 throw new ArgumentNullException(nameof(balanceDirectory));
@@ -417,15 +418,16 @@ namespace Wasteland.Sim.Ai
 
             return FromDirectory(
                 balanceDirectory,
-                unitsJson,
+                File.ReadAllText(Path.Combine(balanceDirectory, "units.json")),
                 File.ReadAllText(Path.Combine(balanceDirectory, "buildings.json")));
         }
 
         /// <summary>
-        /// <paramref name="buildingsJson"/> is the already-loaded
-        /// <c>buildings.json</c> document. This method does not read that
-        /// file. A missing or unknown building <c>role</c> throws; there is
-        /// no empty-catalog fallback.
+        /// Production pack load. Unit and building roles come from
+        /// <see cref="BalanceCatalog"/>. A missing building <c>role</c>
+        /// throws inside that parse; an unknown role throws on the closed
+        /// allowlist. Fixture JSON without a designer header still uses
+        /// <see cref="AiBuildingCatalog.Parse"/>.
         /// </summary>
         public static AiBalanceTables FromDirectory(
             string balanceDirectory,
@@ -451,15 +453,41 @@ namespace Wasteland.Sim.Ai
                 File.ReadAllText(difficultyPath));
             RulesState rules = ParseCapture(File.ReadAllText(rulesPath));
             ParseEconomy(File.ReadAllText(economyPath), tables._personalities, rules);
-            IAiUnitCatalog units = unitsJson == null
-                ? AiUnitCatalog.Empty
-                : AiUnitCatalog.Parse(unitsJson);
-            IAiBuildingCatalog buildings = AiBuildingCatalog.Parse(buildingsJson);
-            return tables
-                .WithUnitCatalog(units)
-                .WithBuildingCatalog(buildings)
+            tables = tables
                 .WithRules(rules)
                 .WithBalanceKey(global::Wasteland.Sim.Movement.BalanceKey.For(balanceDirectory));
+
+            if (HasDesignerHeader(buildingsJson))
+            {
+                string units = unitsJson
+                    ?? File.ReadAllText(Path.Combine(balanceDirectory, "units.json"));
+                BalanceCatalog catalog = BalanceCatalog.Parse(
+                    units,
+                    buildingsJson,
+                    File.ReadAllText(rulesPath),
+                    File.ReadAllText(economyPath),
+                    File.ReadAllText(personalitiesPath));
+                BalanceAiCatalog.RequireClosedRoles(catalog, buildingsJson);
+                return tables
+                    .WithScenarioCatalog(catalog)
+                    .WithUnitCatalog(new BalanceAiUnitCatalog(catalog))
+                    .WithBuildingCatalog(new BalanceAiBuildingCatalog(catalog));
+            }
+
+            BalanceCatalog disk = BalanceCatalog.LoadFromDirectory(balanceDirectory);
+            BalanceAiCatalog.RequireClosedRoles(
+                disk,
+                File.ReadAllText(Path.Combine(balanceDirectory, "buildings.json")));
+            return tables
+                .WithScenarioCatalog(disk)
+                .WithUnitCatalog(new BalanceAiUnitCatalog(disk))
+                .WithBuildingCatalog(AiBuildingCatalog.Parse(buildingsJson));
+        }
+
+        private static bool HasDesignerHeader(string json)
+        {
+            JsonValue root = IntegerJsonParser.Parse(json);
+            return JsonUtil.TryField(root, "schemaVersion", out _);
         }
 
         public AiBalanceTables WithBalanceKey(ulong balanceKey)
@@ -507,7 +535,8 @@ namespace Wasteland.Sim.Ai
                 _bindingPersonalityIds,
                 _rules,
                 unitCatalog ?? AiUnitCatalog.Empty,
-                _buildingCatalog);
+                _buildingCatalog,
+                _scenarioCatalog);
         }
 
         public AiBalanceTables WithBuildingCatalog(IAiBuildingCatalog buildingCatalog)
@@ -523,7 +552,25 @@ namespace Wasteland.Sim.Ai
                 _bindingPersonalityIds,
                 _rules,
                 _unitCatalog,
-                buildingCatalog ?? AiBuildingCatalog.Empty);
+                buildingCatalog ?? AiBuildingCatalog.Empty,
+                _scenarioCatalog);
+        }
+
+        internal AiBalanceTables WithScenarioCatalog(BalanceCatalog? catalog)
+        {
+            return new AiBalanceTables(
+                _balanceKey,
+                PersonalityJsonHash,
+                DifficultyJsonHash,
+                _workUnitsPerTick,
+                _personalities,
+                _difficulties,
+                _bindingFactionIds,
+                _bindingPersonalityIds,
+                _rules,
+                _unitCatalog,
+                _buildingCatalog,
+                catalog);
         }
 
         public int CaptureTicksForClass(int populationClass)
@@ -649,7 +696,8 @@ namespace Wasteland.Sim.Ai
                 _bindingPersonalityIds,
                 rules,
                 _unitCatalog,
-                _buildingCatalog);
+                _buildingCatalog,
+                _scenarioCatalog);
         }
 
         public static ulong HashUtf8(string text)

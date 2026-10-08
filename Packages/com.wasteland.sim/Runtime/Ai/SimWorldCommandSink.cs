@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Wasteland.Sim.Commands;
+using Wasteland.Sim.Events;
 using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
@@ -46,6 +47,55 @@ namespace Wasteland.Sim.Ai
             }
 
             return _world.Submit(command);
+        }
+
+        public int AllocateBattalionId()
+        {
+            return _world.AllocateBattalionId();
+        }
+
+        public SimCommand SubmitRaiseBattalion(int factionId, string unitId, int rallyXCm, int rallyYCm)
+        {
+            return _world.SubmitRaiseBattalion(factionId, unitId, rallyXCm, rallyYCm);
+        }
+
+        public SimCommand SubmitRaiseBattalion(int factionId, int battalionId, string unitId, int rallyXCm, int rallyYCm)
+        {
+            return _world.SubmitRaiseBattalion(factionId, battalionId, unitId, rallyXCm, rallyYCm);
+        }
+
+        public bool TryGetRejection(int subjectId, out CommandRejectReason code, out int param0, out int param1)
+        {
+            return _world.TryGetRejection(subjectId, out code, out param0, out param1);
+        }
+
+        public bool HasBattalionRaiseStarted(int battalionId)
+        {
+            IReadOnlyList<SimEvent> events = _world.Events;
+            for (int i = 0; i < events.Count; i++)
+            {
+                if (events[i].Kind == SimEventKind.BattalionRaiseStarted && events[i].SubjectId == battalionId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public bool TryCopyProductionQueue(int factionId, List<ProductionQueueItem> into)
+        {
+            return _world.TryCopyProductionQueue(factionId, into);
+        }
+
+        public bool TryGetSeat(int factionId, out SeatView view)
+        {
+            return _world.TryGetSeat(factionId, out view);
+        }
+
+        public bool TryGetBattalionView(int battalionId, out BattalionView view)
+        {
+            return _world.TryGetBattalionView(battalionId, out view);
         }
 
         public void CopyOwnBattalionIds(int factionId, List<int> into)

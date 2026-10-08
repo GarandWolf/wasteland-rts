@@ -10,7 +10,9 @@ namespace Wasteland.Sim.Tests
     public sealed class AiReplayPinTests
     {
         /// <summary>
-        /// xxHash64 (seed 0) of the Compact raise-replay command buffer.
+        /// xxHash64 (seed 0) of the Compact raise-replay command buffer from
+        /// <see cref="HashLog"/>. This is not <c>SimWorld.HashState</c> — #24
+        /// widening HashState (seats, paths, pending queue) does not move this pin.
         /// Behaviour pin; not the <see cref="AiBalanceTablesTests.ExpectedAiOwnedBalanceKey"/> data hash.
         /// </summary>
         public const ulong ExpectedCompactReplayKey = 0x9B9FBF4797CFF1D1UL;

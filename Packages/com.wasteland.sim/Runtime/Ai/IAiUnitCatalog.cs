@@ -15,5 +15,7 @@ namespace Wasteland.Sim.Ai
         bool TryGetTargetClass(string unitId, out string targetClass);
 
         bool TryGetManpowerCost(string unitId, out int manpower);
+
+        bool TryGetPopCost(string unitId, out int pop);
     }
 }

@@ -68,6 +68,24 @@ namespace Wasteland.Sim.Ai
         public const string BuildingIdSupplyDepot = "supply_depot";
 
         /// <summary>
+        /// Closed unit-role list. Mix keys are the first four; the rest load
+        /// from the shared pack and are never treated as rifle.
+        /// </summary>
+        public static readonly string[] UnitRoles =
+        {
+            RoleLineInfantry,
+            RoleAntiTank,
+            RoleGarrisonInfantry,
+            RoleEngineer,
+            "assault_infantry",
+            "breakthrough",
+            "indirect_fire",
+            "recon_spotter",
+            "recon_strike",
+            "supply"
+        };
+
+        /// <summary>
         /// Closed building-role list from Designer PR #22, in authored order.
         /// </summary>
         public static readonly string[] BuildingRoles =

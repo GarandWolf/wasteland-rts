@@ -114,6 +114,25 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void Compact_QueuedAntiTank_DoesNotRaiseAnotherUntilLineEarnsIt()
+        {
+            MixContext ctx = CompactUnseen();
+            string atId = FirstRole(ctx, AiConstants.RoleAntiTank);
+            AssertRole(Select(ctx, Pins(2, 0), new[] { atId }), ctx.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(ctx, Pins(3, 0), new[] { atId }), ctx.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(ctx, Pins(4, 0), new[] { atId }), ctx.Catalog, AiConstants.RoleAntiTank);
+        }
+
+        [Fact]
+        public void Compact_QueuedLine_MakesAntiTankDueAtRatio()
+        {
+            MixContext ctx = CompactUnseen();
+            string lineId = FirstRole(ctx, AiConstants.RoleLineInfantry);
+            AssertRole(Select(ctx, System.Array.Empty<AiBattalionPin>(), new[] { lineId }), ctx.Catalog, AiConstants.RoleLineInfantry);
+            AssertRole(Select(ctx, Pins(1, 0), new[] { lineId }), ctx.Catalog, AiConstants.RoleAntiTank);
+        }
+
+        [Fact]
         public void Militia_OnlyFillsGarrisonWhenManpowerCannotAffordLine()
         {
             AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
@@ -293,6 +312,12 @@ namespace Wasteland.Sim.Tests
 
         private static string Select(MixContext ctx, AiBattalionPin[] pins)
         {
+            return Select(ctx, pins, null);
+        }
+
+        private static string Select(MixContext ctx, AiBattalionPin[] pins, string[]? queued)
+        {
+            int queuedCount = queued == null ? 0 : queued.Length;
             return AiAttackDefend.SelectRaiseUnit(
                 ctx.Seat,
                 ctx.Catalog,
@@ -301,7 +326,16 @@ namespace Wasteland.Sim.Tests
                 pins.Length,
                 ctx.Ratio,
                 false,
-                false);
+                false,
+                queued,
+                queuedCount,
+                null,
+                0);
+        }
+
+        private static string FirstRole(MixContext ctx, string role)
+        {
+            return AiMvpAttackTests.FirstRoleOrTarget(ctx.Seat, ctx.Catalog, role, null);
         }
 
         private static AiBattalionPin PinFor(string unitId, int id)

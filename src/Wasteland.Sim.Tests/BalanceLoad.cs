@@ -26,11 +26,12 @@ namespace Wasteland.Sim.Tests
         }
 
         /// <summary>
-        /// Production pack load. Parses the real <c>buildings.json</c>.
+        /// Production pack load. Unit and building roles come from
+        /// <see cref="BalanceCatalog"/>.
         /// </summary>
         public static AiBalanceTables Tables()
         {
-            return Tables(ReadUnitsJson(), ReadBuildingsJson());
+            return AiBalanceTables.FromDirectory(DirectoryPath());
         }
 
         public static AiBalanceTables Tables(string unitsJson)

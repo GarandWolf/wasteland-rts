@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Wasteland.Sim.Commands;
+using Wasteland.Sim.Events;
 using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
@@ -17,6 +18,16 @@ namespace Wasteland.Sim.Ai
         int CommandDelayTicks { get; }
 
         SimCommand Submit(SimCommand command);
+
+        int AllocateBattalionId();
+
+        SimCommand SubmitRaiseBattalion(int factionId, string unitId, int rallyXCm, int rallyYCm);
+
+        SimCommand SubmitRaiseBattalion(int factionId, int battalionId, string unitId, int rallyXCm, int rallyYCm);
+
+        bool TryGetRejection(int subjectId, out CommandRejectReason code, out int param0, out int param1);
+
+        bool HasBattalionRaiseStarted(int battalionId);
     }
 
     /// <summary>
@@ -35,6 +46,12 @@ namespace Wasteland.Sim.Ai
         int CountOwnBattalions(int factionId);
 
         bool TryGetOwnBattalion(int factionId, int battalionId, out SimBattalion battalion);
+
+        bool TryGetSeat(int factionId, out SeatView view);
+
+        bool TryGetBattalionView(int battalionId, out BattalionView view);
+
+        bool TryCopyProductionQueue(int factionId, List<ProductionQueueItem> into);
     }
 
     /// <summary>

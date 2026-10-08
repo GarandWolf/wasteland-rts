@@ -15,11 +15,23 @@ namespace Wasteland.Sim.Ai
         private AiCommandReject _nextReject = AiCommandReject.None;
         private int _tick;
         private int _depotActiveDelayTicks = 1;
+        private int _commandDelayTicks;
 
         public int Tick
         {
             get { return _tick; }
             set { _tick = value; }
+        }
+
+        public int CommandDelayTicks
+        {
+            get { return _commandDelayTicks; }
+            set { _commandDelayTicks = value < 0 ? 0 : value; }
+        }
+
+        public IReadOnlyList<AiIssuedCommand> IssuedCommands
+        {
+            get { return _log; }
         }
 
         public int DepotActiveDelayTicks
@@ -74,6 +86,11 @@ namespace Wasteland.Sim.Ai
             }
 
             return AiCommandReject.None;
+        }
+
+        public bool RaiseHasStarted(int commandId)
+        {
+            return false;
         }
 
         public bool TryGet(int factionId, int nodeId, out AiDepotReadback readback)

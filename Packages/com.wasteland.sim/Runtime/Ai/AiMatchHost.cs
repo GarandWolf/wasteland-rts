@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.Movement;
+using Wasteland.Sim.Scenario;
 using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
@@ -137,6 +138,7 @@ namespace Wasteland.Sim.Ai
             LoggingCommandSink sink = new LoggingCommandSink(world);
             IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
+            BindSimSeats(world, ai);
             return new AiMatchHost(world, ai, sink, copy);
         }
 
@@ -181,6 +183,13 @@ namespace Wasteland.Sim.Ai
             LoggingCommandSink sink = new LoggingCommandSink(world);
             IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
+            BindSimSeats(world, ai);
+            ForwardingAiCommandSink? forwarding = ai.AiCommands as ForwardingAiCommandSink;
+            if (forwarding != null)
+            {
+                forwarding.RestoreIssuedRaises(commands, balance.ScenarioCatalog);
+            }
+
             int cursor = 0;
             while (world.Tick < tick)
             {
@@ -238,6 +247,67 @@ namespace Wasteland.Sim.Ai
         /// <see cref="ScenarioAiSeats"/> from the loaded scenario.
         /// <see cref="EnemyAi.MatchInit"/> takes only <see cref="IAiScenarioSeats"/>.
         /// </summary>
+        private static void BindSimSeats(SimWorld world, EnemyAi ai)
+        {
+            BalanceCatalog? catalog = ai.Balance.ScenarioCatalog;
+            if (catalog == null)
+            {
+                return;
+            }
+
+            world.BindCatalog(catalog);
+            for (int i = 0; i < ai.Owned.FactionCount; i++)
+            {
+                AiFactionState faction = ai.Owned.FactionAt(i);
+                AiPersonalityProfile personality = ai.Balance.GetPersonalityOrGeneric(faction.PersonalityId);
+                if (!ai.Seats.TryGetByFaction(personality.EconomyFactionId, out AiScenarioSeatView seat))
+                {
+                    continue;
+                }
+
+                if (!ai.Map.TryGetTown(faction.HomeTownId, out AiTownRecord town))
+                {
+                    continue;
+                }
+
+                int researchComplete = -1;
+                AiAutoResearch[] rows = seat.AutoResearch;
+                if (rows != null)
+                {
+                    for (int r = 0; r < rows.Length; r++)
+                    {
+                        if (rows[r].Item != FixtureAiScenarioSeats.AutoResearchTier2)
+                        {
+                            continue;
+                        }
+
+                        int complete = checked(rows[r].NotBeforeTick + ai.Balance.Tier2ResearchTicks);
+                        if (researchComplete < 0 || complete < researchComplete)
+                        {
+                            researchComplete = complete;
+                        }
+                    }
+                }
+
+                string[] raisable = seat.RaisableUnits ?? Array.Empty<string>();
+                world.BindSeat(new SeatSetup(
+                    faction.FactionId,
+                    seat.Slot,
+                    seat.Faction,
+                    town.Id,
+                    town.XCm,
+                    town.YCm,
+                    1,
+                    researchComplete,
+                    seat.StartingManpower,
+                    500,
+                    400,
+                    ai.Seats.FuelEnabled,
+                    30,
+                    raisable));
+            }
+        }
+
         private static IAiScenarioSeats LaunchSeats(byte[] mapBlob, AiBalanceTables balance)
         {
             return FixtureAiScenarioSeats.ForLaunchPersonalities(AiMapSnapshot.FromWrmb(mapBlob), balance);

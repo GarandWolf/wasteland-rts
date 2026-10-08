@@ -356,10 +356,6 @@ namespace Wasteland.Sim.Tests
                         -1)));
             Assert.Contains("manpower", rows.Message);
 
-            FormatException json = Assert.Throws<FormatException>(() =>
-                AiUnitCatalog.Parse(
-                    "{\"units\":{\"probe\":{\"techTier\":1,\"role\":\"line_infantry\",\"targetClass\":\"soft\",\"cost\":{\"manpower\":-1}}}}"));
-            Assert.Contains("manpower", json.Message);
         }
 
         [Fact]

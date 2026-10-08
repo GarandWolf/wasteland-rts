@@ -41,6 +41,8 @@ namespace Wasteland.Sim.Ai
         private readonly AiAttackDefend _attackDefend;
         private readonly AiAttackTownInfo[] _attackTowns;
         private AiBattalionPin[] _attackBattalions;
+        private readonly List<ProductionQueueItem> _productionQueue = new List<ProductionQueueItem>();
+        private readonly string[] _queuedUnitIds = new string[AiConstants.PendingCommandCapacity];
         private bool _shutdown;
         private bool _homesSeeded;
         private int _strategicSliceRuns;
@@ -1219,6 +1221,33 @@ namespace Wasteland.Sim.Ai
 
             _fixtureSeatView.Tier2ResearchTicks = _balance.Tier2ResearchTicks;
             _fixtureSeatView.Refresh(seat, _world.Tick);
+            if (_world.TryGetSeat(faction.FactionId, out SeatView live))
+            {
+                _fixtureSeatView.Manpower = live.Manpower;
+                _fixtureSeatView.Materials = live.Materials;
+                _fixtureSeatView.PopUsed = live.PopUsed;
+                _fixtureSeatView.PopCap = live.PopCap;
+                _fixtureSeatView.CurrentTier = live.CurrentTier;
+                _fixtureSeatView.TierResearchCompleteTick = live.TierResearchCompleteTick;
+            }
+
+            int queuedCount = 0;
+            if (_world.TryCopyProductionQueue(faction.FactionId, _productionQueue))
+            {
+                int n = _productionQueue.Count;
+                if (n > _queuedUnitIds.Length)
+                {
+                    n = _queuedUnitIds.Length;
+                }
+
+                for (int i = 0; i < n; i++)
+                {
+                    _queuedUnitIds[i] = _productionQueue[i].UnitId;
+                }
+
+                queuedCount = n;
+            }
+
             _attackDefend.Tick(
                 _world.Tick,
                 faction,
@@ -1238,7 +1267,9 @@ namespace Wasteland.Sim.Ai
                 _balance.UnitCatalog,
                 _balance.BuildingCatalog,
                 personality.LineUnitsPerAntiArmour,
-                personality.MinGarrisonPerTown);
+                personality.MinGarrisonPerTown,
+                _queuedUnitIds,
+                queuedCount);
         }
 
         private int FillAttackTowns()
@@ -1283,12 +1314,18 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
+                string unitId = string.Empty;
+                if (_world.TryGetBattalionView(id, out BattalionView view))
+                {
+                    unitId = view.UnitId;
+                }
+
                 _attackBattalions[count++] = new AiBattalionPin(
                     id,
                     battalion.PositionXCm,
                     battalion.PositionYCm,
                     NearestRoadNode(battalion.PositionXCm, battalion.PositionYCm),
-                    string.Empty,
+                    unitId,
                     IsBattalionAssigned(faction, id));
             }
 

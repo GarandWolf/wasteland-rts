@@ -22,7 +22,8 @@ namespace Wasteland.Sim.Ai
         UnitNotRaisable = 3,
         BuildingNotBuildable = 4,
         TierLocked = 5,
-        PopCapReached = 6
+        PopCapReached = 6,
+        InsufficientManpower = 7
     }
 
     public readonly struct AiIssuedCommand
@@ -86,6 +87,12 @@ namespace Wasteland.Sim.Ai
         int SubmitBuildDepot(int factionId, int battalionId, int nodeId);
 
         AiCommandReject RejectOf(int commandId);
+
+        int CommandDelayTicks { get; }
+
+        System.Collections.Generic.IReadOnlyList<AiIssuedCommand> IssuedCommands { get; }
+
+        bool RaiseHasStarted(int commandId);
     }
 
     /// <summary>
