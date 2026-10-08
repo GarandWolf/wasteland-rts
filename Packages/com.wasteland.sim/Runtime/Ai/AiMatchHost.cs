@@ -270,23 +270,11 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                int researchComplete = -1;
-                AiAutoResearch[] rows = seat.AutoResearch;
-                if (rows != null)
+                AiAutoResearch[] rows = seat.AutoResearch ?? Array.Empty<AiAutoResearch>();
+                ScenarioAutoResearch[] autoResearch = new ScenarioAutoResearch[rows.Length];
+                for (int r = 0; r < rows.Length; r++)
                 {
-                    for (int r = 0; r < rows.Length; r++)
-                    {
-                        if (rows[r].Item != FixtureAiScenarioSeats.AutoResearchTier2)
-                        {
-                            continue;
-                        }
-
-                        int complete = checked(rows[r].NotBeforeTick + ai.Balance.Tier2ResearchTicks);
-                        if (researchComplete < 0 || complete < researchComplete)
-                        {
-                            researchComplete = complete;
-                        }
-                    }
+                    autoResearch[r] = new ScenarioAutoResearch(rows[r].Item, rows[r].NotBeforeTick);
                 }
 
                 string[] raisable = seat.RaisableUnits ?? Array.Empty<string>();
@@ -298,13 +286,14 @@ namespace Wasteland.Sim.Ai
                     town.XCm,
                     town.YCm,
                     1,
-                    researchComplete,
+                    -1,
                     seat.StartingManpower,
                     500,
                     400,
                     ai.Seats.FuelEnabled,
                     30,
-                    raisable));
+                    raisable,
+                    autoResearch));
             }
         }
 

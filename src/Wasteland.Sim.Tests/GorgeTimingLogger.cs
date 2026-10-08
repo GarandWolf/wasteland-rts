@@ -37,8 +37,6 @@ namespace Wasteland.Sim.Tests
             int eventCursor = 0;
             bool remnantArrived = false;
             bool compactArrived = false;
-            bool remnantTier2 = false;
-            bool compactTier2 = false;
             int lastCaptureFaction = host.Ai.Owned.CaptureFactionAt(dallesIndex);
             int lastOwner = host.Ai.Owned.TownOwnerAt(dallesIndex);
 
@@ -52,7 +50,7 @@ namespace Wasteland.Sim.Tests
                     tick = 0;
                 }
 
-                eventCursor = AppendSpawns(host, eventCursor, remnantId, compactId, spawnCounts, rows);
+                eventCursor = AppendEvents(host, eventCursor, remnantId, compactId, spawnCounts, rows, log);
                 if (!compactArrived && FactionInDalles(host, compactId, dalles, radiusSq))
                 {
                     compactArrived = true;
@@ -100,20 +98,6 @@ namespace Wasteland.Sim.Tests
                 }
 
                 lastOwner = owner;
-
-                if (!remnantTier2 && SeatTier(host, remnantId) >= 2)
-                {
-                    remnantTier2 = true;
-                    log.RemnantTier2Tick = tick;
-                    rows.Add(new TimedEvent(tick, 30, "remnant_tier2"));
-                }
-
-                if (!compactTier2 && SeatTier(host, compactId) >= 2)
-                {
-                    compactTier2 = true;
-                    log.CompactTier2Tick = tick;
-                    rows.Add(new TimedEvent(tick, 31, "compact_tier2"));
-                }
             }
 
             log.RemnantRifleSpawns = CountPrefix(spawnCounts, remnantId + ":remnant_motor_rifles");
@@ -138,18 +122,35 @@ namespace Wasteland.Sim.Tests
             return log;
         }
 
-        private static int AppendSpawns(
+        private static int AppendEvents(
             AiMatchHost host,
             int cursor,
             int remnantId,
             int compactId,
             Dictionary<string, int> spawnCounts,
-            List<TimedEvent> rows)
+            List<TimedEvent> rows,
+            GorgeTimingLog log)
         {
             IReadOnlyList<SimEvent> events = host.World.Events;
             for (int i = cursor; i < events.Count; i++)
             {
                 SimEvent ev = events[i];
+                if (ev.Kind == SimEventKind.TierReached && ev.AuxId == 2)
+                {
+                    if (ev.SubjectId == remnantId && log.RemnantTier2Tick < 0)
+                    {
+                        log.RemnantTier2Tick = ev.Tick;
+                        rows.Add(new TimedEvent(ev.Tick, 30, "remnant_tier2"));
+                    }
+                    else if (ev.SubjectId == compactId && log.CompactTier2Tick < 0)
+                    {
+                        log.CompactTier2Tick = ev.Tick;
+                        rows.Add(new TimedEvent(ev.Tick, 31, "compact_tier2"));
+                    }
+
+                    continue;
+                }
+
                 if (ev.Kind != SimEventKind.BattalionSpawned)
                 {
                     continue;
@@ -235,16 +236,6 @@ namespace Wasteland.Sim.Tests
             }
 
             return false;
-        }
-
-        private static int SeatTier(AiMatchHost host, int factionId)
-        {
-            if (!host.World.TryGetSeat(factionId, out SeatView view))
-            {
-                return 1;
-            }
-
-            return view.CurrentTier;
         }
 
         private static int CountPrefix(Dictionary<string, int> spawnCounts, string key)

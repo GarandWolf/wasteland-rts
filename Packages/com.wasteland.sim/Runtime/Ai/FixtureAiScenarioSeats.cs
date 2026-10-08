@@ -217,7 +217,8 @@ namespace Wasteland.Sim.Ai
                         remnant.Id,
                         HomeKeyOf(map, map.GoldendaleTownId),
                         RemnantRaisableUnits,
-                        map.GoldendaleTownId),
+                        map.GoldendaleTownId,
+                        new[] { new AiAutoResearch(AutoResearchTier2, 1200) }),
                     LaunchSeat(
                         1,
                         compact.EconomyFactionId,
@@ -269,6 +270,25 @@ namespace Wasteland.Sim.Ai
             string[] raisableUnits,
             int homeTownId)
         {
+            return LaunchSeat(
+                slot,
+                faction,
+                aiPersonality,
+                homeTerritoryKey,
+                raisableUnits,
+                homeTownId,
+                DefaultResearch);
+        }
+
+        public static AiScenarioSeatView LaunchSeat(
+            int slot,
+            string faction,
+            string? aiPersonality,
+            ulong homeTerritoryKey,
+            string[] raisableUnits,
+            int homeTownId,
+            AiAutoResearch[] research)
+        {
             return new AiScenarioSeatView(
                 slot,
                 faction,
@@ -277,7 +297,7 @@ namespace Wasteland.Sim.Ai
                 300,
                 raisableUnits,
                 DefaultBuildableBuildings,
-                DefaultResearch,
+                research ?? DefaultResearch,
                 homeTownId);
         }
 
