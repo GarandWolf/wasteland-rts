@@ -5,9 +5,9 @@ using System.IO;
 namespace Wasteland.Sim.Ai
 {
     /// <summary>
-    /// Synthetic seat adapter for tests and for MatchInit until the Lead's
-    /// scenario loader is wired. Construction range checks throw
-    /// <see cref="InvalidDataException"/>.
+    /// Synthetic seat adapter for tests. Production MatchInit takes
+    /// <see cref="IAiScenarioSeats"/> from <see cref="ScenarioAiSeats"/>.
+    /// Construction range checks throw <see cref="InvalidDataException"/>.
     /// </summary>
     public sealed class FixtureAiScenarioSeats : IAiScenarioSeats
     {

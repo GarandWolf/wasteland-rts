@@ -432,7 +432,8 @@ namespace Wasteland.Sim.Tests
                 AiConstants.DifficultyNormal,
                 balance,
                 sink,
-                sink));
+                sink,
+                FixtureAiScenarioSeats.ForLaunchPersonalities(AiMapSnapshot.FromWrmb(map), balance)));
         }
 
         [Fact]

@@ -164,7 +164,8 @@ namespace Wasteland.Sim.Ai
             string difficultyId,
             AiBalanceTables balance,
             ISimCommandSink commands,
-            ISimWorldView world)
+            ISimWorldView world,
+            IAiScenarioSeats seats)
         {
             if (mapBlob == null)
             {
@@ -194,6 +195,11 @@ namespace Wasteland.Sim.Ai
             if (world == null)
             {
                 throw new ArgumentNullException(nameof(world));
+            }
+
+            if (seats == null)
+            {
+                throw new ArgumentNullException(nameof(seats));
             }
 
             if (!(world is ICaptureOccupancyView occupancy))
@@ -267,7 +273,6 @@ namespace Wasteland.Sim.Ai
                     SeedRng(factionStream, AiConstants.StreamScout));
             }
 
-            IAiScenarioSeats seats = FixtureAiScenarioSeats.ForLaunchPersonalities(map, balance);
             return new EnemyAi(
                 commands,
                 world,

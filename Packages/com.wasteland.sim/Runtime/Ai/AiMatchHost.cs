@@ -114,6 +114,17 @@ namespace Wasteland.Sim.Ai
             string difficultyId,
             AiBalanceTables balance)
         {
+            return Start(match, mapBlob, factionIds, difficultyId, balance, null);
+        }
+
+        public static AiMatchHost Start(
+            MatchConfig match,
+            byte[] mapBlob,
+            int[] factionIds,
+            string difficultyId,
+            AiBalanceTables balance,
+            IAiScenarioSeats? seats)
+        {
             if (factionIds == null)
             {
                 throw new ArgumentNullException(nameof(factionIds));
@@ -124,7 +135,8 @@ namespace Wasteland.Sim.Ai
             MatchConfig withKeys = BindKeys(match, mapBlob, balance);
             SimWorld world = new SimWorld(withKeys);
             LoggingCommandSink sink = new LoggingCommandSink(world);
-            EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink);
+            IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
+            EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
             return new AiMatchHost(world, ai, sink, copy);
         }
 
@@ -153,7 +165,8 @@ namespace Wasteland.Sim.Ai
             MatchConfig withKeys = BindKeys(match, mapBlob, balance);
             SimWorld world = new SimWorld(withKeys);
             LoggingCommandSink sink = new LoggingCommandSink(world);
-            EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink);
+            IAiScenarioSeats bound = LaunchSeats(mapBlob, balance);
+            EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
             int cursor = 0;
             while (world.Tick < tick)
             {
@@ -204,6 +217,16 @@ namespace Wasteland.Sim.Ai
             }
 
             return match.WithKeys(balance.BalanceKey, mapKey);
+        }
+
+        /// <summary>
+        /// Temporary host fallback until the Lead passes
+        /// <see cref="ScenarioAiSeats"/> from the loaded scenario.
+        /// <see cref="EnemyAi.MatchInit"/> takes only <see cref="IAiScenarioSeats"/>.
+        /// </summary>
+        private static IAiScenarioSeats LaunchSeats(byte[] mapBlob, AiBalanceTables balance)
+        {
+            return FixtureAiScenarioSeats.ForLaunchPersonalities(AiMapSnapshot.FromWrmb(mapBlob), balance);
         }
 
         public ulong Step()
