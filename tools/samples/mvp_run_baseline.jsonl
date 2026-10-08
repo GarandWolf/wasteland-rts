@@ -1,0 +1,12 @@
+{"tick": 1200, "event": "remnant_tier2_started", "seat": 0}
+{"tick": 3000, "event": "remnant_tier2", "seat": 0}
+{"tick": 3900, "event": "compact_militia", "seat": 1}
+{"tick": 4240, "event": "remnant_armour_1", "seat": 0}
+{"tick": 4620, "event": "compact_dalles_arrive", "seat": 1}
+{"tick": 5200, "event": "remnant_dalles_arrive", "seat": 0}
+{"tick": 5440, "event": "remnant_armour_2", "seat": 0}
+{"tick": 5700, "event": "compact_at_1", "seat": 1}
+{"tick": 6340, "event": "remnant_mech_1", "seat": 0}
+{"tick": 8980, "event": "remnant_armour_3", "seat": 0}
+{"tick": 10140, "event": "compact_dalles_capture", "seat": 1}
+{"tick": 10280, "event": "remnant_mech_2", "seat": 0}
