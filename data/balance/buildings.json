@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "dataVersion": 7,
+  "dataVersion": 8,
   "fortification": {
     "captureTimerPerLevelPpt": 250,
     "captureTimerMaxPpt": 500,
@@ -16,6 +16,7 @@
   "buildings": {
     "town_walls_l1": {
       "category": "defense",
+      "role": "wall",
       "factions": [
         "remnant_command",
         "homestead_compact"
@@ -55,6 +56,7 @@
     },
     "town_walls_l2": {
       "category": "defense",
+      "role": "wall",
       "factions": [
         "remnant_command",
         "homestead_compact"
@@ -94,6 +96,7 @@
     },
     "bunker": {
       "category": "defense",
+      "role": "fortification",
       "factions": [
         "remnant_command",
         "homestead_compact"
@@ -142,6 +145,7 @@
     },
     "watchtower": {
       "category": "defense",
+      "role": "fortification",
       "factions": [
         "remnant_command",
         "homestead_compact"
@@ -181,6 +185,7 @@
     },
     "at_emplacement": {
       "category": "defense",
+      "role": "fortification",
       "factions": [
         "remnant_command",
         "homestead_compact"
@@ -229,6 +234,7 @@
     },
     "artillery_position": {
       "category": "defense",
+      "role": "fortification",
       "factions": [
         "remnant_command",
         "homestead_compact"
@@ -277,6 +283,7 @@
     },
     "hq": {
       "category": "economy",
+      "role": "hq",
       "factions": [
         "remnant_command",
         "homestead_compact"
@@ -318,6 +325,7 @@
     },
     "supply_depot": {
       "category": "economy",
+      "role": "supply_depot",
       "factions": [
         "remnant_command",
         "homestead_compact"
@@ -357,6 +365,7 @@
     },
     "fuel_pump": {
       "category": "economy",
+      "role": "resource",
       "factions": [
         "remnant_command",
         "homestead_compact"
@@ -396,6 +405,7 @@
     },
     "salvage_yard": {
       "category": "economy",
+      "role": "resource",
       "factions": [
         "remnant_command",
         "homestead_compact"
@@ -435,6 +445,7 @@
     },
     "recruitment_office": {
       "category": "economy",
+      "role": "recruitment",
       "factions": [
         "remnant_command",
         "homestead_compact"
@@ -474,6 +485,7 @@
     },
     "muster_camp": {
       "category": "production",
+      "role": "production",
       "factions": [
         "remnant_command",
         "homestead_compact"
@@ -513,6 +525,7 @@
     },
     "motor_pool": {
       "category": "production",
+      "role": "production",
       "factions": [
         "remnant_command"
       ],
@@ -550,6 +563,7 @@
     },
     "heavy_works": {
       "category": "production",
+      "role": "production",
       "factions": [
         "remnant_command"
       ],
@@ -587,6 +601,7 @@
     },
     "drone_workshop": {
       "category": "production",
+      "role": "production",
       "factions": [
         "remnant_command"
       ],

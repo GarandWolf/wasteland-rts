@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "dataVersion": 7,
+  "dataVersion": 8,
   "units": {
     "remnant_motor_rifles": {
       "faction": "remnant_command",
