@@ -35,6 +35,14 @@ namespace Wasteland.Sim.Ai
         public readonly int BuildUpScoreBonus;
         public readonly int DepotBaseScore;
         public readonly int AwayDepotScoreBonus;
+
+        /// <summary>
+        /// Additive, like <see cref="NonSeatBonusPpt"/>: the prize wins when
+        /// <c>prizeDist*1000 &lt; otherDist*(1000+bonus)</c> in long, so 300
+        /// means it can be up to 30% farther; an exact tie goes to the prize;
+        /// unreachable targets never enter the comparison; the HQ-in-supply
+        /// override and defend still come first.
+        /// </summary>
         public readonly int PrizeTargetBonusPpt;
         public readonly string EconomyFactionId;
         public readonly int MinGarrisonPerTown;

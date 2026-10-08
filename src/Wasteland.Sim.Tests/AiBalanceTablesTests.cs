@@ -12,7 +12,7 @@ namespace Wasteland.Sim.Tests
         /// (personalities + difficulty). Designer files under <c>data/balance</c>
         /// are not part of this pin. Re-pin when AI-owned files change.
         /// </summary>
-        public const ulong ExpectedAiOwnedBalanceKey = 0xF0A9224F6A008CC3UL;
+        public const ulong ExpectedAiOwnedBalanceKey = 0x881F4713FEC0DA41UL;
 
         [Fact]
         public void AiOwnedFiles_MatchExpectedBalanceKey()
@@ -68,8 +68,9 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(200, warlordScores.BuildUpScoreBonus);
             Assert.Equal(1800, warlordScores.DepotBaseScore);
             Assert.Equal(400, warlordScores.AwayDepotScoreBonus);
-            Assert.Equal(1000, warlordScores.PrizeTargetBonusPpt);
-            Assert.Equal(1000, settler.PrizeTargetBonusPpt);
+            Assert.Equal(300, warlordScores.PrizeTargetBonusPpt);
+            Assert.Equal(300, settler.PrizeTargetBonusPpt);
+            Assert.Equal(300, tables.GetPersonality(AiConstants.PersonalityRaider).PrizeTargetBonusPpt);
             Assert.Equal("remnant_command", warlordScores.EconomyFactionId);
             Assert.Equal("homestead_compact", settler.EconomyFactionId);
 
@@ -134,7 +135,7 @@ namespace Wasteland.Sim.Tests
         {
             string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json")
                 .Replace(
-                    "      \"awayDepotScoreBonus\": 400,\n      \"prizeTargetBonusPpt\": 1000",
+                    "      \"awayDepotScoreBonus\": 400,\n      \"prizeTargetBonusPpt\": 300",
                     "      \"awayDepotScoreBonus\": 400");
             FormatException ex = Assert.Throws<FormatException>(() => AiBalanceTables.Parse(
                 personalities,

@@ -80,36 +80,40 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void PickAttackTarget_PrizeWinsDistanceTie()
+        public void PickAttackTarget_PrizeAtBoundaryTieGoesToPrize()
         {
-            Harness harness = Harness.Fork();
-            harness.Towns[10] = Own(1);
-            harness.Towns[20] = Enemy(2, 1);
-            harness.Towns[30] = Enemy(2, 1);
-            int withoutPrize = harness.Planner.PickAttackTarget(
-                harness.Faction,
-                harness.TownRows,
-                3,
-                harness.Roads,
-                1,
-                harness.Network,
-                1,
-                100000,
-                0UL,
-                0);
-            Assert.Equal(20, withoutPrize);
-            int withPrize = harness.Planner.PickAttackTarget(
-                harness.Faction,
-                harness.TownRows,
-                3,
-                harness.Roads,
-                1,
-                harness.Network,
-                1,
-                100000,
-                3UL,
-                1000);
-            Assert.Equal(30, withPrize);
+            Assert.Equal(30, PickPrize(Harness.Fork(1000, 1300), 3UL, 300));
+        }
+
+        [Fact]
+        public void PickAttackTarget_PrizeJustBeyondBonusLoses()
+        {
+            Assert.Equal(20, PickPrize(Harness.Fork(1000, 1301), 3UL, 300));
+        }
+
+        [Fact]
+        public void PickAttackTarget_PrizeJustInsideBonusWins()
+        {
+            Assert.Equal(30, PickPrize(Harness.Fork(1000, 1299), 3UL, 300));
+        }
+
+        [Fact]
+        public void PickAttackTarget_BonusZeroUsesNearestThenLowerId()
+        {
+            Assert.Equal(20, PickPrize(Harness.Fork(1000, 1300), 3UL, 0));
+            Assert.Equal(20, PickPrize(Harness.Fork(), 3UL, 0));
+        }
+
+        [Fact]
+        public void PickAttackTarget_UnreachablePrizeLosesToReachable()
+        {
+            Assert.Equal(20, PickPrize(Harness.Fork(1000, 0, true, false), 3UL, 300));
+        }
+
+        [Fact]
+        public void PickAttackTarget_ReachablePrizeBeatsUnreachableWithoutOverflow()
+        {
+            Assert.Equal(30, PickPrize(Harness.Fork(0, 1000, false, true), 3UL, 300));
         }
 
         [Fact]
@@ -362,6 +366,24 @@ namespace Wasteland.Sim.Tests
             return new AiBattalionPin(id, nodeId * 1000, 0, nodeId, AiConstants.UnitKindEngineer, false);
         }
 
+        private static int PickPrize(Harness harness, ulong prizeKey, int bonusPpt)
+        {
+            harness.Towns[10] = Own(1);
+            harness.Towns[20] = Enemy(2, 1);
+            harness.Towns[30] = Enemy(2, 1);
+            return harness.Planner.PickAttackTarget(
+                harness.Faction,
+                harness.TownRows,
+                3,
+                harness.Roads,
+                1,
+                harness.Network,
+                1,
+                100000,
+                prizeKey,
+                bonusPpt);
+        }
+
         private static AiScenarioSeatView InfantryOnlySeat()
         {
             return FixtureAiScenarioSeats.Create(new AiScenarioSeatView(
@@ -453,16 +475,32 @@ namespace Wasteland.Sim.Tests
 
             public static Harness Fork()
             {
-                RoadGraph roads = Wrmb.ReadRoadGraph(
-                    new RoadGraphBuilder()
-                        .AddNode(1, 0, 0)
-                        .AddNode(2, 1000, 1000)
-                        .AddNode(3, 1000, -1000)
-                        .AddEdge(1, 1, 2, 1000, RoadTier.Paved, RoadSurface.Asphalt)
-                        .AddEdge(2, 1, 3, 1000, RoadTier.Paved, RoadSurface.Asphalt)
-                        .ToBlob());
+                return Fork(1000, 1000, true, true);
+            }
+
+            public static Harness Fork(int toward20Cm, int toward30Cm)
+            {
+                return Fork(toward20Cm, toward30Cm, true, true);
+            }
+
+            public static Harness Fork(int toward20Cm, int toward30Cm, bool connect20, bool connect30)
+            {
+                RoadGraphBuilder builder = new RoadGraphBuilder()
+                    .AddNode(1, 0, 0)
+                    .AddNode(2, 1000, 1000)
+                    .AddNode(3, 1000, -1000);
+                if (connect20)
+                {
+                    builder.AddEdge(1, 1, 2, toward20Cm, RoadTier.Paved, RoadSurface.Asphalt);
+                }
+
+                if (connect30)
+                {
+                    builder.AddEdge(2, 1, 3, toward30Cm, RoadTier.Paved, RoadSurface.Asphalt);
+                }
+
                 return new Harness(
-                    roads,
+                    Wrmb.ReadRoadGraph(builder.ToBlob()),
                     new[]
                     {
                         new AiAttackTownInfo(10, 1, 1, 0, 0, true, 1UL),

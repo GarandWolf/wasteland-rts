@@ -219,31 +219,25 @@ namespace Wasteland.Sim.Ai
             return PickAttackTarget(faction, towns, townCount, graph, fromNodeId, none, 0, 0, 0UL, 0);
         }
 
-        private static bool BetterTarget(
-            int dist,
+        private static bool IsUnreachableDist(int dist)
+        {
+            return dist >= AiConstants.UnreachableCm;
+        }
+
+        private static int ComparePrizeToOther(int prizeDist, int otherDist, int prizeTargetBonusPpt)
+        {
+            long left = (long)prizeDist * SimConfig.PptScale;
+            long right = (long)otherDist * ((long)SimConfig.PptScale + prizeTargetBonusPpt);
+            return left.CompareTo(right);
+        }
+
+        private static bool TieBreakPrizeThenId(
             bool isPrize,
             int id,
-            int bestDist,
             bool bestIsPrize,
             int bestId,
             int prizeTargetBonusPpt)
         {
-            if (bestId == 0)
-            {
-                return true;
-            }
-
-            int cmp = dist.CompareTo(bestDist);
-            if (cmp < 0)
-            {
-                return true;
-            }
-
-            if (cmp > 0)
-            {
-                return false;
-            }
-
             if (prizeTargetBonusPpt > 0)
             {
                 if (isPrize && !bestIsPrize)
@@ -258,6 +252,64 @@ namespace Wasteland.Sim.Ai
             }
 
             return id < bestId;
+        }
+
+        private static bool BetterTarget(
+            int dist,
+            bool isPrize,
+            int id,
+            int bestDist,
+            bool bestIsPrize,
+            int bestId,
+            int prizeTargetBonusPpt)
+        {
+            if (bestId == 0)
+            {
+                return true;
+            }
+
+            bool unreachable = IsUnreachableDist(dist);
+            bool bestUnreachable = IsUnreachableDist(bestDist);
+            if (unreachable != bestUnreachable)
+            {
+                return bestUnreachable;
+            }
+
+            if (unreachable)
+            {
+                return TieBreakPrizeThenId(isPrize, id, bestIsPrize, bestId, prizeTargetBonusPpt);
+            }
+
+            if (isPrize != bestIsPrize)
+            {
+                int prizeDist = isPrize ? dist : bestDist;
+                int otherDist = isPrize ? bestDist : dist;
+                int cmp = ComparePrizeToOther(prizeDist, otherDist, prizeTargetBonusPpt);
+                if (cmp < 0)
+                {
+                    return isPrize;
+                }
+
+                if (cmp > 0)
+                {
+                    return !isPrize;
+                }
+
+                return TieBreakPrizeThenId(isPrize, id, bestIsPrize, bestId, prizeTargetBonusPpt);
+            }
+
+            int raw = dist.CompareTo(bestDist);
+            if (raw < 0)
+            {
+                return true;
+            }
+
+            if (raw > 0)
+            {
+                return false;
+            }
+
+            return TieBreakPrizeThenId(isPrize, id, bestIsPrize, bestId, prizeTargetBonusPpt);
         }
 
         private bool TryDefend(
