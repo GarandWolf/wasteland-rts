@@ -50,5 +50,26 @@ namespace Wasteland.Sim.Commands
                 _byExecuteTick.Remove(executeTick);
             }
         }
+
+        /// <summary>
+        /// All queued commands in execute order: tick, then issuer (faction/seat), then submit sequence.
+        /// </summary>
+        public void CopyTo(List<SimCommand> into)
+        {
+            if (into == null)
+            {
+                throw new ArgumentNullException(nameof(into));
+            }
+
+            into.Clear();
+            foreach (KeyValuePair<int, List<SimCommand>> pair in _byExecuteTick)
+            {
+                List<SimCommand> list = pair.Value;
+                for (int i = 0; i < list.Count; i++)
+                {
+                    into.Add(list[i]);
+                }
+            }
+        }
     }
 }

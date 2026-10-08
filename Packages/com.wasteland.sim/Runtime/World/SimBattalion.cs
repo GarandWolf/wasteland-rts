@@ -1,3 +1,5 @@
+using Wasteland.Sim.Movement;
+
 namespace Wasteland.Sim.World
 {
     /// <summary>
@@ -17,5 +19,17 @@ namespace Wasteland.Sim.World
         public int SpeedCmPerSecond;
         public int StrengthPpt;
         public bool HasTarget;
+
+        /// <summary>Catalog index of the raised unit. -1 for an untyped spawn.</summary>
+        public int UnitIndex;
+
+        public MovementClass MoveClass;
+
+        /// <summary>Index into <see cref="PathXCm"/> while a road path is active.</summary>
+        public int PathIndex;
+
+        public int PathCount;
+        public int[] PathXCm;
+        public int[] PathYCm;
     }
 }
