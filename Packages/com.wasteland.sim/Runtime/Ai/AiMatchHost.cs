@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.Movement;
+using Wasteland.Sim.Scenario;
 using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
@@ -61,6 +62,14 @@ namespace Wasteland.Sim.Ai
         private readonly List<AiHashSample> _hashes = new List<AiHashSample>();
         private readonly List<AiTownHoldSample> _holdSamples = new List<AiTownHoldSample>();
         private readonly int[] _factionIds;
+
+        /// <summary>economy.json <c>popCap.hqBonus</c>. Starting battalions count against this cap.</summary>
+        private const int MvpHqPopCap = 30;
+
+        private const string MvpScenarioId = "columbia_gorge_100mi_mvp";
+        private const string MvpMapFileId = "golden_ci_columbia_gorge_100_v1_marsh";
+        private const string RemnantFactionKey = "remnant_command";
+        private const string CompactFactionKey = "homestead_compact";
 
         private AiMatchHost(SimWorld world, EnemyAi ai, LoggingCommandSink sink, int[] factionIds)
         {
@@ -125,6 +134,7 @@ namespace Wasteland.Sim.Ai
             SimWorld world = new SimWorld(withKeys);
             LoggingCommandSink sink = new LoggingCommandSink(world);
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink);
+            BindMvpSeats(world, ai, copy);
             return new AiMatchHost(world, ai, sink, copy);
         }
 
@@ -154,6 +164,7 @@ namespace Wasteland.Sim.Ai
             SimWorld world = new SimWorld(withKeys);
             LoggingCommandSink sink = new LoggingCommandSink(world);
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink);
+            BindMvpSeats(world, ai, copy);
             int cursor = 0;
             while (world.Tick < tick)
             {
@@ -180,6 +191,123 @@ namespace Wasteland.Sim.Ai
             }
 
             return new AiMatchHost(world, ai, sink, copy);
+        }
+
+        /// <summary>
+        /// Spawn the MVP scenario's authored opening force onto the host factions.
+        /// Faction 1 is Remnant (scenario slot 0). Faction 2 is Compact (slot 1).
+        /// HQ is the seat town the map already assigned to that faction, not the origin.
+        /// </summary>
+        private static void BindMvpSeats(SimWorld world, EnemyAi ai, int[] factionIds)
+        {
+            string balanceDir = FindBalanceDirectory();
+            BalanceCatalog catalog = BalanceCatalog.LoadFromDirectory(balanceDir);
+            string mapName = SimScenario.ExpectedWrmbFileName(MvpMapFileId);
+            DirectoryInfo balanceInfo = new DirectoryInfo(balanceDir);
+            DirectoryInfo? dataDir = balanceInfo.Parent;
+            DirectoryInfo? root = dataDir == null ? null : dataDir.Parent;
+            if (root == null)
+            {
+                throw new DirectoryNotFoundException(balanceDir);
+            }
+
+            string mapPath = Path.Combine(root.FullName, "data", "golden", mapName);
+            byte[] mapBytes = File.ReadAllBytes(mapPath);
+            string scenarioPath = Path.Combine(balanceDir, "scenarios", MvpScenarioId + ".json");
+            SimScenario scenario = SimScenario.Load(
+                File.ReadAllText(scenarioPath),
+                catalog,
+                mapBytes,
+                mapName,
+                MvpScenarioId);
+            world.BindCatalog(catalog);
+            for (int i = 0; i < factionIds.Length; i++)
+            {
+                int factionId = factionIds[i];
+                if (!TryMvpSeat(scenario, factionId, out ScenarioSeat scenarioSeat))
+                {
+                    continue;
+                }
+
+                AiFactionState faction = ai.Owned.GetFaction(factionId);
+                if (!ai.Map.TryGetTown(faction.HomeTownId, out AiTownRecord town)
+                    || (town.XCm == 0 && town.YCm == 0))
+                {
+                    throw new InvalidOperationException(
+                        "MVP seat " + scenarioSeat.Faction + " has no seat-town position on this map.");
+                }
+
+                world.BindSeat(new SeatSetup(
+                    factionId,
+                    scenarioSeat.Slot,
+                    scenarioSeat.Faction,
+                    town.Id,
+                    town.XCm,
+                    town.YCm,
+                    1,
+                    -1,
+                    scenarioSeat.StartingManpower,
+                    catalog.StartingMateriel,
+                    catalog.StartingFuel,
+                    scenario.MatchRules.FuelEnabled,
+                    MvpHqPopCap,
+                    scenarioSeat.RaisableUnits,
+                    scenarioSeat.AutoResearch,
+                    scenarioSeat.StartingUnits));
+            }
+        }
+
+        private static bool TryMvpSeat(SimScenario scenario, int factionId, out ScenarioSeat seat)
+        {
+            if (factionId == AiConstants.DefaultAiFactionA)
+            {
+                seat = scenario.SeatAt(0);
+                if (seat.Faction != RemnantFactionKey)
+                {
+                    throw new InvalidOperationException("MVP seat 0 is not " + RemnantFactionKey + ".");
+                }
+
+                return true;
+            }
+
+            if (factionId == AiConstants.DefaultAiFactionB)
+            {
+                seat = scenario.SeatAt(1);
+                if (seat.Faction != CompactFactionKey)
+                {
+                    throw new InvalidOperationException("MVP seat 1 is not " + CompactFactionKey + ".");
+                }
+
+                return true;
+            }
+
+            seat = default;
+            return false;
+        }
+
+        private static string FindBalanceDirectory()
+        {
+            string marker = Path.Combine("scenarios", MvpScenarioId + ".json");
+            DirectoryInfo? dir = new DirectoryInfo(AppContext.BaseDirectory);
+            for (int i = 0; i < 12 && dir != null; i++)
+            {
+                string candidate = Path.Combine(dir.FullName, "data", "balance");
+                if (File.Exists(Path.Combine(candidate, marker)))
+                {
+                    return candidate;
+                }
+
+                dir = dir.Parent;
+            }
+
+            string cwd = Path.Combine(Directory.GetCurrentDirectory(), "data", "balance");
+            if (File.Exists(Path.Combine(cwd, marker)))
+            {
+                return cwd;
+            }
+
+            throw new DirectoryNotFoundException(
+                "Could not find data/balance/scenarios/" + MvpScenarioId + ".json.");
         }
 
         private static MatchConfig BindKeys(MatchConfig match, byte[] mapBlob, AiBalanceTables balance)

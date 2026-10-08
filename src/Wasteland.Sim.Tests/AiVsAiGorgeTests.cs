@@ -27,7 +27,7 @@ namespace Wasteland.Sim.Tests
             Assert.Contains("theDallesTown=14", logsA[0]);
             Assert.True(hostA.Ai.Map.UsesMapNeighborLists);
             Assert.Equal(AiMapV1Tests.ExpectedWheeledBlockedChokepoints, hostA.Ai.Map.WheeledBlockedCount);
-            AssertDallesUnownedBecauseContested(hostA);
+            AssertDallesHeldByRemnant(hostA);
 
             hostA.Shutdown();
             hostB.Shutdown();
@@ -206,9 +206,14 @@ namespace Wasteland.Sim.Tests
             }
         }
 
-        private static void AssertDallesUnownedBecauseContested(AiMatchHost host)
+        /// <summary>
+        /// Authored starting units are on the field at tick 0. IssueOpeningForce
+        /// still adds its generic battalions. At the M1 sample Remnant holds
+        /// The Dalles and the zone is empty.
+        /// </summary>
+        private static void AssertDallesHeldByRemnant(AiMatchHost host)
         {
-            Assert.Equal(0, host.Ai.TheDallesOwnerId());
+            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.TheDallesOwnerId());
             int index = host.Ai.Map.IndexOfTown(host.Ai.Map.TheDallesTownId);
             AiTownRecord dalles = host.Ai.Map.TownAt(index);
             int radius = host.Ai.Balance.CaptureRadiusCmForClass(dalles.PopulationClass);
@@ -218,9 +223,9 @@ namespace Wasteland.Sim.Tests
                 radius);
             Assert.True(host.Ai.Map.Adjacency.AreNeighbors(AiHomeSeeder.RemnantHomeTerritoryId, host.Ai.Map.TheDallesTerritoryId));
             Assert.True(host.Ai.Map.Adjacency.AreNeighbors(AiHomeSeeder.CompactHomeTerritoryId, host.Ai.Map.TheDallesTerritoryId));
-            Assert.Equal(CaptureOccupancyKind.Contested, zone.Kind);
+            Assert.Equal(CaptureOccupancyKind.Empty, zone.Kind);
             Assert.Equal(0, zone.FactionId);
-            Assert.Equal(0, host.Ai.Owned.TownOwnerAt(index));
+            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.TownOwnerAt(index));
         }
 
         private static AiTownHoldSample FindHold(IReadOnlyList<AiTownHoldSample> samples, int tick, int factionId)
