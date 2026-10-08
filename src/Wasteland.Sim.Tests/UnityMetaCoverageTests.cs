@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+using System;
 using System.IO;
 using Xunit;
 
@@ -16,89 +16,72 @@ namespace Wasteland.Sim.Tests
                 Path.Combine(repo, "Packages", "com.wasteland.sim")
             };
 
-            List<string> missing = new List<string>();
-            List<string> orphaned = new List<string>();
             for (int r = 0; r < roots.Length; r++)
             {
                 string root = roots[r];
                 Assert.True(Directory.Exists(root), root);
-                Collect(root, root, missing, orphaned);
+                UnityMetaWalkResult result = UnityMetaWalker.Walk(root);
+                Assert.True(
+                    result.Missing.Length == 0 && result.Orphaned.Length == 0,
+                    Format(result));
             }
-
-            missing.Sort();
-            orphaned.Sort();
-            Assert.True(
-                missing.Count == 0 && orphaned.Count == 0,
-                Format(missing, orphaned));
         }
 
-        private static void Collect(
-            string root,
-            string current,
-            List<string> missing,
-            List<string> orphaned)
+        [Fact]
+        public void Walk_SkipsUnityIgnoredNames_AndReportsRealGaps()
         {
-            string[] files = Directory.GetFiles(current);
-            SortPaths(files);
-            for (int i = 0; i < files.Length; i++)
+            string root = Path.Combine(
+                Path.GetTempPath(),
+                "wasteland-unity-meta-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(root);
+            try
             {
-                string path = files[i];
-                if (path.EndsWith(".meta"))
-                {
-                    string source = path.Substring(0, path.Length - 5);
-                    if (!File.Exists(source) && !Directory.Exists(source))
-                    {
-                        orphaned.Add(Rel(root, path));
-                    }
+                File.WriteAllText(Path.Combine(root, ".secret"), "hidden-file");
+                Directory.CreateDirectory(Path.Combine(root, ".hidden"));
+                File.WriteAllText(Path.Combine(root, ".hidden", "inside.cs"), "hidden-folder");
 
-                    continue;
-                }
+                Directory.CreateDirectory(Path.Combine(root, "Foo~"));
+                File.WriteAllText(Path.Combine(root, "Foo~", "x.cs"), "tilde-folder");
 
-                if (!File.Exists(path + ".meta"))
-                {
-                    missing.Add(Rel(root, path));
-                }
+                Directory.CreateDirectory(Path.Combine(root, "bin", "Debug"));
+                File.WriteAllText(Path.Combine(root, "bin", "Debug", "out.dll"), "bin-output");
+                Directory.CreateDirectory(Path.Combine(root, "obj"));
+                File.WriteAllText(Path.Combine(root, "obj", "x.cs"), "obj-output");
+                Directory.CreateDirectory(Path.Combine(root, "CVS"));
+                File.WriteAllText(Path.Combine(root, "CVS", "Entries"), "cvs-folder");
+
+                File.WriteAllText(Path.Combine(root, "scratch.tmp"), "tmp-file");
+                File.WriteAllText(Path.Combine(root, "Real.cs"), "needs-meta");
+                File.WriteAllText(Path.Combine(root, "Gone.cs.meta"), "orphan-meta");
+
+                File.WriteAllText(Path.Combine(root, ".ghost.meta"), "skipped-hidden-meta");
+                File.WriteAllText(Path.Combine(root, "Missing~.meta"), "skipped-tilde-meta");
+                File.WriteAllText(Path.Combine(root, "gone.tmp.meta"), "skipped-tmp-meta");
+                File.WriteAllText(Path.Combine(root, "cvs.meta"), "skipped-cvs-meta");
+                File.WriteAllText(Path.Combine(root, "bin.meta"), "skipped-bin-meta");
+
+                UnityMetaWalkResult result = UnityMetaWalker.Walk(root);
+                Assert.Equal(new[] { "Real.cs" }, result.Missing);
+                Assert.Equal(new[] { "Gone.cs.meta" }, result.Orphaned);
             }
-
-            string[] dirs = Directory.GetDirectories(current);
-            SortPaths(dirs);
-            for (int i = 0; i < dirs.Length; i++)
+            finally
             {
-                string dir = dirs[i];
-                if (!File.Exists(dir + ".meta"))
+                try
                 {
-                    missing.Add(Rel(root, dir) + "/");
+                    Directory.Delete(root, true);
                 }
-
-                Collect(root, dir, missing, orphaned);
+                catch (IOException)
+                {
+                }
             }
         }
 
-        private static string Rel(string root, string path)
+        private static string Format(UnityMetaWalkResult result)
         {
-            return path.Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        }
-
-        private static void SortPaths(string[] paths)
-        {
-            for (int i = 1; i < paths.Length; i++)
-            {
-                string row = paths[i];
-                int j = i - 1;
-                while (j >= 0 && string.CompareOrdinal(paths[j], row) > 0)
-                {
-                    paths[j + 1] = paths[j];
-                    j--;
-                }
-
-                paths[j + 1] = row;
-            }
-        }
-
-        private static string Format(List<string> missing, List<string> orphaned)
-        {
-            return "missing .meta (" + missing.Count + "): " + string.Join(", ", missing)
-                + "; orphaned .meta (" + orphaned.Count + "): " + string.Join(", ", orphaned);
+            return "missing .meta (" + result.Missing.Length + "): "
+                + string.Join(", ", result.Missing)
+                + "; orphaned .meta (" + result.Orphaned.Length + "): "
+                + string.Join(", ", result.Orphaned);
         }
     }
 }
