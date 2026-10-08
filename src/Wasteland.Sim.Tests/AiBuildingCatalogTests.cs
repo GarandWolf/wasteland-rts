@@ -25,23 +25,31 @@ namespace Wasteland.Sim.Tests
             Assert.NotSame(AiBuildingCatalog.Empty, first);
             Assert.Equal(1, first.Count);
             Assert.Equal(first.Count, second.Count);
-
-            AiBalanceTables withoutBuildings = AiBalanceTables.FromDirectory(
-                BalanceLoad.DirectoryPath(),
-                BalanceLoad.ReadUnitsJson());
-            Assert.Same(AiBuildingCatalog.Empty, withoutBuildings.BuildingCatalog);
         }
 
         [Fact]
-        public void FromDirectory_DoesNotReadBuildingsFile()
+        public void FromDirectory_RealPack_ThrowsOnMissingBuildingRole()
         {
-            AiBalanceTables tables = AiBalanceTables.FromDirectory(
-                BalanceLoad.DirectoryPath(),
-                BalanceLoad.ReadUnitsJson(),
-                null);
-            Assert.Same(AiBuildingCatalog.Empty, tables.BuildingCatalog);
-            Assert.False(tables.BuildingCatalog.TryGetBuildingRole("supply_depot", out string role));
-            Assert.Equal(string.Empty, role);
+            FormatException ex = Assert.Throws<FormatException>(() => BalanceLoad.Tables());
+            Assert.Contains("role", ex.Message);
+        }
+
+        [Fact]
+        public void FromDirectory_NullBuildingsJson_Throws()
+        {
+            Assert.Throws<ArgumentNullException>(() =>
+                AiBalanceTables.FromDirectory(
+                    BalanceLoad.DirectoryPath(),
+                    BalanceLoad.ReadUnitsJson(),
+                    null!));
+        }
+
+        [Fact(Skip = "building role pending Designer data PR")]
+        public void FromDirectory_RealPack_ParsesBuildingRoles()
+        {
+            AiBalanceTables tables = BalanceLoad.Tables();
+            Assert.True(tables.BuildingCatalog.TryGetBuildingRole("supply_depot", out string role));
+            Assert.Equal(AiConstants.BuildingRoleSupplyDepot, role);
         }
 
         [Fact]
@@ -117,13 +125,11 @@ namespace Wasteland.Sim.Tests
         {
             SimScenario scenario = LoadMvp();
             ScenarioAiSeats seats = ScenarioAiSeats.From(scenario);
-            AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
-            Assert.Same(AiBuildingCatalog.Empty, tables.BuildingCatalog);
             for (int i = 0; i < seats.SeatCount; i++)
             {
                 AiScenarioSeatView seat = seats.SeatAt(i);
                 Assert.Equal(new[] { "supply_depot" }, seat.BuildableBuildings);
-                Assert.False(AiAttackDefend.CanBuildDepot(seat, tables.BuildingCatalog));
+                Assert.False(AiAttackDefend.CanBuildDepot(seat, AiBuildingCatalog.Empty));
             }
         }
 

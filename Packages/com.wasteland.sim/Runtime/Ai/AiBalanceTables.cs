@@ -192,8 +192,10 @@ namespace Wasteland.Sim.Ai
         /// Parse requires <c>dataVersion</c> as an int32 — missing or non-int
         /// values are rejected. <see cref="FromDirectory"/> also loads
         /// <c>rules.json</c> capture, supply caps, AI goal ceiling, difficulty
-        /// income multipliers, and <c>economy.json</c> holding-tier / HQ /
-        /// faction manpower plus <c>contestedHoldingPaysIncome</c>.
+        /// income multipliers, <c>economy.json</c> holding-tier / HQ /
+        /// faction manpower plus <c>contestedHoldingPaysIncome</c>, and
+        /// parses <c>buildings.json</c> through
+        /// <see cref="AiBuildingCatalog.Parse"/>.
         /// </summary>
     public sealed partial class AiBalanceTables
     {
@@ -402,26 +404,42 @@ namespace Wasteland.Sim.Ai
         /// <paramref name="unitsJson"/> is the already-loaded
         /// <c>units.json</c> document from the same load as
         /// <c>BalanceCatalog</c>. This method does not read that file.
+        /// Buildings are read once from <c>buildings.json</c> in
+        /// <paramref name="balanceDirectory"/> and parsed through
+        /// <see cref="AiBuildingCatalog.Parse"/>.
         /// </summary>
         public static AiBalanceTables FromDirectory(string balanceDirectory, string? unitsJson)
         {
-            return FromDirectory(balanceDirectory, unitsJson, null);
+            if (balanceDirectory == null)
+            {
+                throw new ArgumentNullException(nameof(balanceDirectory));
+            }
+
+            return FromDirectory(
+                balanceDirectory,
+                unitsJson,
+                File.ReadAllText(Path.Combine(balanceDirectory, "buildings.json")));
         }
 
         /// <summary>
         /// <paramref name="buildingsJson"/> is the already-loaded
         /// <c>buildings.json</c> document. This method does not read that
-        /// file. Pass null until the Designer's <c>role</c> field lands;
-        /// the real pack is not parsed here.
+        /// file. A missing or unknown building <c>role</c> throws; there is
+        /// no empty-catalog fallback.
         /// </summary>
         public static AiBalanceTables FromDirectory(
             string balanceDirectory,
             string? unitsJson,
-            string? buildingsJson)
+            string buildingsJson)
         {
             if (balanceDirectory == null)
             {
                 throw new ArgumentNullException(nameof(balanceDirectory));
+            }
+
+            if (buildingsJson == null)
+            {
+                throw new ArgumentNullException(nameof(buildingsJson));
             }
 
             string personalitiesPath = Path.Combine(balanceDirectory, "ai", "ai_personalities.json");
@@ -436,9 +454,7 @@ namespace Wasteland.Sim.Ai
             IAiUnitCatalog units = unitsJson == null
                 ? AiUnitCatalog.Empty
                 : AiUnitCatalog.Parse(unitsJson);
-            IAiBuildingCatalog buildings = buildingsJson == null
-                ? AiBuildingCatalog.Empty
-                : AiBuildingCatalog.Parse(buildingsJson);
+            IAiBuildingCatalog buildings = AiBuildingCatalog.Parse(buildingsJson);
             return tables
                 .WithUnitCatalog(units)
                 .WithBuildingCatalog(buildings)

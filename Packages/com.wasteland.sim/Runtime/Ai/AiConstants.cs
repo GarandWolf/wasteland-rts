@@ -6,7 +6,7 @@ namespace Wasteland.Sim.Ai
         public const int SchemaVersion = 1;
         public const int BalanceSchemaVersion = 1;
         public const int DataVersion = 1;
-        public const int StateSchemaVersion = 8;
+        public const int StateSchemaVersion = 9;
         public const int PendingCommandCapacity = 128;
         public const int CommandLogCapacity = 4096;
         public const int TickRateHz = SimConfig.TickRateHz;
@@ -68,7 +68,6 @@ namespace Wasteland.Sim.Ai
         public const int MinAcceptScore = 1000;
         public const int SeatAnchorBonusPpt = 1000;
         public const int BattalionIdStride = 100000;
-        public const int OpeningClaimBattalions = 1;
         public const int UnreachableCm = int.MaxValue / 4;
 
         public static string[] MapKeySectionTags()

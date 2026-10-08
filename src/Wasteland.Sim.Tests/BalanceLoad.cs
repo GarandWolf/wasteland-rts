@@ -20,16 +20,43 @@ namespace Wasteland.Sim.Tests
             return File.ReadAllText(Path.Combine(DirectoryPath(), "units.json"));
         }
 
+        public static string ReadBuildingsJson()
+        {
+            return File.ReadAllText(Path.Combine(DirectoryPath(), "buildings.json"));
+        }
+
+        /// <summary>
+        /// Production pack load. Parses the real <c>buildings.json</c>.
+        /// Throws until the Designer's <c>role</c> field lands.
+        /// </summary>
         public static AiBalanceTables Tables()
         {
-            string unitsJson = ReadUnitsJson();
-            return Tables(unitsJson);
+            return Tables(ReadUnitsJson(), ReadBuildingsJson());
         }
 
         public static AiBalanceTables Tables(string unitsJson)
         {
-            return AiBalanceTables.FromDirectory(DirectoryPath(), unitsJson);
+            return Tables(unitsJson, ReadBuildingsJson());
         }
+
+        public static AiBalanceTables Tables(string unitsJson, string buildingsJson)
+        {
+            return AiBalanceTables.FromDirectory(DirectoryPath(), unitsJson, buildingsJson);
+        }
+
+        /// <summary>
+        /// Personalities, units, rules, and economy without the real building
+        /// pack. Used by decision tests until the Designer role PR lands.
+        /// </summary>
+        public static AiBalanceTables DecisionTables()
+        {
+            return Tables(ReadUnitsJson(), DummyBuildingsWithoutDepotRole);
+        }
+
+        internal const string DummyBuildingsWithoutDepotRole =
+            "{\"buildings\":{\"probe_hq\":{\"role\":\"production\"}}}";
+
+        internal const string BuildingRolePendingSkip = "building role pending Designer data PR";
 
         public static BalanceCatalog ScenarioCatalog(string unitsJson)
         {
@@ -45,7 +72,7 @@ namespace Wasteland.Sim.Tests
         public static SharedPack Shared()
         {
             string unitsJson = ReadUnitsJson();
-            return new SharedPack(unitsJson, ScenarioCatalog(unitsJson), Tables(unitsJson));
+            return new SharedPack(unitsJson, ScenarioCatalog(unitsJson), DecisionTables());
         }
 
         internal readonly struct SharedPack

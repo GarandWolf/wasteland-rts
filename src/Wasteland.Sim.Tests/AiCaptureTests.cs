@@ -356,7 +356,6 @@ namespace Wasteland.Sim.Tests
         private static void QuietAi(AiMatchHost host, int factionId)
         {
             AiFactionState faction = host.Ai.Owned.GetFaction(factionId);
-            faction.OpeningForceIssued = true;
             faction.OrderCount = 0;
             faction.RejectBackoffUntilTick = int.MaxValue;
         }

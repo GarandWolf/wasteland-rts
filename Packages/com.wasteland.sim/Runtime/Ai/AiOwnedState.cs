@@ -77,7 +77,6 @@ namespace Wasteland.Sim.Ai
         public int WorkUnitsThisTick;
         public int DepotCapSkips;
         public bool StrategicDeferred;
-        public bool OpeningForceIssued;
         public int HomeTerritoryId;
         public int HomeTownId;
         public int HqNodeId;
@@ -373,7 +372,6 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.TaskForceCount);
                 hash.AddInt(faction.WorkResumeId);
                 hash.AddBool(faction.StrategicDeferred);
-                hash.AddBool(faction.OpeningForceIssued);
                 hash.AddInt(faction.HomeTerritoryId);
                 hash.AddInt(faction.HomeTownId);
                 hash.AddInt(faction.HqNodeId);
@@ -482,7 +480,6 @@ namespace Wasteland.Sim.Ai
                 writer.Write(faction.TaskForceCount);
                 writer.Write(faction.WorkResumeId);
                 writer.Write(faction.StrategicDeferred);
-                writer.Write(faction.OpeningForceIssued);
                 writer.Write(faction.HomeTerritoryId);
                 writer.Write(faction.HomeTownId);
                 writer.Write(faction.HqNodeId);
@@ -679,7 +676,6 @@ namespace Wasteland.Sim.Ai
             loaded.TaskForceCount = reader.ReadInt32();
             loaded.WorkResumeId = reader.ReadInt32();
             loaded.StrategicDeferred = reader.ReadBoolean();
-            loaded.OpeningForceIssued = reader.ReadBoolean();
             loaded.HomeTerritoryId = reader.ReadInt32();
             loaded.HomeTownId = reader.ReadInt32();
             loaded.HqNodeId = reader.ReadInt32();
@@ -804,7 +800,6 @@ namespace Wasteland.Sim.Ai
             faction.TaskForceCount = loaded.TaskForceCount;
             faction.WorkResumeId = loaded.WorkResumeId;
             faction.StrategicDeferred = loaded.StrategicDeferred;
-            faction.OpeningForceIssued = loaded.OpeningForceIssued;
             faction.HomeTerritoryId = loaded.HomeTerritoryId;
             faction.HomeTownId = loaded.HomeTownId;
             faction.HqNodeId = loaded.HqNodeId;
@@ -894,7 +889,6 @@ namespace Wasteland.Sim.Ai
             public int TaskForceCount;
             public int WorkResumeId;
             public bool StrategicDeferred;
-            public bool OpeningForceIssued;
             public int HomeTerritoryId;
             public int HomeTownId;
             public int HqNodeId;

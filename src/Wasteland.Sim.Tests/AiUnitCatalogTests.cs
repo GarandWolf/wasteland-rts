@@ -25,7 +25,10 @@ namespace Wasteland.Sim.Tests
             Assert.True(first.Count > 0);
             Assert.Equal(first.Count, second.Count);
 
-            AiBalanceTables withoutUnits = AiBalanceTables.FromDirectory(BalanceLoad.DirectoryPath());
+            AiBalanceTables withoutUnits = AiBalanceTables.FromDirectory(
+                BalanceLoad.DirectoryPath(),
+                null,
+                BalanceLoad.DummyBuildingsWithoutDepotRole);
             Assert.Same(AiUnitCatalog.Empty, withoutUnits.UnitCatalog);
         }
 

@@ -225,19 +225,6 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(tables.MaxDepotsPerFaction, faction.Depots.Length);
             Assert.Equal(host.Ai.Map.ChokepointCount, faction.PickedPostIds.Length);
             host.Shutdown();
-
-            AiBalanceTables capped = WithMaxDepots(1);
-            AiMatchHost tight = AiMatchHost.Start(
-                MatchConfig.Default(0xC01055A1UL),
-                AiSeamsTests.LoadGorgeV1Bytes(),
-                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
-                AiConstants.DifficultyNormal,
-                capped);
-            AiFactionState remnant = tight.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA);
-            remnant.DepotCount = remnant.Depots.Length;
-            tight.Run(80);
-            Assert.True(remnant.DepotCapSkips > 0);
-            tight.Shutdown();
         }
 
         [Fact]
@@ -315,19 +302,6 @@ namespace Wasteland.Sim.Tests
             };
         }
 
-        private static AiBalanceTables WithMaxDepots(int cap)
-        {
-            string rulesJson = GoldenMapFiles.ReadRepoText("data/balance/rules.json")
-                .Replace("\"maxDepotsPerFaction\": 16", "\"maxDepotsPerFaction\": " + cap);
-            AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
-            AiBalanceTables.RulesState rules = AiBalanceTables.ParseCapture(rulesJson);
-            AiBalanceTables.ParseEconomy(
-                GoldenMapFiles.ReadRepoText("data/balance/economy.json"),
-                PersonalityRows(),
-                rules);
-            return tables.WithRules(rules).WithBalanceKey(AiBalanceTablesTests.LoadBalance().BalanceKey);
-        }
-
         private sealed class FixedOccupancy : ICaptureOccupancyView
         {
             private readonly CaptureZoneOccupancyResult _result;
@@ -363,7 +337,6 @@ namespace Wasteland.Sim.Tests
                     reader.ReadInt32();
                 }
 
-                reader.ReadBoolean();
                 reader.ReadBoolean();
                 for (int i = 0; i < 4; i++)
                 {
@@ -411,7 +384,6 @@ namespace Wasteland.Sim.Tests
                 }
 
                 reader.ReadBoolean();
-                reader.ReadBoolean();
                 for (int i = 0; i < 20; i++)
                 {
                     reader.ReadInt32();
@@ -446,7 +418,6 @@ namespace Wasteland.Sim.Tests
             int orderCount = reader.ReadInt32();
             reader.ReadInt32();
             reader.ReadInt32();
-            reader.ReadBoolean();
             reader.ReadBoolean();
             for (int i = 0; i < 6; i++)
             {

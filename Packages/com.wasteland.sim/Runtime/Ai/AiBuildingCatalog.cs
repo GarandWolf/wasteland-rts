@@ -4,11 +4,9 @@ using Wasteland.Sim.Movement;
 namespace Wasteland.Sim.Ai
 {
     /// <summary>
-    /// Read-only building roles. Parses an already-loaded
-    /// <c>buildings.json</c> document — this type never opens that file
-    /// and keeps no static cache. The Designer's data PR will add
-    /// <c>role</c> to the real pack; until then only synthetic documents
-    /// are parsed.
+        /// Read-only building roles. Parses an already-loaded
+        /// <c>buildings.json</c> document — this type never opens that file
+        /// and keeps no static cache. Missing or unknown <c>role</c> throws.
     /// </summary>
     public sealed class AiBuildingCatalog : IAiBuildingCatalog
     {

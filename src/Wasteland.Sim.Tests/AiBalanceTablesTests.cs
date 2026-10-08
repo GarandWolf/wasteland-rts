@@ -244,7 +244,7 @@ namespace Wasteland.Sim.Tests
 
         internal static AiBalanceTables LoadBalance()
         {
-            return BalanceLoad.Tables();
+            return BalanceLoad.DecisionTables();
         }
     }
 }
