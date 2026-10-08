@@ -375,7 +375,7 @@ namespace Wasteland.Sim.Ai
         /// <c>units.json</c> document from the same load as
         /// <c>BalanceCatalog</c>. This method does not read that file.
         /// </summary>
-        public static AiBalanceTables FromDirectory(string balanceDirectory, string unitsJson)
+        public static AiBalanceTables FromDirectory(string balanceDirectory, string? unitsJson)
         {
             if (balanceDirectory == null)
             {

@@ -130,12 +130,14 @@ namespace Wasteland.Sim.Ai
                     throw new FormatException("techTier must be >= 1.");
                 }
 
-                RequireKnownRole(row.Id, row.Role ?? string.Empty);
-                RequireKnownTargetClass(row.Id, row.TargetClass ?? string.Empty);
+                string role = row.Role ?? string.Empty;
+                string targetClass = row.TargetClass ?? string.Empty;
+                RequireKnownRole(row.Id, role);
+                RequireKnownTargetClass(row.Id, targetClass);
                 ids[i] = row.Id;
                 tiers[i] = row.TechTier;
-                roles[i] = row.Role;
-                targetClasses[i] = row.TargetClass;
+                roles[i] = role;
+                targetClasses[i] = targetClass;
                 manpower[i] = row.ManpowerCost;
             }
 
