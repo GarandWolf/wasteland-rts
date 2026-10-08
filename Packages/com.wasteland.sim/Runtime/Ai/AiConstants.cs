@@ -58,10 +58,28 @@ namespace Wasteland.Sim.Ai
         public const string RoleEngineer = "engineer";
         public const string TargetClassArmored = "armored";
         public const string TargetClassSoft = "soft";
+        public const string BuildingRoleHq = "hq";
+        public const string BuildingRoleProduction = "production";
         public const string BuildingRoleSupplyDepot = "supply_depot";
         public const string BuildingRoleWall = "wall";
-        public const string BuildingRoleProduction = "production";
+        public const string BuildingRoleFortification = "fortification";
+        public const string BuildingRoleResource = "resource";
+        public const string BuildingRoleRecruitment = "recruitment";
         public const string BuildingIdSupplyDepot = "supply_depot";
+
+        /// <summary>
+        /// Closed building-role list from Designer PR #22, in authored order.
+        /// </summary>
+        public static readonly string[] BuildingRoles =
+        {
+            BuildingRoleHq,
+            BuildingRoleProduction,
+            BuildingRoleSupplyDepot,
+            BuildingRoleWall,
+            BuildingRoleFortification,
+            BuildingRoleResource,
+            BuildingRoleRecruitment
+        };
 
         public const string TierIITickNone = "none";
         public const int ClaimMarchSpeedCmPerSecond = 25000;

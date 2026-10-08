@@ -91,11 +91,12 @@ namespace Wasteland.Sim.Ai
 
         internal static void RequireKnownRole(string buildingId, string role)
         {
-            if (role == AiConstants.BuildingRoleSupplyDepot
-                || role == AiConstants.BuildingRoleWall
-                || role == AiConstants.BuildingRoleProduction)
+            for (int i = 0; i < AiConstants.BuildingRoles.Length; i++)
             {
-                return;
+                if (role == AiConstants.BuildingRoles[i])
+                {
+                    return;
+                }
             }
 
             throw new FormatException(

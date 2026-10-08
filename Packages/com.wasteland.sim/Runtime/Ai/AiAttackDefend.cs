@@ -508,6 +508,20 @@ namespace Wasteland.Sim.Ai
             int defender = readback.StrengthOf(readback.OwnerFactionId);
             if (!StrengthAllowsAttack(own, defender, attackStrengthRatioPpt))
             {
+                if (CountIdle(battalions, battalionCount) < 1)
+                {
+                    string raiseId = SelectRaiseUnit(
+                        seat,
+                        _catalog,
+                        seatView,
+                        battalions,
+                        battalionCount,
+                        _lineUnitsPerAntiArmour,
+                        false,
+                        GarrisonShort(faction, towns, townCount));
+                    TryRaise(tick, faction, seat, raiseId, target.XCm, target.YCm);
+                }
+
                 return;
             }
 

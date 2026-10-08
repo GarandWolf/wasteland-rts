@@ -54,9 +54,9 @@ namespace Wasteland.Sim.Tests
         }
 
         internal const string DummyBuildingsWithoutDepotRole =
-            "{\"buildings\":{\"probe_hq\":{\"role\":\"production\"}}}";
+            "{\"buildings\":{\"probe_hq\":{\"category\":\"economy\",\"role\":\"production\"}}}";
 
-        internal const string BuildingRolePendingSkip = "building role pending Designer data PR";
+        internal const string BuildingRolePendingSkip = "building role pending Designer data PR #22";
 
         public static BalanceCatalog ScenarioCatalog(string unitsJson)
         {

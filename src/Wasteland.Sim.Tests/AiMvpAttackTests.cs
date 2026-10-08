@@ -516,7 +516,7 @@ namespace Wasteland.Sim.Tests
                 AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
                 Catalog = tables.UnitCatalog;
                 Buildings = AiBuildingCatalog.Parse(
-                    "{\"buildings\":{\"supply_depot\":{\"role\":\"supply_depot\"}}}");
+                    "{\"buildings\":{\"supply_depot\":{\"category\":\"economy\",\"role\":\"supply_depot\"}}}");
                 AiPersonalityProfile settler = tables.GetPersonality(AiConstants.PersonalitySettler);
                 LineUnitsPerAntiArmour = settler.LineUnitsPerAntiArmour;
                 MinGarrisonPerTown = settler.MinGarrisonPerTown;

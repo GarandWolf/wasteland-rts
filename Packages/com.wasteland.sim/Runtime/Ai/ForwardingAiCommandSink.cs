@@ -9,11 +9,13 @@ namespace Wasteland.Sim.Ai
     public sealed class ForwardingAiCommandSink : IAiCommandSink
     {
         private readonly ISimCommandSink _inner;
+        private readonly AiOwnedState _owned;
         private int _nextId = 1;
 
-        public ForwardingAiCommandSink(ISimCommandSink inner)
+        public ForwardingAiCommandSink(ISimCommandSink inner, AiOwnedState owned)
         {
             _inner = inner ?? throw new System.ArgumentNullException(nameof(inner));
+            _owned = owned ?? throw new System.ArgumentNullException(nameof(owned));
         }
 
         public int Tick
@@ -35,7 +37,9 @@ namespace Wasteland.Sim.Ai
 
         public int SubmitRaiseBattalion(int factionId, string unitId, int xCm, int yCm)
         {
-            int battalionId = NextId();
+            AiFactionState faction = _owned.GetFaction(factionId);
+            int battalionId = faction.NextBattalionId;
+            faction.NextBattalionId++;
             _inner.Submit(SimCommand.SpawnBattalion(
                 _inner.Tick,
                 factionId,

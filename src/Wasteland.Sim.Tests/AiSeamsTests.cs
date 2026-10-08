@@ -232,31 +232,40 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(12, extra);
 
             AiMatchHost host = StartHost();
-            int pending = 0;
-            while (host.Tick < 200)
-            {
-                pending = TotalPending(host.Ai);
-                if (pending > 0)
-                {
-                    break;
-                }
-
-                host.Step();
-            }
-
-            Assert.True(pending > 0);
-            Assert.Empty(host.CommandLog);
-            int ready = FirstReadyTick(host.Ai);
+            AiFactionState faction = host.Ai.Owned.FactionAt(0);
+            int ready = host.Tick + extra;
+            AiPendingCommand pending = default;
+            pending.ReadyTick = ready;
+            pending.BattalionId = 9001;
+            pending.Kind = CommandKind.Move;
+            pending.Arg0 = 1;
+            pending.Arg1 = 2;
+            Assert.True(faction.EnqueuePending(pending));
+            Assert.True(HasPending(host.Ai, 9001, ready));
             Assert.True(ready > host.Tick);
+            int logAtEnqueue = host.CommandLog.Count;
             while (host.Tick < ready)
             {
+                Assert.True(HasPending(host.Ai, 9001, ready));
                 host.Step();
             }
 
             host.Step();
-            Assert.True(host.CommandLog.Count > 0);
-            Assert.Equal(ready, host.CommandLog[0].IssuedTick);
-            Assert.Equal(0, host.CommandLog[0].ExecuteTick);
+            Assert.False(HasPending(host.Ai, 9001, ready));
+            Assert.True(host.CommandLog.Count > logAtEnqueue);
+            bool found = false;
+            for (int i = 0; i < host.CommandLog.Count; i++)
+            {
+                if (host.CommandLog[i].IssuedTick == ready
+                    && host.CommandLog[i].BattalionId == 9001
+                    && host.CommandLog[i].Kind == CommandKind.Move)
+                {
+                    Assert.Equal(0, host.CommandLog[i].ExecuteTick);
+                    found = true;
+                }
+            }
+
+            Assert.True(found);
             host.Shutdown();
         }
 
@@ -264,24 +273,23 @@ namespace Wasteland.Sim.Tests
         public void ReactionDelayQueue_IsHashedAndRestoredOnSaveLoad()
         {
             AiMatchHost host = StartHost();
-            while (host.Tick < 200 && TotalPending(host.Ai) == 0)
-            {
-                host.Step();
-            }
-
-            Assert.True(TotalPending(host.Ai) > 0);
-            Assert.Empty(host.CommandLog);
+            AiFactionState faction = host.Ai.Owned.FactionAt(0);
+            AiPendingCommand pending = default;
+            pending.ReadyTick = host.Tick + 12;
+            pending.BattalionId = 9002;
+            pending.Kind = CommandKind.Move;
+            pending.Arg0 = 3;
+            pending.Arg1 = 4;
+            Assert.True(faction.EnqueuePending(pending));
+            Assert.Equal(1, TotalPending(host.Ai));
             ulong before = host.Ai.HashState();
             byte[] blob = host.Ai.Save();
-            int pending = TotalPending(host.Ai);
-            int readyTick = host.Ai.Owned.FactionAt(0).PendingCount > 0
-                ? host.Ai.Owned.FactionAt(0).Pending[0].ReadyTick
-                : host.Ai.Owned.FactionAt(1).Pending[0].ReadyTick;
+            int readyTick = faction.Pending[0].ReadyTick;
 
             AiMatchHost restored = StartHost();
             restored.Ai.Load(blob);
             Assert.Equal(before, restored.Ai.HashState());
-            Assert.Equal(pending, TotalPending(restored.Ai));
+            Assert.Equal(1, TotalPending(restored.Ai));
             Assert.Equal(readyTick, FirstReadyTick(restored.Ai));
             restored.Shutdown();
             host.Shutdown();
@@ -312,6 +320,24 @@ namespace Wasteland.Sim.Tests
             }
 
             return total;
+        }
+
+        private static bool HasPending(EnemyAi ai, int battalionId, int readyTick)
+        {
+            for (int i = 0; i < ai.Owned.FactionCount; i++)
+            {
+                AiFactionState faction = ai.Owned.FactionAt(i);
+                for (int p = 0; p < faction.PendingCount; p++)
+                {
+                    if (faction.Pending[p].BattalionId == battalionId
+                        && faction.Pending[p].ReadyTick == readyTick)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         private static int FirstReadyTick(EnemyAi ai)

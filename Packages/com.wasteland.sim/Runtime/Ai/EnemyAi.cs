@@ -75,7 +75,7 @@ namespace Wasteland.Sim.Ai
             _economy = new AiEconomyStub(map, owned, balance, occupancy);
             _seats = seats ?? throw new ArgumentNullException(nameof(seats));
             _homes = new AiSeatHomeBinder(_seats);
-            _aiCommands = new ForwardingAiCommandSink(commands);
+            _aiCommands = new ForwardingAiCommandSink(commands, owned);
             _seatView = _fixtureSeatView;
             _depots = new OwnedDepotView(owned);
             _attackDefend = new AiAttackDefend(_aiCommands, new WorldTownQuery(this), _depots);

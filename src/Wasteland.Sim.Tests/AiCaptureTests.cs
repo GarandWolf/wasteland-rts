@@ -188,6 +188,7 @@ namespace Wasteland.Sim.Tests
                 battalionId,
                 town.XCm + 5_000_000,
                 town.YCm));
+            QuietAi(host, AiConstants.DefaultAiFactionA);
             EvacuateFactionFromTown(host, AiConstants.DefaultAiFactionA, town);
             WaitUntilEmpty(host, town, AiConstants.DefaultAiFactionA);
 
@@ -196,7 +197,13 @@ namespace Wasteland.Sim.Tests
             Assert.True(absent >= 1);
             int decayStarts = balance.DecayStartsAfterTicks;
             Assert.True(absent <= decayStarts);
-            host.Run(decayStarts - absent);
+            int remain = decayStarts - absent;
+            for (int i = 0; i < remain; i++)
+            {
+                QuietAi(host, AiConstants.DefaultAiFactionA);
+                EvacuateFactionFromTown(host, AiConstants.DefaultAiFactionA, town);
+                host.Step();
+            }
             Assert.Equal(heldAtLeave, host.Ai.Owned.CaptureHeldTicksAt(townIndex));
             Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.CaptureFactionAt(townIndex));
             Assert.Equal(0, host.Ai.Owned.TownOwnerAt(townIndex));
@@ -337,6 +344,7 @@ namespace Wasteland.Sim.Tests
             {
                 if (evacuateFactionId != 0)
                 {
+                    QuietAi(host, evacuateFactionId);
                     EvacuateFactionFromTown(host, evacuateFactionId, town);
                 }
 

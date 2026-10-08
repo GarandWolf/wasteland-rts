@@ -44,7 +44,7 @@ namespace Wasteland.Sim.Tests
                     null!));
         }
 
-        [Fact(Skip = "building role pending Designer data PR")]
+        [Fact(Skip = BalanceLoad.BuildingRolePendingSkip)]
         public void FromDirectory_RealPack_ParsesBuildingRoles()
         {
             AiBalanceTables tables = BalanceLoad.Tables();
@@ -72,6 +72,31 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(AiConstants.BuildingRoleProduction, yard);
             Assert.False(catalog.TryGetBuildingRole("missing", out string missing));
             Assert.Equal(string.Empty, missing);
+        }
+
+        [Fact]
+        public void Parse_AcceptsClosedSevenRoleList()
+        {
+            Assert.Equal(
+                new[]
+                {
+                    "hq",
+                    "production",
+                    "supply_depot",
+                    "wall",
+                    "fortification",
+                    "resource",
+                    "recruitment"
+                },
+                AiConstants.BuildingRoles);
+            AiBuildingCatalog catalog = AiBuildingCatalog.Parse(
+                SyntheticMany(AiConstants.BuildingRoles, AiConstants.BuildingRoles));
+            for (int i = 0; i < AiConstants.BuildingRoles.Length; i++)
+            {
+                string role = AiConstants.BuildingRoles[i];
+                Assert.True(catalog.TryGetBuildingRole(role, out string have));
+                Assert.Equal(role, have);
+            }
         }
 
         [Fact]
@@ -114,6 +139,9 @@ namespace Wasteland.Sim.Tests
             Assert.False(AiAttackDefend.CanBuildDepot(seat, AiBuildingCatalog.Empty));
             Assert.False(AiAttackDefend.CanBuildDepot(
                 seat,
+                AiBuildingCatalog.Parse(SyntheticBuilding("hq", AiConstants.BuildingRoleHq))));
+            Assert.False(AiAttackDefend.CanBuildDepot(
+                seat,
                 AiBuildingCatalog.Parse(SyntheticBuilding("hq", AiConstants.BuildingRoleProduction))));
             Assert.True(AiAttackDefend.CanBuildDepot(
                 seat,
@@ -135,8 +163,19 @@ namespace Wasteland.Sim.Tests
 
         private static string SyntheticBuilding(string id, string? role)
         {
-            string roleField = role == null ? string.Empty : "\"role\":\"" + role + "\"";
-            return "{\"buildings\":{\"" + id + "\":{" + roleField + "}}}";
+            string body = "\"category\":\"economy\"";
+            if (role != null)
+            {
+                body += ",\"role\":\"" + role + "\"";
+            }
+
+            string json = "{\"buildings\":{\"" + id + "\":{" + body + "}}}";
+            if (role != null)
+            {
+                Assert.Contains("\"category\":\"economy\",\"role\":\"" + role + "\"", json);
+            }
+
+            return json;
         }
 
         private static string SyntheticMany(string[] ids, string[] roles)
@@ -150,7 +189,9 @@ namespace Wasteland.Sim.Tests
                     json.Append(',');
                 }
 
-                json.Append('"').Append(ids[i]).Append("\":{\"role\":\"").Append(roles[i]).Append("\"}");
+                json.Append('"').Append(ids[i])
+                    .Append("\":{\"category\":\"economy\",\"role\":\"")
+                    .Append(roles[i]).Append("\"}");
             }
 
             json.Append("}}");
