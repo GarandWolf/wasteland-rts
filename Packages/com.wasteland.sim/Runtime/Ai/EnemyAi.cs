@@ -1572,7 +1572,10 @@ namespace Wasteland.Sim.Ai
                 AiConstants.DepotRangeCm,
                 _seats.NeutralPrizeTerritoryKey,
                 personality.PrizeTargetBonusPpt,
-                _seatView);
+                _seatView,
+                _balance.UnitCatalog,
+                personality.LineUnitsPerAntiArmour,
+                personality.MinGarrisonPerTown);
         }
 
         private int FillAttackTowns()
@@ -1622,7 +1625,7 @@ namespace Wasteland.Sim.Ai
                     battalion.PositionXCm,
                     battalion.PositionYCm,
                     NearestRoadNode(battalion.PositionXCm, battalion.PositionYCm),
-                    AiConstants.UnitKindInfantry,
+                    string.Empty,
                     IsBattalionAssigned(faction, id));
             }
 

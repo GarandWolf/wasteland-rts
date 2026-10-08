@@ -24,11 +24,13 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(1, ai.Slot);
             Assert.Equal(7UL, ai.HomeTerritoryKey);
             Assert.Equal(250, ai.StartingManpower);
-            Assert.True(ai.AllowsUnit(AiConstants.UnitKindInfantry));
-            Assert.True(ai.AllowsUnit(AiConstants.UnitKindEngineer));
-            Assert.True(ai.AllowsUnit(AiConstants.UnitKindTierII));
-            Assert.False(ai.AllowsUnitForTier(AiConstants.UnitKindTierII, 1));
-            Assert.True(ai.AllowsUnitForTier(AiConstants.UnitKindTierII, 2));
+            IAiUnitCatalog catalog = AiBalanceTablesTests.LoadBalance().UnitCatalog;
+            Assert.True(HasRole(ai, catalog, AiConstants.RoleLineInfantry, 1));
+            Assert.True(HasRole(ai, catalog, AiConstants.RoleEngineer, 1));
+            string armored = FirstArmored(ai, catalog);
+            Assert.False(string.IsNullOrEmpty(armored));
+            Assert.False(ai.AllowsUnitForTier(armored, 1, catalog));
+            Assert.True(ai.AllowsUnitForTier(armored, 2, catalog));
             Assert.True(ai.AllowsBuilding(AiConstants.BuildingTagDepot));
             Assert.Equal("homestead_compact_settler", ai.AiPersonality);
             Assert.Equal(AiGenericPersonality.ParameterSetId, AiGenericPersonality.Map(ai.AiPersonality));
@@ -96,7 +98,7 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(FixtureAiScenarioSeats.RuleIdStartingManpower, manpower.Message);
 
             InvalidDataException units = Assert.Throws<InvalidDataException>(
-                () => FixtureAiScenarioSeats.Create(Seat(raisableUnits: new[] { 0, 1 })));
+                () => FixtureAiScenarioSeats.Create(Seat(raisableUnits: new[] { string.Empty })));
             Assert.Equal(FixtureAiScenarioSeats.RuleIdRaisableUnits, units.Message);
 
             InvalidDataException notBefore = Assert.Throws<InvalidDataException>(
@@ -172,7 +174,7 @@ namespace Wasteland.Sim.Tests
                         null,
                         11UL,
                         100,
-                        new[] { "infantry_a" },
+                        new[] { FixtureAiScenarioSeats.RemnantRaisableUnits[0] },
                         new[] { "depot" },
                         Array.Empty<AiMvpAutoResearchItem>()),
                     new AiMvpSeatShape(
@@ -181,7 +183,7 @@ namespace Wasteland.Sim.Tests
                         "unknown_raider_v9",
                         7UL,
                         250,
-                        new[] { "infantry_b", "engineer_b", "tier2_b" },
+                        FixtureAiScenarioSeats.RemnantRaisableUnits,
                         new[] { "depot" },
                         new[] { new AiMvpAutoResearchItem("tier2", 40) })
                 },
@@ -193,10 +195,11 @@ namespace Wasteland.Sim.Tests
             Assert.Equal("unknown_raider_v9", ai.AiPersonality);
             Assert.Equal(7UL, ai.HomeTerritoryKey);
             Assert.Equal(1, ai.Slot);
-            Assert.True(ai.AllowsUnit(AiConstants.UnitKindInfantry));
-            Assert.True(ai.AllowsUnit(AiConstants.UnitKindEngineer));
-            Assert.True(ai.AllowsUnit(AiConstants.UnitKindTierII));
-            Assert.False(ai.AllowsUnitForTier(AiConstants.UnitKindTierII, 1));
+            IAiUnitCatalog catalog = AiBalanceTablesTests.LoadBalance().UnitCatalog;
+            Assert.True(HasRole(ai, catalog, AiConstants.RoleLineInfantry, 1));
+            Assert.True(HasRole(ai, catalog, AiConstants.RoleEngineer, 1));
+            string armored = FirstArmored(ai, catalog);
+            Assert.False(ai.AllowsUnitForTier(armored, 1, catalog));
             Assert.True(ai.AllowsBuilding(AiConstants.BuildingTagDepot));
             Assert.Equal("tier2", ai.AutoResearch[0].Item);
             Assert.Equal(40, ai.AutoResearch[0].NotBeforeTick);
@@ -217,7 +220,7 @@ namespace Wasteland.Sim.Tests
                     null,
                     11UL,
                     100,
-                    new[] { AiConstants.UnitKindInfantry },
+                    new[] { FixtureAiScenarioSeats.RemnantRaisableUnits[0] },
                     new[] { AiConstants.BuildingTagDepot },
                     Array.Empty<AiAutoResearch>()),
                 new AiScenarioSeatView(
@@ -226,12 +229,7 @@ namespace Wasteland.Sim.Tests
                     "homestead_compact_settler",
                     7UL,
                     250,
-                    new[]
-                    {
-                        AiConstants.UnitKindInfantry,
-                        AiConstants.UnitKindEngineer,
-                        AiConstants.UnitKindTierII
-                    },
+                    FixtureAiScenarioSeats.RemnantRaisableUnits,
                     new[] { AiConstants.BuildingTagDepot },
                     new[] { new AiAutoResearch("tier2", 40) }));
         }
@@ -242,7 +240,7 @@ namespace Wasteland.Sim.Tests
             string? aiPersonality = null,
             ulong homeTerritoryKey = 7UL,
             int startingManpower = 10,
-            int[]? raisableUnits = null,
+            string[]? raisableUnits = null,
             int[]? buildableBuildings = null,
             AiAutoResearch[]? autoResearch = null)
         {
@@ -255,6 +253,38 @@ namespace Wasteland.Sim.Tests
                 raisableUnits ?? FixtureAiScenarioSeats.DefaultRaisableUnits,
                 buildableBuildings ?? FixtureAiScenarioSeats.DefaultBuildableBuildings,
                 autoResearch ?? FixtureAiScenarioSeats.DefaultResearch);
+        }
+
+        private static bool HasRole(
+            AiScenarioSeatView seat,
+            IAiUnitCatalog catalog,
+            string role,
+            int currentTier)
+        {
+            string[] ids = seat.RaisableUnits;
+            for (int i = 0; i < ids.Length; i++)
+            {
+                if (!seat.AllowsUnitForTier(ids[i], currentTier, catalog))
+                {
+                    continue;
+                }
+
+                if (catalog.TryGetRole(ids[i], out string have) && have == role)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string FirstArmored(AiScenarioSeatView seat, IAiUnitCatalog catalog)
+        {
+            return AiMvpAttackTests.FirstRoleOrTarget(
+                seat,
+                catalog,
+                null,
+                AiConstants.TargetClassArmored);
         }
     }
 }

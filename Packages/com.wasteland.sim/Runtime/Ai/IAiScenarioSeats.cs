@@ -30,7 +30,7 @@ namespace Wasteland.Sim.Ai
         public readonly string? AiPersonality;
         public readonly ulong HomeTerritoryKey;
         public readonly int StartingManpower;
-        public readonly int[] RaisableUnits;
+        public readonly string[] RaisableUnits;
         public readonly int[] BuildableBuildings;
         public readonly AiAutoResearch[] AutoResearch;
 
@@ -40,7 +40,7 @@ namespace Wasteland.Sim.Ai
             string? aiPersonality,
             ulong homeTerritoryKey,
             int startingManpower,
-            int[] raisableUnits,
+            string[] raisableUnits,
             int[] buildableBuildings,
             AiAutoResearch[] autoResearch)
         {
@@ -54,29 +54,24 @@ namespace Wasteland.Sim.Ai
             AutoResearch = autoResearch ?? Array.Empty<AiAutoResearch>();
         }
 
-        public bool AllowsUnit(int unitKind)
+        public bool AllowsUnit(string unitId)
         {
-            return Contains(RaisableUnits, unitKind);
+            return Contains(RaisableUnits, unitId);
         }
 
-        public bool AllowsUnitForTier(int unitKind, int currentTier)
+        public bool AllowsUnitForTier(string unitId, int currentTier, IAiUnitCatalog catalog)
         {
-            if (!AllowsUnit(unitKind))
+            if (!AllowsUnit(unitId))
             {
                 return false;
             }
 
-            if (unitKind == AiConstants.UnitKindTierII)
+            if (catalog == null || !catalog.TryGetTier(unitId, out int tier))
             {
-                return currentTier >= 2;
+                return false;
             }
 
-            if (unitKind == AiConstants.UnitKindTierIII)
-            {
-                return currentTier >= 3;
-            }
-
-            return true;
+            return tier <= currentTier;
         }
 
         public bool AllowsBuilding(int buildingKind)
@@ -87,6 +82,24 @@ namespace Wasteland.Sim.Ai
         internal static bool Contains(int[] ids, int value)
         {
             if (ids == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < ids.Length; i++)
+            {
+                if (ids[i] == value)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        internal static bool Contains(string[] ids, string value)
+        {
+            if (ids == null || value == null)
             {
                 return false;
             }

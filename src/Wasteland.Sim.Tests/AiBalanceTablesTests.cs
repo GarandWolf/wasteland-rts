@@ -12,7 +12,7 @@ namespace Wasteland.Sim.Tests
         /// (personalities + difficulty). Designer files under <c>data/balance</c>
         /// are not part of this pin. Re-pin when AI-owned files change.
         /// </summary>
-        public const ulong ExpectedAiOwnedBalanceKey = 0x881F4713FEC0DA41UL;
+        public const ulong ExpectedAiOwnedBalanceKey = 0xAE81980AAB5CBC4FUL;
 
         [Fact]
         public void AiOwnedFiles_MatchExpectedBalanceKey()
@@ -128,6 +128,28 @@ namespace Wasteland.Sim.Tests
             Assert.Throws<FormatException>(() => AiBalanceTables.Parse(
                 personalities,
                 difficulty.Replace("\"dataVersion\": 1", "\"dataVersion\": \"1\"")));
+        }
+
+        [Fact]
+        public void RejectsMissingLineUnitsPerAntiArmour()
+        {
+            string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json")
+                .Replace(
+                    "      \"prizeTargetBonusPpt\": 300,\n      \"lineUnitsPerAntiArmour\": 2",
+                    "      \"prizeTargetBonusPpt\": 300");
+            FormatException ex = Assert.Throws<FormatException>(() => AiBalanceTables.Parse(
+                personalities,
+                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")));
+            Assert.Contains(AiBalanceTables.RuleIdLineUnitsPerAntiArmour, ex.Message);
+        }
+
+        [Fact]
+        public void Personalities_ExposeLineUnitsPerAntiArmour()
+        {
+            AiBalanceTables tables = LoadBalance();
+            Assert.Equal(2, tables.GetPersonality(AiConstants.PersonalityWarlord).LineUnitsPerAntiArmour);
+            Assert.Equal(2, tables.GetPersonality(AiConstants.PersonalitySettler).LineUnitsPerAntiArmour);
+            Assert.Equal(2, tables.GetPersonality(AiConstants.PersonalityRaider).LineUnitsPerAntiArmour);
         }
 
         [Fact]

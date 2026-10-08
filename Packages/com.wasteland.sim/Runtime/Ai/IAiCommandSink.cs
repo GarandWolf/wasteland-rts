@@ -35,6 +35,7 @@ namespace Wasteland.Sim.Ai
         public readonly int Arg1;
         public readonly int Arg2;
         public readonly int Arg3;
+        public readonly string UnitId;
 
         public AiIssuedCommand(
             int id,
@@ -45,6 +46,20 @@ namespace Wasteland.Sim.Ai
             int arg1,
             int arg2,
             int arg3)
+            : this(id, tick, factionId, kind, arg0, arg1, arg2, arg3, string.Empty)
+        {
+        }
+
+        public AiIssuedCommand(
+            int id,
+            int tick,
+            int factionId,
+            AiIssuedKind kind,
+            int arg0,
+            int arg1,
+            int arg2,
+            int arg3,
+            string unitId)
         {
             Id = id;
             Tick = tick;
@@ -54,6 +69,7 @@ namespace Wasteland.Sim.Ai
             Arg1 = arg1;
             Arg2 = arg2;
             Arg3 = arg3;
+            UnitId = unitId ?? string.Empty;
         }
     }
 
@@ -65,7 +81,7 @@ namespace Wasteland.Sim.Ai
 
         int SubmitClaimTown(int factionId, int battalionId, int townId);
 
-        int SubmitRaiseBattalion(int factionId, int unitKind, int xCm, int yCm);
+        int SubmitRaiseBattalion(int factionId, string unitId, int xCm, int yCm);
 
         int SubmitBuildDepot(int factionId, int battalionId, int nodeId);
 
@@ -171,22 +187,27 @@ namespace Wasteland.Sim.Ai
         public readonly int XCm;
         public readonly int YCm;
         public readonly int RoadNodeId;
-        public readonly int UnitKind;
+        public readonly string UnitId;
         public readonly bool Assigned;
 
-        public AiBattalionPin(int id, int xCm, int yCm, int roadNodeId, int unitKind, bool assigned)
+        public AiBattalionPin(int id, int xCm, int yCm, int roadNodeId, string unitId, bool assigned)
         {
             Id = id;
             XCm = xCm;
             YCm = yCm;
             RoadNodeId = roadNodeId;
-            UnitKind = unitKind;
+            UnitId = unitId ?? string.Empty;
             Assigned = assigned;
         }
 
-        public bool IsEngineer
+        public bool HasRole(IAiUnitCatalog catalog, string role)
         {
-            get { return UnitKind == AiConstants.UnitKindEngineer; }
+            if (catalog == null || string.IsNullOrEmpty(UnitId) || role == null)
+            {
+                return false;
+            }
+
+            return catalog.TryGetRole(UnitId, out string have) && have == role;
         }
     }
 }

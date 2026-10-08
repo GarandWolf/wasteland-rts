@@ -18,6 +18,14 @@ namespace Wasteland.Sim.Ai
         int PopUsed { get; }
 
         int PopCap { get; }
+
+        /// <summary>
+        /// Fixture visibility seam until Friday wires live fog. True when
+        /// this seat has seen an enemy battalion whose
+        /// <c>targetClass</c> is armored under normal visibility. Do not
+        /// set this from fog-cheating world state.
+        /// </summary>
+        bool HasSeenEnemyArmourOrMech { get; }
     }
 
     /// <summary>
@@ -39,6 +47,11 @@ namespace Wasteland.Sim.Ai
         public int PopUsed { get; set; }
 
         public int PopCap { get; set; }
+
+        /// <summary>
+        /// Fixture visibility seam. See <see cref="IAiSeatView.HasSeenEnemyArmourOrMech"/>.
+        /// </summary>
+        public bool HasSeenEnemyArmourOrMech { get; set; }
 
         public int Tier2ResearchTicks { get; set; }
 

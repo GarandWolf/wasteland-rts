@@ -62,7 +62,43 @@ namespace Wasteland.Sim.Tests
             view.Refresh(compact, 100000);
             Assert.Equal(1, view.CurrentTier);
             Assert.Equal(-1, view.TierResearchCompleteTick);
-            Assert.False(compact.AllowsUnitForTier(AiConstants.UnitKindTierII, view.CurrentTier));
+            IAiUnitCatalog catalog = AiBalanceTablesTests.LoadBalance().UnitCatalog;
+            for (int i = 0; i < compact.RaisableUnits.Length; i++)
+            {
+                Assert.True(catalog.TryGetTier(compact.RaisableUnits[i], out int tier));
+                Assert.Equal(1, tier);
+                Assert.True(compact.AllowsUnitForTier(compact.RaisableUnits[i], view.CurrentTier, catalog));
+            }
+        }
+
+        [Fact]
+        public void CompactSeat_FourDistinctIdsAndRoles_TiersMatchCatalog()
+        {
+            SimScenario scenario = LoadMvp();
+            ScenarioAiSeats seats = ScenarioAiSeats.From(scenario);
+            ScenarioSeat model = scenario.SeatAt(1);
+            AiScenarioSeatView compact = seats.SeatAt(1);
+            Assert.Equal(model.RaisableUnits, compact.RaisableUnits);
+            Assert.Equal(4, compact.RaisableUnits.Length);
+            IAiUnitCatalog catalog = AiBalanceTablesTests.LoadBalance().UnitCatalog;
+            string[] roles = new string[compact.RaisableUnits.Length];
+            for (int i = 0; i < compact.RaisableUnits.Length; i++)
+            {
+                string id = compact.RaisableUnits[i];
+                Assert.Equal(model.RaisableUnits[i], id);
+                Assert.True(catalog.TryGetTier(id, out int tier));
+                Assert.Equal(1, tier);
+                Assert.True(catalog.TryGetRole(id, out string role));
+                roles[i] = role;
+            }
+
+            for (int i = 0; i < roles.Length; i++)
+            {
+                for (int j = i + 1; j < roles.Length; j++)
+                {
+                    Assert.NotEqual(roles[i], roles[j]);
+                }
+            }
         }
 
         [Fact]

@@ -46,6 +46,9 @@ namespace Wasteland.Sim.Ai
         private readonly IAiDepotQuery _depots;
         private readonly AiRoadSupply _roads = new AiRoadSupply();
         private IAiSeatView _seatView = new FixtureAiSeatView();
+        private IAiUnitCatalog _catalog = AiUnitCatalog.Empty;
+        private int _lineUnitsPerAntiArmour = 2;
+        private int _minGarrisonPerTown;
 
         public AiAttackDefend(IAiCommandSink commands, IAiTownQuery towns, IAiDepotQuery depots)
         {
@@ -80,7 +83,10 @@ namespace Wasteland.Sim.Ai
             int supplyReachCm,
             ulong prizeTerritoryKey,
             int prizeTargetBonusPpt,
-            IAiSeatView seatView)
+            IAiSeatView seatView,
+            IAiUnitCatalog catalog,
+            int lineUnitsPerAntiArmour,
+            int minGarrisonPerTown)
         {
             if (faction == null)
             {
@@ -92,7 +98,20 @@ namespace Wasteland.Sim.Ai
                 throw new ArgumentNullException(nameof(seatView));
             }
 
+            if (catalog == null)
+            {
+                throw new ArgumentNullException(nameof(catalog));
+            }
+
+            if (lineUnitsPerAntiArmour < 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(lineUnitsPerAntiArmour));
+            }
+
             _seatView = seatView;
+            _catalog = catalog;
+            _lineUnitsPerAntiArmour = lineUnitsPerAntiArmour;
+            _minGarrisonPerTown = minGarrisonPerTown;
 
             if (towns == null)
             {
@@ -397,13 +416,13 @@ namespace Wasteland.Sim.Ai
 
             faction.DefendTownId = defendTownId;
             faction.AttackTargetTownId = 0;
-            int idle = CountIdle(battalions, battalionCount, 0);
+            int idle = CountIdle(battalions, battalionCount);
             if (idle < 1)
             {
                 return true;
             }
 
-            int battalionId = NearestIdle(faction, graph, defendNodeId, battalions, battalionCount, 0);
+            int battalionId = NearestIdle(faction, graph, defendNodeId, battalions, battalionCount, string.Empty);
             if (battalionId == 0)
             {
                 return true;
@@ -477,7 +496,7 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            int own = CountIdle(battalions, battalionCount, 0) + readback.StrengthOf(faction.FactionId);
+            int own = CountIdle(battalions, battalionCount) + readback.StrengthOf(faction.FactionId);
             int defender = readback.StrengthOf(readback.OwnerFactionId);
             if (defender < 1)
             {
@@ -518,17 +537,19 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            int battalionId = NearestIdle(faction, graph, target.NodeId, battalions, battalionCount, 0);
+            int battalionId = NearestIdle(faction, graph, target.NodeId, battalions, battalionCount, string.Empty);
             if (battalionId == 0)
             {
-                int currentTier = seatView.CurrentTier;
-                int raiseKind = AiConstants.UnitKindInfantry;
-                if (seat.AllowsUnitForTier(AiConstants.UnitKindTierII, currentTier))
-                {
-                    raiseKind = AiConstants.UnitKindTierII;
-                }
-
-                TryRaise(tick, faction, seat, raiseKind, target.XCm, target.YCm);
+                string raiseId = SelectRaiseUnit(
+                    seat,
+                    _catalog,
+                    seatView,
+                    battalions,
+                    battalionCount,
+                    _lineUnitsPerAntiArmour,
+                    false,
+                    GarrisonShort(faction, towns, townCount));
+                TryRaise(tick, faction, seat, raiseId, target.XCm, target.YCm);
                 return;
             }
 
@@ -633,17 +654,26 @@ namespace Wasteland.Sim.Ai
                 bestNode,
                 battalions,
                 battalionCount,
-                AiConstants.UnitKindEngineer);
+                AiConstants.RoleEngineer);
             if (engineerId == 0)
             {
-                TryRaise(tick, faction, seat, AiConstants.UnitKindEngineer, bestX, bestY);
+                string engineerIdToRaise = SelectRaiseUnit(
+                    seat,
+                    _catalog,
+                    _seatView,
+                    battalions,
+                    battalionCount,
+                    _lineUnitsPerAntiArmour,
+                    true,
+                    false);
+                TryRaise(tick, faction, seat, engineerIdToRaise, bestX, bestY);
                 return;
             }
 
             AiBattalionPin engineer = FindPin(battalions, battalionCount, engineerId);
             if (PathNearEnemy(faction, towns, townCount, graph, engineer.RoadNodeId, bestNode))
             {
-                int escortId = NearestIdle(faction, graph, bestNode, battalions, battalionCount, AiConstants.UnitKindInfantry);
+                int escortId = NearestIdle(faction, graph, bestNode, battalions, battalionCount, AiConstants.RoleLineInfantry);
                 if (escortId != 0 && escortId != engineerId)
                 {
                     int escortCmd = _commands.SubmitMove(faction.FactionId, escortId, bestX, bestY);
@@ -675,21 +705,96 @@ namespace Wasteland.Sim.Ai
             }
         }
 
-        private void TryRaise(int tick, AiFactionState faction, AiScenarioSeatView seat, int unitKind, int xCm, int yCm)
+        public static string SelectRaiseUnit(
+            AiScenarioSeatView seat,
+            IAiUnitCatalog catalog,
+            IAiSeatView seatView,
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            int lineUnitsPerAntiArmour,
+            bool forDepot,
+            bool garrisonShort)
         {
-            int currentTier = _seatView.CurrentTier;
-            if (unitKind == AiConstants.UnitKindTierII && currentTier < 2)
+            if (catalog == null)
+            {
+                throw new ArgumentNullException(nameof(catalog));
+            }
+
+            if (seatView == null)
+            {
+                throw new ArgumentNullException(nameof(seatView));
+            }
+
+            if (lineUnitsPerAntiArmour < 1)
+            {
+                throw new ArgumentOutOfRangeException(nameof(lineUnitsPerAntiArmour));
+            }
+
+            int currentTier = seatView.CurrentTier;
+            if (forDepot)
+            {
+                return FirstRaisableRole(seat, catalog, currentTier, AiConstants.RoleEngineer);
+            }
+
+            string lineId = FirstRaisableRole(seat, catalog, currentTier, AiConstants.RoleLineInfantry);
+            if (garrisonShort && !CanAfford(seatView, catalog, lineId))
+            {
+                string garrisonId = FirstRaisableRole(
+                    seat,
+                    catalog,
+                    currentTier,
+                    AiConstants.RoleGarrisonInfantry);
+                if (!string.IsNullOrEmpty(garrisonId))
+                {
+                    return garrisonId;
+                }
+            }
+
+            string atId = FirstRaisableRole(seat, catalog, currentTier, AiConstants.RoleAntiTank);
+            int line = CountRole(battalions, battalionCount, catalog, AiConstants.RoleLineInfantry);
+            int at = CountRole(battalions, battalionCount, catalog, AiConstants.RoleAntiTank);
+            bool wantAt = false;
+            if (!string.IsNullOrEmpty(atId))
+            {
+                if (seatView.HasSeenEnemyArmourOrMech)
+                {
+                    wantAt = line > (long)lineUnitsPerAntiArmour * at;
+                }
+                else
+                {
+                    wantAt = line >= (long)lineUnitsPerAntiArmour * ((long)at + 1L);
+                }
+            }
+
+            if (wantAt)
+            {
+                return atId;
+            }
+
+            if (!string.IsNullOrEmpty(lineId))
+            {
+                return lineId;
+            }
+
+            return atId;
+        }
+
+        private void TryRaise(
+            int tick,
+            AiFactionState faction,
+            AiScenarioSeatView seat,
+            string unitId,
+            int xCm,
+            int yCm)
+        {
+            if (string.IsNullOrEmpty(unitId))
             {
                 return;
             }
 
-            if (!seat.AllowsUnitForTier(unitKind, currentTier))
+            int currentTier = _seatView.CurrentTier;
+            if (!seat.AllowsUnit(unitId) || !seat.AllowsUnitForTier(unitId, currentTier, _catalog))
             {
-                if (unitKind != AiConstants.UnitKindTierII)
-                {
-                    NoteReject(tick, faction, AiCommandReject.UnitNotRaisable);
-                }
-
                 return;
             }
 
@@ -699,7 +804,81 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            Issue(tick, faction, _commands.SubmitRaiseBattalion(faction.FactionId, unitKind, xCm, yCm));
+            Issue(tick, faction, _commands.SubmitRaiseBattalion(faction.FactionId, unitId, xCm, yCm));
+        }
+
+        private bool GarrisonShort(AiFactionState faction, AiAttackTownInfo[] towns, int townCount)
+        {
+            if (_minGarrisonPerTown < 1)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < townCount; i++)
+            {
+                AiAttackTownInfo town = towns[i];
+                if (!_towns.TryGet(town.Id, out AiTownReadback readback))
+                {
+                    continue;
+                }
+
+                if (readback.OwnerFactionId != faction.FactionId)
+                {
+                    continue;
+                }
+
+                if (readback.StrengthOf(faction.FactionId) < _minGarrisonPerTown)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool CanAfford(IAiSeatView seatView, IAiUnitCatalog catalog, string unitId)
+        {
+            if (string.IsNullOrEmpty(unitId) || !catalog.TryGetManpowerCost(unitId, out int cost))
+            {
+                return true;
+            }
+
+            return seatView.Manpower >= cost;
+        }
+
+        private static string FirstRaisableRole(
+            AiScenarioSeatView seat,
+            IAiUnitCatalog catalog,
+            int currentTier,
+            string role)
+        {
+            string[] ids = seat.RaisableUnits;
+            if (ids == null)
+            {
+                return string.Empty;
+            }
+
+            string best = string.Empty;
+            for (int i = 0; i < ids.Length; i++)
+            {
+                string id = ids[i];
+                if (!seat.AllowsUnitForTier(id, currentTier, catalog))
+                {
+                    continue;
+                }
+
+                if (!catalog.TryGetRole(id, out string have) || have != role)
+                {
+                    continue;
+                }
+
+                if (best.Length < 1 || string.CompareOrdinal(id, best) < 0)
+                {
+                    best = id;
+                }
+            }
+
+            return best;
         }
 
         private bool PathNearEnemy(
@@ -792,17 +971,12 @@ namespace Wasteland.Sim.Ai
             faction.RejectBackoffUntilTick = tick + delay;
         }
 
-        private static int CountIdle(AiBattalionPin[] battalions, int battalionCount, int unitKind)
+        private static int CountIdle(AiBattalionPin[] battalions, int battalionCount)
         {
             int idle = 0;
             for (int i = 0; i < battalionCount; i++)
             {
                 if (battalions[i].Assigned)
-                {
-                    continue;
-                }
-
-                if (unitKind != 0 && battalions[i].UnitKind != unitKind)
                 {
                     continue;
                 }
@@ -813,13 +987,36 @@ namespace Wasteland.Sim.Ai
             return idle;
         }
 
+        private static int CountRole(
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            IAiUnitCatalog catalog,
+            string role)
+        {
+            int count = 0;
+            if (battalions == null)
+            {
+                return 0;
+            }
+
+            for (int i = 0; i < battalionCount; i++)
+            {
+                if (battalions[i].HasRole(catalog, role))
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
         private int NearestIdle(
             AiFactionState faction,
             Wasteland.Sim.Movement.RoadGraph graph,
             int toNodeId,
             AiBattalionPin[] battalions,
             int battalionCount,
-            int unitKind)
+            string role)
         {
             int bestId = 0;
             int bestDist = AiConstants.UnreachableCm;
@@ -831,7 +1028,7 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                if (unitKind != 0 && pin.UnitKind != unitKind)
+                if (!string.IsNullOrEmpty(role) && !pin.HasRole(_catalog, role))
                 {
                     continue;
                 }

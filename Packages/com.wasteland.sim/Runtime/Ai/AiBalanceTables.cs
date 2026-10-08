@@ -44,6 +44,12 @@ namespace Wasteland.Sim.Ai
         /// override and defend still come first.
         /// </summary>
         public readonly int PrizeTargetBonusPpt;
+
+        /// <summary>
+        /// Line units kept per anti-armour unit (integer). 2 means raise
+        /// one anti-armour after every two line units.
+        /// </summary>
+        public readonly int LineUnitsPerAntiArmour;
         public readonly string EconomyFactionId;
         public readonly int MinGarrisonPerTown;
         public readonly int TaskForceTargetSize;
@@ -77,6 +83,7 @@ namespace Wasteland.Sim.Ai
             int depotBaseScore,
             int awayDepotScoreBonus,
             int prizeTargetBonusPpt,
+            int lineUnitsPerAntiArmour,
             string economyFactionId,
             int minGarrisonPerTown,
             int taskForceTargetSize,
@@ -109,6 +116,7 @@ namespace Wasteland.Sim.Ai
             DepotBaseScore = depotBaseScore;
             AwayDepotScoreBonus = awayDepotScoreBonus;
             PrizeTargetBonusPpt = prizeTargetBonusPpt;
+            LineUnitsPerAntiArmour = lineUnitsPerAntiArmour;
             EconomyFactionId = economyFactionId ?? throw new ArgumentNullException(nameof(economyFactionId));
             MinGarrisonPerTown = minGarrisonPerTown;
             TaskForceTargetSize = taskForceTargetSize;
@@ -200,6 +208,7 @@ namespace Wasteland.Sim.Ai
         public const string RuleIdContestedHoldingPaysIncome = "contestedHoldingPaysIncome";
         public const string RuleIdAttackStrengthRatioPpt = "attackStrengthRatioPpt";
         public const string RuleIdPrizeTargetBonusPpt = "prizeTargetBonusPpt";
+        public const string RuleIdLineUnitsPerAntiArmour = "lineUnitsPerAntiArmour";
         public const string RuleIdTier2ResearchTicks = "tech.tier2.researchTicks";
 
         private readonly AiPersonalityProfile[] _personalities;
@@ -210,6 +219,7 @@ namespace Wasteland.Sim.Ai
         private readonly ulong _balanceKey;
         private readonly int _workUnitsPerTick;
         private readonly RulesState _rules;
+        private readonly IAiUnitCatalog _unitCatalog;
 
         private AiBalanceTables(
             ulong balanceKey,
@@ -220,7 +230,8 @@ namespace Wasteland.Sim.Ai
             AiDifficultyProfile[] difficulties,
             int[] bindingFactionIds,
             string[] bindingPersonalityIds,
-            RulesState rules)
+            RulesState rules,
+            IAiUnitCatalog unitCatalog)
         {
             _balanceKey = balanceKey;
             PersonalityJsonHash = personalityJsonHash;
@@ -231,6 +242,7 @@ namespace Wasteland.Sim.Ai
             _bindingFactionIds = bindingFactionIds;
             _bindingPersonalityIds = bindingPersonalityIds;
             _rules = rules ?? new RulesState();
+            _unitCatalog = unitCatalog ?? AiUnitCatalog.Empty;
         }
 
         public ulong BalanceKey
@@ -241,6 +253,11 @@ namespace Wasteland.Sim.Ai
         public ulong PersonalityJsonHash { get; }
 
         public ulong DifficultyJsonHash { get; }
+
+        public IAiUnitCatalog UnitCatalog
+        {
+            get { return _unitCatalog; }
+        }
 
         public int PersonalityCount
         {
@@ -364,7 +381,9 @@ namespace Wasteland.Sim.Ai
                 File.ReadAllText(difficultyPath));
             RulesState rules = ParseCapture(File.ReadAllText(rulesPath));
             ParseEconomy(File.ReadAllText(economyPath), tables._personalities, rules);
-            return tables.WithRules(rules).WithBalanceKey(
+            IAiUnitCatalog units = AiUnitCatalog.Parse(
+                File.ReadAllText(Path.Combine(balanceDirectory, "units.json")));
+            return tables.WithUnitCatalog(units).WithRules(rules).WithBalanceKey(
                 global::Wasteland.Sim.Movement.BalanceKey.For(balanceDirectory));
         }
 
@@ -398,6 +417,21 @@ namespace Wasteland.Sim.Ai
             RequireCandidateGoalsWithinCeiling(rules);
             RequireDifficultiesHaveIncomeMultiplier(rules);
             return Clone(_balanceKey, rules);
+        }
+
+        public AiBalanceTables WithUnitCatalog(IAiUnitCatalog unitCatalog)
+        {
+            return new AiBalanceTables(
+                _balanceKey,
+                PersonalityJsonHash,
+                DifficultyJsonHash,
+                _workUnitsPerTick,
+                _personalities,
+                _difficulties,
+                _bindingFactionIds,
+                _bindingPersonalityIds,
+                _rules,
+                unitCatalog ?? AiUnitCatalog.Empty);
         }
 
         public int CaptureTicksForClass(int populationClass)
@@ -521,7 +555,8 @@ namespace Wasteland.Sim.Ai
                 _difficulties,
                 _bindingFactionIds,
                 _bindingPersonalityIds,
-                rules);
+                rules,
+                _unitCatalog);
         }
 
         public static ulong HashUtf8(string text)
@@ -629,7 +664,8 @@ namespace Wasteland.Sim.Ai
                 difficulties,
                 bindingFactionIds,
                 bindingPersonalityIds,
-                new RulesState());
+                new RulesState(),
+                AiUnitCatalog.Empty);
         }
 
         public static void ParseCaptureRules(
@@ -1063,6 +1099,7 @@ namespace Wasteland.Sim.Ai
                 RequireNonNegative(row, "depotBaseScore"),
                 RequireNonNegative(row, "awayDepotScoreBonus"),
                 RequirePpt(row, RuleIdPrizeTargetBonusPpt),
+                RequireLineUnitsPerAntiArmour(row),
                 RequireEconomyFactionId(row),
                 minGarrison,
                 JsonUtil.Int32(JsonUtil.Field(row, "taskForceTargetSize"), "taskForceTargetSize"),
@@ -1173,6 +1210,19 @@ namespace Wasteland.Sim.Ai
             if (value < 0)
             {
                 throw new FormatException(key + " must be >= 0.");
+            }
+
+            return value;
+        }
+
+        private static int RequireLineUnitsPerAntiArmour(JsonValue row)
+        {
+            int value = JsonUtil.Int32(
+                JsonUtil.Field(row, RuleIdLineUnitsPerAntiArmour),
+                RuleIdLineUnitsPerAntiArmour);
+            if (value < 1)
+            {
+                throw new FormatException(RuleIdLineUnitsPerAntiArmour + " must be >= 1.");
             }
 
             return value;

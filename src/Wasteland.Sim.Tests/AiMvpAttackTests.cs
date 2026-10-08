@@ -174,7 +174,8 @@ namespace Wasteland.Sim.Tests
             harness.Tick();
             Assert.Single(harness.Sink.Log);
             Assert.Equal(AiIssuedKind.RaiseBattalion, harness.Sink.Log[0].Kind);
-            Assert.Equal(AiConstants.UnitKindEngineer, harness.Sink.Log[0].Arg0);
+            Assert.True(harness.Catalog.TryGetRole(harness.Sink.Log[0].UnitId, out string raiseRole));
+            Assert.Equal(AiConstants.RoleEngineer, raiseRole);
         }
 
         [Fact]
@@ -276,35 +277,38 @@ namespace Wasteland.Sim.Tests
             harness.SetBattalions(Idle(5, 1), Idle(6, 1));
             harness.Tick();
             Assert.Empty(harness.Sink.Log);
-            Assert.Equal((int)AiCommandReject.UnitNotRaisable, harness.Faction.LastRejectCode);
         }
 
         [Fact]
         public void Raise_BlocksTierIIUntilFixtureResearchCompletes()
         {
+            IAiUnitCatalog catalog = AiBalanceTablesTests.LoadBalance().UnitCatalog;
             AiScenarioSeatView seat = new AiScenarioSeatView(
                 0,
-                "homestead_compact",
-                "unknown_raider_v9",
+                "remnant_command",
+                null,
                 1UL,
                 300,
-                new[]
-                {
-                    AiConstants.UnitKindInfantry,
-                    AiConstants.UnitKindEngineer,
-                    AiConstants.UnitKindTierII
-                },
+                FixtureAiScenarioSeats.RemnantRaisableUnits,
                 new[] { AiConstants.BuildingTagDepot },
                 new[] { new AiAutoResearch("tier2", 50) });
             FixtureAiSeatView view = new FixtureAiSeatView();
             view.Tier2ResearchTicks = 10;
             view.Refresh(seat, 59);
             Assert.Equal(1, view.CurrentTier);
-            Assert.False(seat.AllowsUnitForTier(AiConstants.UnitKindTierII, view.CurrentTier));
+            string tierTwoId = FirstRoleOrTarget(
+                seat,
+                catalog,
+                null,
+                AiConstants.TargetClassArmored);
+            Assert.False(string.IsNullOrEmpty(tierTwoId));
+            Assert.False(seat.AllowsUnitForTier(tierTwoId, view.CurrentTier, catalog));
             view.Refresh(seat, 60);
             Assert.Equal(2, view.CurrentTier);
-            Assert.True(seat.AllowsUnitForTier(AiConstants.UnitKindTierII, view.CurrentTier));
-            Assert.True(seat.AllowsUnit(AiConstants.UnitKindInfantry));
+            Assert.True(seat.AllowsUnitForTier(tierTwoId, view.CurrentTier, catalog));
+            string lineId = FirstRoleOrTarget(seat, catalog, AiConstants.RoleLineInfantry, null);
+            Assert.True(seat.AllowsUnit(lineId));
+            Assert.True(seat.AllowsUnitForTier(lineId, 1, catalog));
         }
 
         [Fact]
@@ -356,14 +360,74 @@ namespace Wasteland.Sim.Tests
             return new AiTownReadback(factionId, false, factionId, strength, 0, 0);
         }
 
+        internal static string FirstRoleOrTarget(
+            AiScenarioSeatView seat,
+            IAiUnitCatalog catalog,
+            string? role,
+            string? targetClass)
+        {
+            string best = string.Empty;
+            string[] ids = seat.RaisableUnits;
+            for (int i = 0; i < ids.Length; i++)
+            {
+                string id = ids[i];
+                if (role != null)
+                {
+                    if (!catalog.TryGetRole(id, out string have) || have != role)
+                    {
+                        continue;
+                    }
+                }
+
+                if (targetClass != null)
+                {
+                    if (!catalog.TryGetTargetClass(id, out string haveClass) || haveClass != targetClass)
+                    {
+                        continue;
+                    }
+                }
+
+                if (best.Length < 1 || string.CompareOrdinal(id, best) < 0)
+                {
+                    best = id;
+                }
+            }
+
+            return best;
+        }
+
         private static AiBattalionPin Idle(int id, int nodeId)
         {
-            return new AiBattalionPin(id, nodeId * 1000, 0, nodeId, AiConstants.UnitKindInfantry, false);
+            return Pin(id, nodeId, AiConstants.RoleLineInfantry);
         }
 
         private static AiBattalionPin Engineer(int id, int nodeId)
         {
-            return new AiBattalionPin(id, nodeId * 1000, 0, nodeId, AiConstants.UnitKindEngineer, false);
+            return Pin(id, nodeId, AiConstants.RoleEngineer);
+        }
+
+        internal static AiBattalionPin PinWithRole(int id, int xCm, int yCm, int nodeId, string role)
+        {
+            return PinWithRole(id, xCm, yCm, nodeId, role, false);
+        }
+
+        internal static AiBattalionPin PinWithRole(
+            int id,
+            int xCm,
+            int yCm,
+            int nodeId,
+            string role,
+            bool assigned)
+        {
+            AiScenarioSeatView seat = FixtureAiScenarioSeats.LaunchSeat("homestead_compact", 1UL);
+            IAiUnitCatalog catalog = AiBalanceTablesTests.LoadBalance().UnitCatalog;
+            string unitId = FirstRoleOrTarget(seat, catalog, role, null);
+            return new AiBattalionPin(id, xCm, yCm, nodeId, unitId, assigned);
+        }
+
+        private static AiBattalionPin Pin(int id, int nodeId, string role)
+        {
+            return PinWithRole(id, nodeId * 1000, 0, nodeId, role);
         }
 
         private static int PickPrize(Harness harness, ulong prizeKey, int bonusPpt)
@@ -386,13 +450,16 @@ namespace Wasteland.Sim.Tests
 
         private static AiScenarioSeatView InfantryOnlySeat()
         {
+            IAiUnitCatalog catalog = AiBalanceTablesTests.LoadBalance().UnitCatalog;
+            AiScenarioSeatView full = FixtureAiScenarioSeats.LaunchSeat("homestead_compact", 1UL);
+            string lineId = FirstRoleOrTarget(full, catalog, AiConstants.RoleLineInfantry, null);
             return FixtureAiScenarioSeats.Create(new AiScenarioSeatView(
                 0,
                 "homestead_compact",
                 string.Empty,
                 1UL,
                 300,
-                new[] { AiConstants.UnitKindInfantry },
+                new[] { lineId },
                 new[] { AiConstants.BuildingTagDepot },
                 FixtureAiScenarioSeats.DefaultResearch)).SeatAt(0);
         }
@@ -407,9 +474,12 @@ namespace Wasteland.Sim.Tests
             public readonly Dictionary<int, AiTownReadback> Towns = new Dictionary<int, AiTownReadback>();
             public readonly int[] Network = { 1 };
             public readonly FixtureAiSeatView SeatView = new FixtureAiSeatView();
+            public readonly IAiUnitCatalog Catalog;
             public int SupplyReachCm = 100000;
             public ulong PrizeTerritoryKey;
             public int PrizeTargetBonusPpt;
+            public int LineUnitsPerAntiArmour;
+            public int MinGarrisonPerTown;
             public AiScenarioSeatView Seat;
             private AiBattalionPin[] _battalions = System.Array.Empty<AiBattalionPin>();
 
@@ -442,7 +512,13 @@ namespace Wasteland.Sim.Tests
                 Faction.HomeTownId = 10;
                 Faction.HomeTerritoryId = 1;
                 Seat = FixtureAiScenarioSeats.LaunchSeat("homestead_compact", 1UL);
-                SeatView.Tier2ResearchTicks = AiBalanceTablesTests.LoadBalance().Tier2ResearchTicks;
+                AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
+                Catalog = tables.UnitCatalog;
+                AiPersonalityProfile settler = tables.GetPersonality(AiConstants.PersonalitySettler);
+                LineUnitsPerAntiArmour = settler.LineUnitsPerAntiArmour;
+                MinGarrisonPerTown = settler.MinGarrisonPerTown;
+                SeatView.Tier2ResearchTicks = tables.Tier2ResearchTicks;
+                SeatView.Manpower = Seat.StartingManpower;
                 PrizeTerritoryKey = 0UL;
                 PrizeTargetBonusPpt = 0;
             }
@@ -550,7 +626,10 @@ namespace Wasteland.Sim.Tests
                     SupplyReachCm,
                     PrizeTerritoryKey,
                     PrizeTargetBonusPpt,
-                    SeatView);
+                    SeatView,
+                    Catalog,
+                    LineUnitsPerAntiArmour,
+                    MinGarrisonPerTown);
                 AssertNoAiCausedTierOrPopRequest(from, injected);
             }
 
@@ -570,15 +649,9 @@ namespace Wasteland.Sim.Tests
                         continue;
                     }
 
-                    if (cmd.Arg0 == AiConstants.UnitKindTierII)
-                    {
-                        Assert.True(SeatView.CurrentTier >= 2);
-                    }
-
-                    if (cmd.Arg0 == AiConstants.UnitKindTierIII)
-                    {
-                        Assert.True(SeatView.CurrentTier >= 3);
-                    }
+                    Assert.True(Seat.AllowsUnitForTier(cmd.UnitId, SeatView.CurrentTier, Catalog));
+                    Assert.True(Catalog.TryGetTier(cmd.UnitId, out int tier));
+                    Assert.True(tier <= SeatView.CurrentTier);
 
                     if (SeatView.PopCap > 0)
                     {

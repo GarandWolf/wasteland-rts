@@ -45,8 +45,8 @@ namespace Wasteland.Sim.Tests
             harness.Towns[10] = new AiTownReadback(1, false, 1, 1, 0, 0);
             harness.Towns[30] = new AiTownReadback(2, false, 2, 1, 0, 0);
             harness.SetBattalions(
-                new AiBattalionPin(5, 1000, 0, 1, AiConstants.UnitKindInfantry, false),
-                new AiBattalionPin(7, 1000, 0, 1, AiConstants.UnitKindEngineer, false));
+                AiMvpAttackTests.PinWithRole(5, 1000, 0, 1, AiConstants.RoleLineInfantry),
+                AiMvpAttackTests.PinWithRole(7, 1000, 0, 1, AiConstants.RoleEngineer));
             harness.Tick(0);
             for (int i = 0; i < harness.Sink.Log.Count; i++)
             {
@@ -88,8 +88,8 @@ namespace Wasteland.Sim.Tests
             harness.Towns[10] = new AiTownReadback(1, false, 1, 1, 0, 0);
             harness.Towns[30] = new AiTownReadback(2, false, 2, 1, 0, 0);
             harness.SetBattalions(
-                new AiBattalionPin(5, 1000, 0, 1, AiConstants.UnitKindInfantry, false),
-                new AiBattalionPin(7, 1000, 0, 1, AiConstants.UnitKindEngineer, false));
+                AiMvpAttackTests.PinWithRole(5, 1000, 0, 1, AiConstants.RoleLineInfantry),
+                AiMvpAttackTests.PinWithRole(7, 1000, 0, 1, AiConstants.RoleEngineer));
             harness.Tick(0);
             AiOwnedState owned = new AiOwnedState(new[] { harness.Faction }, 1);
             XxHash64Builder hash = new XxHash64Builder();

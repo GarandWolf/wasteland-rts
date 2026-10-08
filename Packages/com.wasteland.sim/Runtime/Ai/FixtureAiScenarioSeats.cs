@@ -22,11 +22,20 @@ namespace Wasteland.Sim.Ai
         public const string SimultaneousHqLossDraw = "draw";
         public const string AutoResearchTier2 = "tier2";
 
-        public static readonly int[] DefaultRaisableUnits =
+        public static readonly string[] DefaultRaisableUnits =
         {
-            AiConstants.UnitKindInfantry,
-            AiConstants.UnitKindEngineer,
-            AiConstants.UnitKindTierII
+            "compact_militia",
+            "compact_rifle_battalion",
+            "compact_at_battalion",
+            "compact_engineers"
+        };
+
+        public static readonly string[] RemnantRaisableUnits =
+        {
+            "remnant_motor_rifles",
+            "remnant_mech_battalion",
+            "remnant_armoured_battalion",
+            "remnant_engineers"
         };
 
         public static readonly int[] DefaultBuildableBuildings =
@@ -162,19 +171,13 @@ namespace Wasteland.Sim.Ai
             {
                 AiMvpSeatShape row = seats[i];
                 AiAutoResearch[] research = MapAutoResearch(row.AutoResearch);
-                int[] units = MapUnitCatalog(row.RaisableUnits);
-                if (HasTier2Item(research))
-                {
-                    units = AppendIfMissing(units, AiConstants.UnitKindTierII);
-                }
-
                 views[i] = new AiScenarioSeatView(
                     row.Slot,
                     row.Faction,
                     row.AiPersonality,
                     row.HomeTerritoryKey,
                     row.StartingManpower,
-                    units,
+                    CopyAuthoredIds(row.RaisableUnits, RuleIdRaisableUnits),
                     MapBuildingCatalog(row.BuildableBuildings),
                     research);
             }
@@ -205,8 +208,18 @@ namespace Wasteland.Sim.Ai
             AiPersonalityProfile remnant = balance.GetPersonalityOrGeneric(AiConstants.PersonalityWarlord);
             AiPersonalityProfile compact = balance.GetPersonalityOrGeneric(AiConstants.PersonalitySettler);
             return Create(
-                LaunchSeat(0, remnant.EconomyFactionId, remnant.Id, HomeKeyOf(map, map.GoldendaleTownId)),
-                LaunchSeat(1, compact.EconomyFactionId, compact.Id, HomeKeyOf(map, map.HoodRiverTownId)));
+                LaunchSeat(
+                    0,
+                    remnant.EconomyFactionId,
+                    remnant.Id,
+                    HomeKeyOf(map, map.GoldendaleTownId),
+                    RemnantRaisableUnits),
+                LaunchSeat(
+                    1,
+                    compact.EconomyFactionId,
+                    compact.Id,
+                    HomeKeyOf(map, map.HoodRiverTownId),
+                    DefaultRaisableUnits));
         }
 
         public static AiScenarioSeatView LaunchSeat(string faction, ulong homeTerritoryKey)
@@ -220,13 +233,28 @@ namespace Wasteland.Sim.Ai
             string? aiPersonality,
             ulong homeTerritoryKey)
         {
+            return LaunchSeat(
+                slot,
+                faction,
+                aiPersonality,
+                homeTerritoryKey,
+                DefaultRaisableUnits);
+        }
+
+        public static AiScenarioSeatView LaunchSeat(
+            int slot,
+            string faction,
+            string? aiPersonality,
+            ulong homeTerritoryKey,
+            string[] raisableUnits)
+        {
             return new AiScenarioSeatView(
                 slot,
                 faction,
                 aiPersonality,
                 homeTerritoryKey,
                 300,
-                DefaultRaisableUnits,
+                raisableUnits,
                 DefaultBuildableBuildings,
                 DefaultResearch);
         }
@@ -302,7 +330,7 @@ namespace Wasteland.Sim.Ai
             }
 
             AiAutoResearch[] research = CopyResearch(seat.AutoResearch);
-            int[] units = CopyAuthoredPositive(seat.RaisableUnits, RuleIdRaisableUnits);
+            string[] units = CopyAuthoredIds(seat.RaisableUnits, RuleIdRaisableUnits);
             int[] buildings = CopyAuthoredPositive(seat.BuildableBuildings, RuleIdBuildableBuildings);
             return new AiScenarioSeatView(
                 seat.Slot,
@@ -334,47 +362,6 @@ namespace Wasteland.Sim.Ai
             }
 
             return copy;
-        }
-
-        private static int[] MapUnitCatalog(string[] names)
-        {
-            if (names == null || names.Length < 1)
-            {
-                throw new InvalidDataException(RuleIdRaisableUnits);
-            }
-
-            int[] ids = new int[names.Length];
-            for (int i = 0; i < names.Length; i++)
-            {
-                ids[i] = MapUnitName(names[i]);
-            }
-
-            return CopyAuthoredPositive(ids, RuleIdRaisableUnits);
-        }
-
-        private static int MapUnitName(string name)
-        {
-            if (string.IsNullOrEmpty(name))
-            {
-                throw new InvalidDataException(RuleIdRaisableUnits);
-            }
-
-            if (ContainsToken(name, "tier3"))
-            {
-                return AiConstants.UnitKindTierIII;
-            }
-
-            if (ContainsToken(name, "engineer"))
-            {
-                return AiConstants.UnitKindEngineer;
-            }
-
-            if (ContainsToken(name, "tier2"))
-            {
-                return AiConstants.UnitKindTierII;
-            }
-
-            return AiConstants.UnitKindInfantry;
         }
 
         private static int[] MapBuildingCatalog(string[] names)
@@ -434,46 +421,6 @@ namespace Wasteland.Sim.Ai
             return copy;
         }
 
-        private static bool HasTier2Item(AiAutoResearch[] rows)
-        {
-            if (rows == null)
-            {
-                return false;
-            }
-
-            for (int i = 0; i < rows.Length; i++)
-            {
-                if (rows[i].Item == AutoResearchTier2)
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        private static int[] AppendIfMissing(int[] source, int value)
-        {
-            if (source == null)
-            {
-                return new[] { value };
-            }
-
-            if (AiScenarioSeatView.Contains(source, value))
-            {
-                return source;
-            }
-
-            int[] next = new int[source.Length + 1];
-            for (int i = 0; i < source.Length; i++)
-            {
-                next[i] = source[i];
-            }
-
-            next[source.Length] = value;
-            return next;
-        }
-
         private static bool ContainsToken(string name, string token)
         {
             int start = 0;
@@ -494,6 +441,27 @@ namespace Wasteland.Sim.Ai
             }
 
             return false;
+        }
+
+        private static string[] CopyAuthoredIds(string[] source, string ruleId)
+        {
+            if (source == null || source.Length < 1)
+            {
+                throw new InvalidDataException(ruleId);
+            }
+
+            string[] copy = new string[source.Length];
+            for (int i = 0; i < source.Length; i++)
+            {
+                if (string.IsNullOrEmpty(source[i]))
+                {
+                    throw new InvalidDataException(ruleId);
+                }
+
+                copy[i] = source[i];
+            }
+
+            return copy;
         }
 
         private static int[] CopyAuthoredPositive(int[] source, string ruleId)

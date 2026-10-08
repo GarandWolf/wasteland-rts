@@ -41,22 +41,22 @@ namespace Wasteland.Sim.Ai
 
         public int SubmitMove(int factionId, int battalionId, int xCm, int yCm)
         {
-            return Record(factionId, AiIssuedKind.Move, battalionId, xCm, yCm, 0);
+            return Record(factionId, AiIssuedKind.Move, battalionId, xCm, yCm, 0, string.Empty);
         }
 
         public int SubmitClaimTown(int factionId, int battalionId, int townId)
         {
-            return Record(factionId, AiIssuedKind.ClaimTown, battalionId, townId, 0, 0);
+            return Record(factionId, AiIssuedKind.ClaimTown, battalionId, townId, 0, 0, string.Empty);
         }
 
-        public int SubmitRaiseBattalion(int factionId, int unitKind, int xCm, int yCm)
+        public int SubmitRaiseBattalion(int factionId, string unitId, int xCm, int yCm)
         {
-            return Record(factionId, AiIssuedKind.RaiseBattalion, unitKind, xCm, yCm, 0);
+            return Record(factionId, AiIssuedKind.RaiseBattalion, 0, xCm, yCm, 0, unitId);
         }
 
         public int SubmitBuildDepot(int factionId, int battalionId, int nodeId)
         {
-            int id = Record(factionId, AiIssuedKind.BuildDepot, battalionId, nodeId, 0, 0);
+            int id = Record(factionId, AiIssuedKind.BuildDepot, battalionId, nodeId, 0, 0, string.Empty);
             if (RejectOf(id) == AiCommandReject.None)
             {
                 RecordSite(factionId, nodeId, _tick, _tick + _depotActiveDelayTicks);
@@ -86,11 +86,18 @@ namespace Wasteland.Sim.Ai
             _depots[DepotKey(factionId, nodeId)] = new AiDepotReadback(siteTick, activeTick);
         }
 
-        private int Record(int factionId, AiIssuedKind kind, int arg0, int arg1, int arg2, int arg3)
+        private int Record(
+            int factionId,
+            AiIssuedKind kind,
+            int arg0,
+            int arg1,
+            int arg2,
+            int arg3,
+            string unitId)
         {
             int id = _nextId;
             _nextId++;
-            _log.Add(new AiIssuedCommand(id, _tick, factionId, kind, arg0, arg1, arg2, arg3));
+            _log.Add(new AiIssuedCommand(id, _tick, factionId, kind, arg0, arg1, arg2, arg3, unitId));
             if (_nextReject != AiCommandReject.None)
             {
                 _rejects[id] = _nextReject;

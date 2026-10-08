@@ -52,6 +52,12 @@ namespace Wasteland.Sim.Ai
         public const int UnitKindTierII = 3;
         public const int UnitKindTierIII = 4;
 
+        public const string RoleLineInfantry = "line_infantry";
+        public const string RoleAntiTank = "anti_tank";
+        public const string RoleGarrisonInfantry = "garrison_infantry";
+        public const string RoleEngineer = "engineer";
+        public const string TargetClassArmored = "armored";
+
         public const string TierIITickNone = "none";
         public const int ClaimMarchSpeedCmPerSecond = 25000;
         public const int MinAcceptScore = 1000;
