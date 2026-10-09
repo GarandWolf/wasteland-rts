@@ -9,7 +9,7 @@ namespace Wasteland.Sim.Ai
         public const int StateSchemaVersion = 11;
         public const int PendingCommandCapacity = 128;
         public const int PendingIntentCapacity = 32;
-        public const int DepotNodeBlacklistCapacity = 32;
+        public const int DepotNodeBlacklistCapacity = 128;
 
         /// <summary>
         /// Drop a pending ClaimTown when the town still has no capture progress
