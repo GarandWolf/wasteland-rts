@@ -23,7 +23,6 @@ namespace Wasteland.Sim.Tests
             bool claimed = false;
             bool depotBuilt = false;
             bool depotLost = false;
-            int forcedLossTick = -1;
             List<ulong> firstHashes = new List<ulong>();
             List<ulong> secondHashes = new List<ulong>();
             List<int> firstEventKinds = new List<int>();
@@ -31,7 +30,7 @@ namespace Wasteland.Sim.Tests
 
             for (int i = 0; i < AiConstants.M1DeterminismTicks; i++)
             {
-                if (forcedLossTick == i)
+                if (!depotLost && HasReservedBuilder(first))
                 {
                     ForceDepotLoss(first);
                     ForceDepotLoss(second);
@@ -56,10 +55,6 @@ namespace Wasteland.Sim.Tests
                     && (HasKind(first.World, SimEventKind.DepotStarted) || HasReservedDepot(first)))
                 {
                     depotBuilt = true;
-                    if (forcedLossTick < 0)
-                    {
-                        forcedLossTick = i + 2;
-                    }
                 }
 
                 if (!depotLost)
@@ -144,6 +139,22 @@ namespace Wasteland.Sim.Tests
             host.Shutdown();
         }
 
+        private static bool HasReservedBuilder(AiMatchHost host)
+        {
+            List<DepotView> depots = new List<DepotView>();
+            host.World.CopyDepots(depots);
+            for (int i = 0; i < depots.Count; i++)
+            {
+                DepotView depot = depots[i];
+                if (depot.State == DepotSiteState.Reserved && depot.BuilderBattalionId != 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private static void ForceDepotLoss(AiMatchHost host)
         {
             List<DepotView> depots = new List<DepotView>();
@@ -151,7 +162,7 @@ namespace Wasteland.Sim.Tests
             for (int i = 0; i < depots.Count; i++)
             {
                 DepotView depot = depots[i];
-                if (depot.BuilderBattalionId == 0)
+                if (depot.State != DepotSiteState.Reserved || depot.BuilderBattalionId == 0)
                 {
                     continue;
                 }
