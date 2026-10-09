@@ -648,43 +648,42 @@ namespace Wasteland.Sim.Ai
         private void ConsumePendingIntents()
         {
             int tick = _world.Tick;
-            if (tick < 1)
+            if (tick >= 1)
             {
-                return;
-            }
-
-            int fromTick = tick - 1;
-            int historyStart = tick - SimWorld.EventHistoryTicks;
-            if (fromTick < historyStart)
-            {
-                fromTick = historyStart < 0 ? 0 : historyStart;
-            }
-
-            _world.CopyEventsInRange(fromTick, tick - 1, _eventScratch);
-            for (int i = 0; i < _eventScratch.Count; i++)
-            {
-                SimEvent ev = _eventScratch[i];
-                if (ev.Kind == SimEventKind.CommandRejected)
+                int fromTick = tick - 1;
+                int historyStart = tick - SimWorld.EventHistoryTicks;
+                if (fromTick < historyStart)
                 {
-                    int issuer = (int)(ev.Key >> 32);
-                    int sequence = (int)ev.Key;
-                    BlacklistDepotNodeFromIntent(issuer, sequence);
-                    RemoveIntentBySequence(issuer, sequence);
-                    continue;
+                    fromTick = historyStart < 0 ? 0 : historyStart;
                 }
 
-                if (ev.Kind == SimEventKind.OrderRefunded)
+                _world.CopyEventsInRange(fromTick, tick - 1, _eventScratch);
+                for (int i = 0; i < _eventScratch.Count; i++)
                 {
-                    if (ev.AuxId == (int)CommandKind.BuildDepot)
+                    SimEvent ev = _eventScratch[i];
+                    if (ev.Kind == SimEventKind.CommandRejected)
                     {
-                        BlacklistDepotNode(ev.SubjectId, ev.Param0);
+                        int issuer = (int)(ev.Key >> 32);
+                        int sequence = (int)ev.Key;
+                        BlacklistDepotNodeFromIntent(issuer, sequence);
+                        RemoveIntentBySequence(issuer, sequence);
+                        continue;
                     }
 
-                    RemoveIntentByRefund(ev.SubjectId, ev.AuxId, ev.Param0);
+                    if (ev.Kind == SimEventKind.OrderRefunded)
+                    {
+                        if (ev.AuxId == (int)CommandKind.BuildDepot)
+                        {
+                            BlacklistDepotNode(ev.SubjectId, ev.Param0);
+                        }
+
+                        RemoveIntentByRefund(ev.SubjectId, ev.AuxId, ev.Param0);
+                    }
                 }
+
+                ClearResolvedIntents();
             }
 
-            ClearResolvedIntents();
             DropStaleClaimTowns(tick);
         }
 
