@@ -1138,8 +1138,51 @@ namespace Wasteland.Sim.Ai
             }
         }
 
+        private void EnqueueSubmittedMove(int factionId, int battalionId, int xCm, int yCm)
+        {
+            AiPendingIntent intent = default;
+            intent.Sequence = _commands.LastSequence;
+            intent.Kind = AiIssuedKind.Move;
+            intent.BattalionId = battalionId;
+            intent.TargetId = _world.GetNearestNodeId(xCm, yCm);
+            intent.IssuedTick = _world.Tick;
+            _owned.EnqueueIntent(factionId, intent);
+        }
+
+        private bool MoveIntentIsPastExecute(AiPendingIntent intent, int tick)
+        {
+            int executeTick = intent.IssuedTick + _commandDelayTicks;
+            return executeTick <= tick - 1;
+        }
+
+        private bool BattalionArrivedAtMove(int factionId, AiPendingIntent intent)
+        {
+            if (intent.TargetId == 0
+                || !_world.TryGetOwnBattalion(factionId, intent.BattalionId, out SimBattalion battalion))
+            {
+                return false;
+            }
+
+            if (!battalion.HasTarget)
+            {
+                return _world.GetNearestNodeId(battalion.PositionXCm, battalion.PositionYCm)
+                    == intent.TargetId;
+            }
+
+            if (!_map.Roads.TryGetNodeIndex(intent.TargetId, out int nodeIndex))
+            {
+                return false;
+            }
+
+            return AiAttackDefend.IsMarchingTo(
+                battalion,
+                _map.Roads.GetNodeXCm(nodeIndex),
+                _map.Roads.GetNodeYCm(nodeIndex));
+        }
+
         private void ClearResolvedIntents()
         {
+            int tick = _world.Tick;
             _world.CopyDepots(_depotScratch);
             for (int f = 0; f < _owned.FactionCount; f++)
             {
@@ -1147,6 +1190,26 @@ namespace Wasteland.Sim.Ai
                 for (int i = faction.IntentCount - 1; i >= 0; i--)
                 {
                     AiPendingIntent intent = faction.Intents[i];
+                    if (intent.Kind == AiIssuedKind.Move)
+                    {
+                        if (MoveIntentIsPastExecute(intent, tick)
+                            || BattalionArrivedAtMove(faction.FactionId, intent))
+                        {
+                            if (intent.TargetId != 0)
+                            {
+                                _owned.NoteOrderSuccess(
+                                    faction.FactionId,
+                                    intent.BattalionId,
+                                    CommandKind.Move,
+                                    intent.TargetId);
+                            }
+
+                            faction.RemoveIntentAt(i);
+                        }
+
+                        continue;
+                    }
+
                     if (intent.Kind == AiIssuedKind.ClaimTown)
                     {
                         if (_world.TryGetTown(intent.TargetId, out TownView town)
@@ -1456,15 +1519,11 @@ namespace Wasteland.Sim.Ai
                         _commands.Submit(command);
                         if (pending.Kind == CommandKind.Move)
                         {
-                            int nodeId = _world.GetNearestNodeId(pending.Arg0, pending.Arg1);
-                            if (nodeId != 0)
-                            {
-                                _owned.NoteOrderSuccess(
-                                    faction.FactionId,
-                                    pending.BattalionId,
-                                    CommandKind.Move,
-                                    nodeId);
-                            }
+                            EnqueueSubmittedMove(
+                                faction.FactionId,
+                                pending.BattalionId,
+                                pending.Arg0,
+                                pending.Arg1);
                         }
                     }
                     else

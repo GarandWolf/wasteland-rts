@@ -1696,7 +1696,9 @@ namespace Wasteland.Sim.Ai
         private static AiIssuedKind ReadIssuedKind(BinaryReader reader)
         {
             byte value = reader.ReadByte();
-            if (value != (byte)AiIssuedKind.ClaimTown && value != (byte)AiIssuedKind.BuildDepot)
+            if (value != (byte)AiIssuedKind.Move
+                && value != (byte)AiIssuedKind.ClaimTown
+                && value != (byte)AiIssuedKind.BuildDepot)
             {
                 throw new InvalidDataException("AI pending intent kind byte is out of range.");
             }

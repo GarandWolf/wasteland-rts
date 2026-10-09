@@ -42,15 +42,6 @@ namespace Wasteland.Sim.Ai
         {
             SimCommand stamped = _inner.Submit(SimCommand.Move(_inner.Tick, factionId, battalionId, xCm, yCm));
             _lastSequence = stamped.Sequence;
-            if (_inner is ISimWorldView view)
-            {
-                int nodeId = view.GetNearestNodeId(xCm, yCm);
-                if (nodeId != 0)
-                {
-                    _owned.NoteOrderSuccess(factionId, battalionId, CommandKind.Move, nodeId);
-                }
-            }
-
             return Record(factionId, AiIssuedKind.Move, battalionId, xCm, yCm, 0, string.Empty);
         }
 
@@ -186,18 +177,37 @@ namespace Wasteland.Sim.Ai
             }
 
             _issued.Add(new AiIssuedCommand(id, _inner.Tick, factionId, kind, arg0, arg1, arg2, arg3, unitId));
-            if (kind == AiIssuedKind.ClaimTown || kind == AiIssuedKind.BuildDepot)
+            if (kind == AiIssuedKind.ClaimTown || kind == AiIssuedKind.BuildDepot || kind == AiIssuedKind.Move)
             {
                 AiPendingIntent intent = default;
                 intent.Sequence = _lastSequence;
                 intent.Kind = kind;
                 intent.BattalionId = arg0;
-                intent.TargetId = arg1;
+                intent.TargetId = TargetIdOf(kind, arg1, arg2);
                 intent.IssuedTick = _inner.Tick;
                 _owned.EnqueueIntent(factionId, intent);
             }
 
             return id;
+        }
+
+        private int TargetIdOf(AiIssuedKind kind, int arg1, int arg2)
+        {
+            if (kind != AiIssuedKind.Move)
+            {
+                return arg1;
+            }
+
+            if (_inner is ISimWorldView view)
+            {
+                int nodeId = view.GetNearestNodeId(arg1, arg2);
+                if (nodeId != 0)
+                {
+                    return nodeId;
+                }
+            }
+
+            return arg1;
         }
     }
 }
