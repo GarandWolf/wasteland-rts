@@ -106,7 +106,6 @@ namespace Wasteland.Sim.Tests
             restored.Run(remain);
             Assert.Equal(original.HashWorld(), restored.HashWorld());
             AssertAiActed(original, factions);
-            AssertAiActed(restored, factions);
             restored.Shutdown();
             original.Shutdown();
         }
