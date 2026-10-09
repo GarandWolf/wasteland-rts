@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Commands;
@@ -185,7 +186,12 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void GorgeAi_RealBuildings_DoesNotSpamDepotRejectsOrMoves()
+        public void GorgeAi_RealBuildings_DoesNotSpamRejectsOrMoves()
+        {
+            AssertOrderSpamGuard(AiConstants.DepotRejectSpamTicks);
+        }
+
+        private static void AssertOrderSpamGuard(int ticks)
         {
             MatchConfig match = MatchConfig.Default(AiVsAiGorgeTests.MatchSeed);
             byte[] map = AiSeamsTests.LoadGorgeV1Bytes();
@@ -196,38 +202,210 @@ namespace Wasteland.Sim.Tests
                 factions,
                 AiConstants.DifficultyNormal,
                 BalanceLoad.Tables());
-            host.Run(AiConstants.DepotRejectSpamTicks);
+            int remnantId = AiConstants.DefaultAiFactionA;
+            int compactId = AiConstants.DefaultAiFactionB;
+            int depotNode = 524;
+            int depotX = 0;
+            int depotY = 0;
+            bool haveDepotNode = host.Ai.Map.Roads.TryGetNodeIndex(depotNode, out int depotIndex);
+            if (haveDepotNode)
+            {
+                depotX = host.Ai.Map.Roads.GetNodeXCm(depotIndex);
+                depotY = host.Ai.Map.Roads.GetNodeYCm(depotIndex);
+            }
 
-            List<RejectCount> rejects = new List<RejectCount>();
+            int dallesIndex = host.Ai.Map.IndexOfTown(host.Ai.Map.TheDallesTownId);
+            AiTownRecord dalles = host.Ai.Map.TownAt(dallesIndex);
+            int hoodX = 0;
+            int hoodY = 0;
+            if (host.Ai.Map.TryGetTown(host.Ai.Map.HoodRiverTownId, out AiTownRecord hood))
+            {
+                hoodX = hood.XCm;
+                hoodY = hood.YCm;
+            }
+
+            long dallesRadiusSq = 0;
+            if (host.World.TryGetTown(dalles.Id, out TownView dallesView))
+            {
+                dallesRadiusSq = (long)dallesView.ZoneRadiusCm * dallesView.ZoneRadiusCm;
+            }
+
+            long remnantSpawnDistSq = MinFactionDistSq(host, remnantId, dalles.XCm, dalles.YCm);
+            long compactSpawnDistSq = MinFactionDistSq(host, compactId, dalles.XCm, dalles.YCm);
+            bool remnantLeft = false;
+            bool compactLeft = false;
+            bool remnantArrived = false;
+            bool compactArrived = false;
+            int remnantLeave = -1;
+            int compactLeave = -1;
+            int remnantArrive = -1;
+            int compactArrive = -1;
+            int remnantEngineerId = 0;
+            int remnantMoveTick = -1;
+            int remnantSpeed = -1;
+            int remnantPathCm = -1;
+            int remnantWithinTick = -1;
+            int remnantPathCount = -1;
+            List<int> compactRaises = new List<int>();
+            int eventCursor = 0;
+            int logCursor = 0;
+
+            for (int step = 0; step < ticks; step++)
+            {
+                host.Step();
+                int tick = host.Tick - 1;
+                if (tick < 0)
+                {
+                    tick = 0;
+                }
+
+                IReadOnlyList<SimCommand> liveLog = host.CommandLog;
+                for (int i = logCursor; i < liveLog.Count; i++)
+                {
+                    SimCommand command = liveLog[i];
+                    if (command.Kind == CommandKind.BuildDepot
+                        && command.IssuerId == remnantId
+                        && command.Arg0 == depotNode
+                        && remnantEngineerId == 0)
+                    {
+                        remnantEngineerId = command.BattalionId;
+                    }
+
+                    if (command.Kind == CommandKind.Move
+                        && remnantEngineerId != 0
+                        && command.BattalionId == remnantEngineerId
+                        && remnantMoveTick < 0)
+                    {
+                        remnantMoveTick = command.IssuedTick;
+                    }
+                }
+
+                logCursor = liveLog.Count;
+
+                if (remnantEngineerId != 0
+                    && TryBattalion(host, remnantEngineerId, out SimBattalion engineer))
+                {
+                    if (remnantSpeed < 0)
+                    {
+                        remnantSpeed = engineer.SpeedCmPerSecond;
+                    }
+
+                    if (remnantPathCm < 0 && engineer.PathCount > 1)
+                    {
+                        remnantPathCount = engineer.PathCount;
+                        remnantPathCm = PathLengthCm(engineer);
+                    }
+
+                    if (haveDepotNode && remnantWithinTick < 0)
+                    {
+                        long dx = (long)engineer.PositionXCm - depotX;
+                        long dy = (long)engineer.PositionYCm - depotY;
+                        if ((dx * dx) + (dy * dy)
+                            <= (long)AiConstants.NodeControlRadiusCm * AiConstants.NodeControlRadiusCm)
+                        {
+                            remnantWithinTick = tick;
+                        }
+                    }
+                }
+
+                if (!compactLeft && MinFactionDistSq(host, compactId, dalles.XCm, dalles.YCm) < compactSpawnDistSq)
+                {
+                    compactLeft = true;
+                    compactLeave = tick;
+                }
+
+                if (!remnantLeft && MinFactionDistSq(host, remnantId, dalles.XCm, dalles.YCm) < remnantSpawnDistSq)
+                {
+                    remnantLeft = true;
+                    remnantLeave = tick;
+                }
+
+                if (!compactArrived && FactionInRadius(host, compactId, dalles.XCm, dalles.YCm, dallesRadiusSq))
+                {
+                    compactArrived = true;
+                    compactArrive = tick;
+                }
+
+                if (!remnantArrived && FactionInRadius(host, remnantId, dalles.XCm, dalles.YCm, dallesRadiusSq))
+                {
+                    remnantArrived = true;
+                    remnantArrive = tick;
+                }
+
+                IReadOnlyList<SimEvent> liveEvents = host.World.Events;
+                for (int i = eventCursor; i < liveEvents.Count; i++)
+                {
+                    SimEvent ev = liveEvents[i];
+                    if (ev.Kind != SimEventKind.BattalionSpawned)
+                    {
+                        continue;
+                    }
+
+                    if (host.World.TryGetBattalionView(ev.SubjectId, out BattalionView spawned)
+                        && spawned.OwnerId == compactId
+                        && ev.Tick > 0)
+                    {
+                        compactRaises.Add(ev.Tick);
+                    }
+                }
+
+                eventCursor = liveEvents.Count;
+            }
+
+            int delay = host.World.CommandDelayTicks;
             IReadOnlyList<SimEvent> events = host.World.Events;
             IReadOnlyList<SimCommand> log = host.CommandLog;
+            if (remnantEngineerId != 0 && remnantMoveTick < 0)
+            {
+                for (int i = 0; i < log.Count; i++)
+                {
+                    if (log[i].Kind == CommandKind.Move && log[i].BattalionId == remnantEngineerId)
+                    {
+                        remnantMoveTick = log[i].IssuedTick;
+                        break;
+                    }
+                }
+            }
+            List<OrderRejectCount> rejects = new List<OrderRejectCount>();
             for (int i = 0; i < events.Count; i++)
             {
                 SimEvent ev = events[i];
-                if (ev.Kind != SimEventKind.CommandRejected || !IsDepotNodeReject(ev.RejectReason))
+                if (ev.Kind != SimEventKind.CommandRejected)
                 {
                     continue;
                 }
 
                 int issuer = (int)(ev.Key >> 32);
-                int nodeId = ev.Param0;
-                if (nodeId == 0)
+                int battalionId = ev.SubjectId;
+                int issuedTick = ev.Tick - delay;
+                if (issuedTick < 0)
                 {
-                    continue;
+                    issuedTick = 0;
                 }
 
-                int row = IndexOfReject(rejects, issuer, nodeId);
+                CommandKind kind;
+                int targetId;
+                if (!TryMatchRejectedCommand(log, issuer, battalionId, issuedTick, ev, out kind, out targetId))
+                {
+                    kind = KindFromRejectReason(ev.RejectReason);
+                    targetId = ev.Param0 != 0 ? ev.Param0 : ev.Param1;
+                }
+
+                int row = IndexOfOrderReject(rejects, issuer, battalionId, kind, targetId);
                 if (row < 0)
                 {
-                    RejectCount next = default;
-                    next.IssuerId = issuer;
-                    next.NodeId = nodeId;
+                    OrderRejectCount next = default;
+                    next.SeatId = issuer;
+                    next.BattalionId = battalionId;
+                    next.Kind = kind;
+                    next.TargetId = targetId;
                     next.Count = 1;
+                    next.Reason = ev.RejectReason;
                     rejects.Add(next);
                 }
                 else
                 {
-                    RejectCount have = rejects[row];
+                    OrderRejectCount have = rejects[row];
                     have.Count++;
                     rejects[row] = have;
                 }
@@ -236,34 +414,54 @@ namespace Wasteland.Sim.Tests
             for (int i = 0; i < rejects.Count; i++)
             {
                 Assert.True(
-                    rejects[i].Count <= AiConstants.MaxDepotRejectsPerNode,
-                    "seat " + rejects[i].IssuerId
-                    + " node " + rejects[i].NodeId
-                    + " rejected " + rejects[i].Count + " times.");
+                    rejects[i].Count <= AiConstants.MaxRejectsPerOrderKey,
+                    "seat " + rejects[i].SeatId
+                    + " unit " + rejects[i].BattalionId
+                    + " " + rejects[i].Kind
+                    + " target " + rejects[i].TargetId
+                    + " rejected " + rejects[i].Count
+                    + " times (" + rejects[i].Reason + ").");
             }
 
             List<MoveCount> moves = new List<MoveCount>();
+            List<SeatCount> depots = new List<SeatCount>();
             for (int i = 0; i < log.Count; i++)
             {
-                if (log[i].Kind != CommandKind.Move)
+                SimCommand command = log[i];
+                if (command.Kind == CommandKind.Move)
                 {
-                    continue;
+                    int row = IndexOfMove(moves, command.BattalionId);
+                    if (row < 0)
+                    {
+                        MoveCount next = default;
+                        next.BattalionId = command.BattalionId;
+                        next.Count = 1;
+                        moves.Add(next);
+                    }
+                    else
+                    {
+                        MoveCount have = moves[row];
+                        have.Count++;
+                        moves[row] = have;
+                    }
                 }
 
-                int battalionId = log[i].BattalionId;
-                int row = IndexOfMove(moves, battalionId);
-                if (row < 0)
+                if (command.Kind == CommandKind.BuildDepot)
                 {
-                    MoveCount next = default;
-                    next.BattalionId = battalionId;
-                    next.Count = 1;
-                    moves.Add(next);
-                }
-                else
-                {
-                    MoveCount have = moves[row];
-                    have.Count++;
-                    moves[row] = have;
+                    int row = IndexOfSeat(depots, command.IssuerId);
+                    if (row < 0)
+                    {
+                        SeatCount next = default;
+                        next.SeatId = command.IssuerId;
+                        next.Count = 1;
+                        depots.Add(next);
+                    }
+                    else
+                    {
+                        SeatCount have = depots[row];
+                        have.Count++;
+                        depots[row] = have;
+                    }
                 }
             }
 
@@ -275,31 +473,6 @@ namespace Wasteland.Sim.Tests
                     + " received " + moves[i].Count + " Move commands.");
             }
 
-            List<SeatCount> depots = new List<SeatCount>();
-            for (int i = 0; i < log.Count; i++)
-            {
-                if (log[i].Kind != CommandKind.BuildDepot)
-                {
-                    continue;
-                }
-
-                int issuer = log[i].IssuerId;
-                int row = IndexOfSeat(depots, issuer);
-                if (row < 0)
-                {
-                    SeatCount next = default;
-                    next.SeatId = issuer;
-                    next.Count = 1;
-                    depots.Add(next);
-                }
-                else
-                {
-                    SeatCount have = depots[row];
-                    have.Count++;
-                    depots[row] = have;
-                }
-            }
-
             for (int i = 0; i < depots.Count; i++)
             {
                 Assert.True(
@@ -308,23 +481,344 @@ namespace Wasteland.Sim.Tests
                     + " issued " + depots[i].Count + " BuildDepot commands.");
             }
 
+            int claimTowns = 0;
+            for (int i = 0; i < log.Count; i++)
+            {
+                if (log[i].Kind == CommandKind.ClaimTown)
+                {
+                    claimTowns++;
+                }
+            }
+
+            int maxMoves = 0;
+            int maxMoveBn = 0;
+            for (int i = 0; i < moves.Count; i++)
+            {
+                if (moves[i].Count > maxMoves)
+                {
+                    maxMoves = moves[i].Count;
+                    maxMoveBn = moves[i].BattalionId;
+                }
+            }
+
+            Console.WriteLine("B2 ticks=" + ticks
+                + " schema=" + AiConstants.StateSchemaVersion
+                + " remnantLeave=" + remnantLeave
+                + " compactLeave=" + compactLeave
+                + " remnantArrive=" + remnantArrive
+                + " compactArrive=" + compactArrive
+                + " claimTowns=" + claimTowns
+                + " maxMoves bn=" + maxMoveBn + " n=" + maxMoves
+                + " remnantEngineer=" + remnantEngineerId
+                + " moveTick=" + remnantMoveTick
+                + " speed=" + remnantSpeed
+                + " pathCm=" + remnantPathCm
+                + " pathCount=" + remnantPathCount
+                + " within524=" + remnantWithinTick);
+            for (int i = 0; i < rejects.Count; i++)
+            {
+                Console.WriteLine(
+                    "reject seat=" + rejects[i].SeatId
+                    + " unit=" + rejects[i].BattalionId
+                    + " kind=" + rejects[i].Kind
+                    + " target=" + rejects[i].TargetId
+                    + " n=" + rejects[i].Count
+                    + " reason=" + rejects[i].Reason);
+            }
+
+            for (int i = 0; i < depots.Count; i++)
+            {
+                Console.WriteLine("buildDepot seat=" + depots[i].SeatId + " n=" + depots[i].Count);
+            }
+
+            Console.Write("compactRaises=");
+            for (int i = 0; i < compactRaises.Count; i++)
+            {
+                if (i > 0)
+                {
+                    Console.Write(",");
+                }
+
+                Console.Write(compactRaises[i]);
+            }
+
+            Console.WriteLine();
+            SnapshotCompactStops(host, compactId, dalles.XCm, dalles.YCm, hoodX, hoodY);
             host.Shutdown();
         }
 
-        private static bool IsDepotNodeReject(CommandRejectReason reason)
+        private static void SnapshotCompactStops(
+            AiMatchHost host,
+            int compactId,
+            int dallesX,
+            int dallesY,
+            int hoodX,
+            int hoodY)
         {
-            return reason == CommandRejectReason.UnknownNode
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            int[] watch = { 6, 8, 7, 9, 13, 14 };
+            for (int w = 0; w < watch.Length; w++)
+            {
+                int id = watch[w];
+                for (int i = 0; i < battalions.Count; i++)
+                {
+                    SimBattalion battalion = battalions[i];
+                    if (battalion.Id != id || battalion.OwnerId != compactId)
+                    {
+                        continue;
+                    }
+
+                    string unitId = string.Empty;
+                    if (host.World.TryGetBattalionView(id, out BattalionView view))
+                    {
+                        unitId = view.UnitId;
+                    }
+
+                    Console.WriteLine(
+                        "compactBn=" + id
+                        + " unit=" + unitId
+                        + " hasTarget=" + battalion.HasTarget
+                        + " pathCount=" + battalion.PathCount
+                        + " pathIndex=" + battalion.PathIndex
+                        + " distDalles=" + DistCm(battalion.PositionXCm, battalion.PositionYCm, dallesX, dallesY)
+                        + " distHood=" + DistCm(battalion.PositionXCm, battalion.PositionYCm, hoodX, hoodY)
+                        + " x=" + battalion.PositionXCm
+                        + " y=" + battalion.PositionYCm);
+                }
+            }
+
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.OwnerId != compactId)
+                {
+                    continue;
+                }
+
+                string unitId = string.Empty;
+                if (host.World.TryGetBattalionView(battalion.Id, out BattalionView view))
+                {
+                    unitId = view.UnitId;
+                }
+
+                Console.WriteLine(
+                    "compactAll bn=" + battalion.Id
+                    + " unit=" + unitId
+                    + " hasTarget=" + battalion.HasTarget
+                    + " pathCount=" + battalion.PathCount
+                    + " distDalles=" + DistCm(battalion.PositionXCm, battalion.PositionYCm, dallesX, dallesY)
+                    + " distHood=" + DistCm(battalion.PositionXCm, battalion.PositionYCm, hoodX, hoodY));
+            }
+        }
+
+        private static bool TryBattalion(AiMatchHost host, int battalionId, out SimBattalion battalion)
+        {
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                if (battalions[i].Id == battalionId)
+                {
+                    battalion = battalions[i];
+                    return true;
+                }
+            }
+
+            battalion = default;
+            return false;
+        }
+
+        private static int PathLengthCm(SimBattalion battalion)
+        {
+            if (battalion.PathXCm == null || battalion.PathYCm == null || battalion.PathCount < 2)
+            {
+                return 0;
+            }
+
+            int sum = 0;
+            int n = battalion.PathCount;
+            if (n > battalion.PathXCm.Length)
+            {
+                n = battalion.PathXCm.Length;
+            }
+
+            if (n > battalion.PathYCm.Length)
+            {
+                n = battalion.PathYCm.Length;
+            }
+
+            for (int i = 1; i < n; i++)
+            {
+                sum += DistCm(
+                    battalion.PathXCm[i - 1],
+                    battalion.PathYCm[i - 1],
+                    battalion.PathXCm[i],
+                    battalion.PathYCm[i]);
+            }
+
+            return sum;
+        }
+
+        private static int DistCm(int ax, int ay, int bx, int by)
+        {
+            long dx = (long)ax - bx;
+            long dy = (long)ay - by;
+            return (int)global::System.Math.Round(global::System.Math.Sqrt((dx * dx) + (dy * dy)));
+        }
+
+        private static long MinFactionDistSq(AiMatchHost host, int factionId, int xCm, int yCm)
+        {
+            long best = long.MaxValue;
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.OwnerId != factionId)
+                {
+                    continue;
+                }
+
+                long dx = (long)battalion.PositionXCm - xCm;
+                long dy = (long)battalion.PositionYCm - yCm;
+                long distSq = (dx * dx) + (dy * dy);
+                if (distSq < best)
+                {
+                    best = distSq;
+                }
+            }
+
+            return best;
+        }
+
+        private static bool FactionInRadius(
+            AiMatchHost host,
+            int factionId,
+            int xCm,
+            int yCm,
+            long radiusSq)
+        {
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.OwnerId != factionId)
+                {
+                    continue;
+                }
+
+                long dx = (long)battalion.PositionXCm - xCm;
+                long dy = (long)battalion.PositionYCm - yCm;
+                if ((dx * dx) + (dy * dy) <= radiusSq)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TryMatchRejectedCommand(
+            IReadOnlyList<SimCommand> log,
+            int issuer,
+            int battalionId,
+            int issuedTick,
+            SimEvent ev,
+            out CommandKind kind,
+            out int targetId)
+        {
+            kind = CommandKind.Move;
+            targetId = 0;
+            CommandKind expected = KindFromRejectReason(ev.RejectReason);
+            int best = -1;
+            int bestDelta = int.MaxValue;
+            for (int i = 0; i < log.Count; i++)
+            {
+                SimCommand command = log[i];
+                if (command.IssuerId != issuer || command.BattalionId != battalionId)
+                {
+                    continue;
+                }
+
+                if (command.Kind != expected)
+                {
+                    continue;
+                }
+
+                int delta = command.IssuedTick - issuedTick;
+                if (delta < 0)
+                {
+                    delta = -delta;
+                }
+
+                if (delta > 2)
+                {
+                    continue;
+                }
+
+                if (delta < bestDelta || (delta == bestDelta && (best < 0 || i < best)))
+                {
+                    bestDelta = delta;
+                    best = i;
+                }
+            }
+
+            if (best < 0)
+            {
+                return false;
+            }
+
+            kind = log[best].Kind;
+            targetId = log[best].Arg0;
+            return true;
+        }
+
+        private static CommandKind KindFromRejectReason(CommandRejectReason reason)
+        {
+            if (reason == CommandRejectReason.NotCapturer
+                || reason == CommandRejectReason.AlreadyOwned
+                || reason == CommandRejectReason.UnknownTown
+                || reason == CommandRejectReason.NotSeatTown)
+            {
+                return CommandKind.ClaimTown;
+            }
+
+            if (reason == CommandRejectReason.NotBuilder
+                || reason == CommandRejectReason.BuildingNotBuildable
+                || reason == CommandRejectReason.UnknownNode
                 || reason == CommandRejectReason.TerritoryNotOwned
                 || reason == CommandRejectReason.NotConnectedToSupply
                 || reason == CommandRejectReason.DepotTooClose
-                || reason == CommandRejectReason.NodeHasDepot;
+                || reason == CommandRejectReason.NodeHasDepot
+                || reason == CommandRejectReason.DepotCapReached)
+            {
+                return CommandKind.BuildDepot;
+            }
+
+            if (reason == CommandRejectReason.UnitNotRaisable
+                || reason == CommandRejectReason.TierLocked
+                || reason == CommandRejectReason.PopCapReached
+                || reason == CommandRejectReason.InsufficientManpower
+                || reason == CommandRejectReason.InsufficientMaterials
+                || reason == CommandRejectReason.InsufficientFuel)
+            {
+                return CommandKind.RaiseBattalion;
+            }
+
+            return CommandKind.Move;
         }
 
-        private static int IndexOfReject(List<RejectCount> rows, int issuerId, int nodeId)
+        private static int IndexOfOrderReject(
+            List<OrderRejectCount> rows,
+            int seatId,
+            int battalionId,
+            CommandKind kind,
+            int targetId)
         {
             for (int i = 0; i < rows.Count; i++)
             {
-                if (rows[i].IssuerId == issuerId && rows[i].NodeId == nodeId)
+                if (rows[i].SeatId == seatId
+                    && rows[i].BattalionId == battalionId
+                    && rows[i].Kind == kind
+                    && rows[i].TargetId == targetId)
                 {
                     return i;
                 }
@@ -359,11 +853,14 @@ namespace Wasteland.Sim.Tests
             return -1;
         }
 
-        private struct RejectCount
+        private struct OrderRejectCount
         {
-            public int IssuerId;
-            public int NodeId;
+            public int SeatId;
+            public int BattalionId;
+            public CommandKind Kind;
+            public int TargetId;
             public int Count;
+            public CommandRejectReason Reason;
         }
 
         private struct MoveCount

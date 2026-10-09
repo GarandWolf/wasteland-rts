@@ -464,6 +464,7 @@ namespace Wasteland.Sim.Tests
                 }
 
                 SkipDepotBlacklist(reader);
+                SkipOrderBackoff(reader);
                 reader.ReadInt32();
                 return (int)reader.BaseStream.Position;
             }
@@ -508,6 +509,19 @@ namespace Wasteland.Sim.Tests
                 reader.ReadInt32();
                 reader.ReadInt32();
                 reader.ReadByte();
+                reader.ReadInt32();
+                reader.ReadInt32();
+            }
+        }
+
+        private static void SkipOrderBackoff(BinaryReader reader)
+        {
+            for (int i = 0; i < AiConstants.OrderBackoffCapacity; i++)
+            {
+                reader.ReadInt32();
+                reader.ReadInt32();
+                reader.ReadByte();
+                reader.ReadInt32();
                 reader.ReadInt32();
                 reader.ReadInt32();
             }

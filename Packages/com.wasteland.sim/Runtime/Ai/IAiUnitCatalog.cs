@@ -21,5 +21,7 @@ namespace Wasteland.Sim.Ai
         bool TryGetPopCost(string unitId, out int pop);
 
         bool TryGetMovementClass(string unitId, out MovementClass moveClass);
+
+        bool TryGetCanCapture(string unitId, out bool canCapture);
     }
 }

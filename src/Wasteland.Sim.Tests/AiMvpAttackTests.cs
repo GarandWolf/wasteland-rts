@@ -235,6 +235,25 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void Attack_DoesNotClaimTownWithEngineer()
+        {
+            Harness harness = Harness.Line();
+            harness.Towns[10] = Own(1);
+            harness.Towns[30] = Enemy(2, 1);
+            harness.SetBattalions(Engineer(7, 1));
+            harness.Tick();
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                Assert.NotEqual(AiIssuedKind.ClaimTown, harness.Sink.Log[i].Kind);
+                if (harness.Sink.Log[i].Kind == AiIssuedKind.Move
+                    || harness.Sink.Log[i].Kind == AiIssuedKind.ClaimTown)
+                {
+                    Assert.NotEqual(7, harness.Sink.Log[i].Arg0);
+                }
+            }
+        }
+
+        [Fact]
         public void Attack_IssuesMoveAndClaimOnUnownedPrize()
         {
             Harness harness = Harness.Line();

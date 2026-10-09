@@ -61,6 +61,18 @@ namespace Wasteland.Sim.Ai
             moveClass = _inner.UnitMoveClassAt(index);
             return true;
         }
+
+        public bool TryGetCanCapture(string unitId, out bool canCapture)
+        {
+            if (!_inner.TryGetUnitIndex(unitId, out int index))
+            {
+                canCapture = false;
+                return false;
+            }
+
+            canCapture = _inner.UnitCanCaptureAt(index);
+            return true;
+        }
     }
 
     /// <summary>

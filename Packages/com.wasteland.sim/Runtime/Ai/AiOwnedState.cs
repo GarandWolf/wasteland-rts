@@ -84,6 +84,20 @@ namespace Wasteland.Sim.Ai
     }
 
     /// <summary>
+    /// One backed-off order key (seat, unit, kind, target). Saved and hashed
+    /// as a fixed-size array sorted by those four fields.
+    /// </summary>
+    public struct AiOrderBackoffEntry
+    {
+        public int SeatId;
+        public int BattalionId;
+        public byte Kind;
+        public int TargetId;
+        public int UntilTick;
+        public int Streak;
+    }
+
+    /// <summary>
     /// Per-faction AI memory. Other sim systems must not read this. Stored in
     /// faction-id order, hashed, and save/loadable.
     /// </summary>
@@ -398,9 +412,11 @@ namespace Wasteland.Sim.Ai
         private readonly AiFactionState[] _factions;
         private readonly int[] _townOwnerIds;
         private readonly AiDepotBlacklistEntry[] _blacklist;
+        private readonly AiOrderBackoffEntry[] _backoff;
 
         public int DroppedFromLog;
         public int BlacklistCount;
+        public int BackoffCount;
 
         public AiOwnedState(AiFactionState[] factions, int townCount)
         {
@@ -426,11 +442,17 @@ namespace Wasteland.Sim.Ai
 
             _townOwnerIds = new int[townCount];
             _blacklist = new AiDepotBlacklistEntry[AiConstants.DepotNodeBlacklistCapacity];
+            _backoff = new AiOrderBackoffEntry[AiConstants.OrderBackoffCapacity];
         }
 
         public AiDepotBlacklistEntry[] DepotBlacklist
         {
             get { return _blacklist; }
+        }
+
+        public AiOrderBackoffEntry[] OrderBackoff
+        {
+            get { return _backoff; }
         }
 
         public int FactionCount
@@ -600,6 +622,190 @@ namespace Wasteland.Sim.Ai
             return a.SeatId.CompareTo(b.SeatId);
         }
 
+        public bool IsOrderBackedOff(int seatId, int battalionId, CommandKind kind, int targetId, int tick)
+        {
+            int index = IndexOfBackoff(seatId, battalionId, (byte)kind, targetId);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            return tick < _backoff[index].UntilTick;
+        }
+
+        public void NoteOrderReject(int seatId, int battalionId, CommandKind kind, int targetId, int tick)
+        {
+            if (seatId == 0 || battalionId == 0)
+            {
+                return;
+            }
+
+            byte kindByte = (byte)kind;
+            int index = IndexOfBackoff(seatId, battalionId, kindByte, targetId);
+            int streak = 1;
+            if (index >= 0)
+            {
+                streak = _backoff[index].Streak + 1;
+                if (streak < 1)
+                {
+                    streak = 1;
+                }
+            }
+
+            int delay = AiAttackDefend.RejectBackoffStartTicks;
+            for (int i = 1; i < streak; i++)
+            {
+                if (delay >= AiAttackDefend.RejectBackoffMaxTicks / 2)
+                {
+                    delay = AiAttackDefend.RejectBackoffMaxTicks;
+                    break;
+                }
+
+                delay *= 2;
+            }
+
+            AiOrderBackoffEntry entry = default;
+            entry.SeatId = seatId;
+            entry.BattalionId = battalionId;
+            entry.Kind = kindByte;
+            entry.TargetId = targetId;
+            entry.UntilTick = tick + delay;
+            entry.Streak = streak;
+            if (index >= 0)
+            {
+                _backoff[index] = entry;
+                SortBackoff();
+                return;
+            }
+
+            if (BackoffCount < _backoff.Length)
+            {
+                _backoff[BackoffCount] = entry;
+                BackoffCount++;
+                SortBackoff();
+                return;
+            }
+
+            int victim = 0;
+            for (int i = 1; i < BackoffCount; i++)
+            {
+                if (CompareBackoffAge(_backoff[i], _backoff[victim]) < 0)
+                {
+                    victim = i;
+                }
+            }
+
+            _backoff[victim] = entry;
+            SortBackoff();
+        }
+
+        public void ExpireOrderBackoff(int tick)
+        {
+            int write = 0;
+            for (int i = 0; i < BackoffCount; i++)
+            {
+                if (tick < _backoff[i].UntilTick)
+                {
+                    if (write != i)
+                    {
+                        _backoff[write] = _backoff[i];
+                    }
+
+                    write++;
+                }
+            }
+
+            for (int i = write; i < BackoffCount; i++)
+            {
+                _backoff[i] = default;
+            }
+
+            BackoffCount = write;
+        }
+
+        public bool HasBackoffForBattalion(int seatId, int battalionId, int tick)
+        {
+            for (int i = 0; i < BackoffCount; i++)
+            {
+                AiOrderBackoffEntry row = _backoff[i];
+                if (row.SeatId == seatId
+                    && row.BattalionId == battalionId
+                    && tick < row.UntilTick)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private int IndexOfBackoff(int seatId, int battalionId, byte kind, int targetId)
+        {
+            for (int i = 0; i < BackoffCount; i++)
+            {
+                AiOrderBackoffEntry row = _backoff[i];
+                if (row.SeatId == seatId
+                    && row.BattalionId == battalionId
+                    && row.Kind == kind
+                    && row.TargetId == targetId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private void SortBackoff()
+        {
+            for (int i = 1; i < BackoffCount; i++)
+            {
+                AiOrderBackoffEntry row = _backoff[i];
+                int j = i;
+                while (j > 0 && CompareBackoffKey(_backoff[j - 1], row) > 0)
+                {
+                    _backoff[j] = _backoff[j - 1];
+                    j--;
+                }
+
+                _backoff[j] = row;
+            }
+        }
+
+        public static int CompareBackoffKey(AiOrderBackoffEntry a, AiOrderBackoffEntry b)
+        {
+            int c = a.SeatId.CompareTo(b.SeatId);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            c = a.BattalionId.CompareTo(b.BattalionId);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            c = a.Kind.CompareTo(b.Kind);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            return a.TargetId.CompareTo(b.TargetId);
+        }
+
+        public static int CompareBackoffAge(AiOrderBackoffEntry a, AiOrderBackoffEntry b)
+        {
+            int c = a.UntilTick.CompareTo(b.UntilTick);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            return CompareBackoffKey(a, b);
+        }
+
         public void HashInto(XxHash64Builder hash)
         {
             hash.AddInt(DroppedFromLog);
@@ -704,6 +910,7 @@ namespace Wasteland.Sim.Ai
             }
 
             HashBlacklist(hash);
+            HashBackoff(hash);
             hash.AddInt(_townOwnerIds.Length);
             for (int i = 0; i < _townOwnerIds.Length; i++)
             {
@@ -818,6 +1025,7 @@ namespace Wasteland.Sim.Ai
             }
 
             WriteBlacklist(writer);
+            WriteBackoff(writer);
             writer.Write(_townOwnerIds.Length);
             for (int i = 0; i < _townOwnerIds.Length; i++)
             {
@@ -874,6 +1082,10 @@ namespace Wasteland.Sim.Ai
             int loadedBlacklistCount;
             ReadBlacklist(reader, out loadedBlacklist, out loadedBlacklistCount);
 
+            AiOrderBackoffEntry[] loadedBackoff;
+            int loadedBackoffCount;
+            ReadBackoff(reader, out loadedBackoff, out loadedBackoffCount);
+
             int towns = reader.ReadInt32();
             if (towns != _townOwnerIds.Length)
             {
@@ -904,6 +1116,12 @@ namespace Wasteland.Sim.Ai
             for (int b = 0; b < _blacklist.Length; b++)
             {
                 _blacklist[b] = loadedBlacklist[b];
+            }
+
+            BackoffCount = loadedBackoffCount;
+            for (int k = 0; k < _backoff.Length; k++)
+            {
+                _backoff[k] = loadedBackoff[k];
             }
 
             DroppedFromLog = droppedFromLog;
@@ -1260,6 +1478,92 @@ namespace Wasteland.Sim.Ai
                 writer.Write((byte)entry.Kind);
                 writer.Write(entry.TerritoryId);
                 writer.Write(entry.OwnerFactionId);
+            }
+        }
+
+        private void HashBackoff(XxHash64Builder hash)
+        {
+            for (int i = 0; i < _backoff.Length; i++)
+            {
+                AiOrderBackoffEntry entry = _backoff[i];
+                hash.AddInt(entry.SeatId);
+                hash.AddInt(entry.BattalionId);
+                hash.AddByte(entry.Kind);
+                hash.AddInt(entry.TargetId);
+                hash.AddInt(entry.UntilTick);
+                hash.AddInt(entry.Streak);
+            }
+        }
+
+        private void WriteBackoff(BinaryWriter writer)
+        {
+            for (int i = 0; i < _backoff.Length; i++)
+            {
+                AiOrderBackoffEntry entry = _backoff[i];
+                writer.Write(entry.SeatId);
+                writer.Write(entry.BattalionId);
+                writer.Write(entry.Kind);
+                writer.Write(entry.TargetId);
+                writer.Write(entry.UntilTick);
+                writer.Write(entry.Streak);
+            }
+        }
+
+        private void ReadBackoff(
+            BinaryReader reader,
+            out AiOrderBackoffEntry[] loaded,
+            out int count)
+        {
+            loaded = new AiOrderBackoffEntry[_backoff.Length];
+            count = 0;
+            for (int i = 0; i < loaded.Length; i++)
+            {
+                AiOrderBackoffEntry entry = default;
+                entry.SeatId = reader.ReadInt32();
+                entry.BattalionId = reader.ReadInt32();
+                entry.Kind = reader.ReadByte();
+                entry.TargetId = reader.ReadInt32();
+                entry.UntilTick = reader.ReadInt32();
+                entry.Streak = reader.ReadInt32();
+                loaded[i] = entry;
+                if (entry.SeatId == 0 && entry.BattalionId == 0 && entry.Kind == 0
+                    && entry.TargetId == 0 && entry.UntilTick == 0 && entry.Streak == 0)
+                {
+                    continue;
+                }
+
+                if (entry.SeatId == 0 || entry.BattalionId == 0)
+                {
+                    throw new InvalidDataException("AI order backoff seat or battalion is zero.");
+                }
+
+                if (entry.Kind < (byte)CommandKind.Move || entry.Kind > (byte)CommandKind.BuildDepot)
+                {
+                    throw new InvalidDataException("AI order backoff kind byte is out of range.");
+                }
+
+                if (entry.UntilTick < 0 || entry.Streak < 0)
+                {
+                    throw new InvalidDataException("AI order backoff tick or streak is negative.");
+                }
+
+                if (!IsKnownFactionId(entry.SeatId))
+                {
+                    throw new InvalidDataException("AI faction id is not in this match.");
+                }
+
+                if (count != i)
+                {
+                    throw new InvalidDataException("AI order backoff has a hole before unused slots.");
+                }
+
+                if (count > 0 && CompareBackoffKey(loaded[count - 1], entry) >= 0)
+                {
+                    throw new InvalidDataException(
+                        "AI order backoff is not sorted by seat, battalion, kind, then target.");
+                }
+
+                count++;
             }
         }
 

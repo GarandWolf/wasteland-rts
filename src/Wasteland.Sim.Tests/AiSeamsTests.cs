@@ -673,6 +673,21 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void AiSaveLoad_RejectsSchema10_WithVersionMismatch()
+        {
+            AiMatchHost host = StartHost();
+            int sentinel = host.Ai.Owned.FactionAt(0).Manpower;
+            host.Ai.Owned.FactionAt(0).Manpower = sentinel + 1;
+            byte[] schema10 = { 10, 0, 0, 0 };
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => host.Ai.Load(schema10));
+            Assert.Equal(
+                "AI state schema version 10 is unsupported; expected 11.",
+                ex.Message);
+            Assert.Equal(sentinel + 1, host.Ai.Owned.FactionAt(0).Manpower);
+            host.Shutdown();
+        }
+
+        [Fact]
         public void OverflowDrop_RemovesWholeSpawnOrderAndBuildDepot()
         {
             AiMatchHost host = StartHost();

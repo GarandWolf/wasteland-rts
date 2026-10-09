@@ -10,6 +10,7 @@ namespace Wasteland.Sim.Ai
         public const int PendingCommandCapacity = 128;
         public const int PendingIntentCapacity = 32;
         public const int DepotNodeBlacklistCapacity = 128;
+        public const int OrderBackoffCapacity = 128;
 
         /// <summary>
         /// Drop a pending ClaimTown when the town still has no capture progress
@@ -25,10 +26,13 @@ namespace Wasteland.Sim.Ai
         /// </summary>
         public const int BlacklistTransientExpiryTicks = 2400;
 
-        public const int DepotRejectSpamTicks = 8000;
+        public const int DepotRejectSpamTicks = 20000;
+        public const int DepotRejectSpamTicksLong = 20000;
         public const int MaxDepotRejectsPerNode = 3;
+        public const int MaxRejectsPerOrderKey = 3;
         public const int MaxBuildDepotsPerSeat = 5;
         public const int MaxMovesPerBattalion = 50;
+        public const int NodeControlRadiusCm = 80467;
         public const int CommandLogCapacity = 4096;
         public const int TickRateHz = SimConfig.TickRateHz;
         public const int FactionPlanOffsetTicks = 3;

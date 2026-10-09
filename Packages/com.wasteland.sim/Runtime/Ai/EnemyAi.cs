@@ -649,6 +649,7 @@ namespace Wasteland.Sim.Ai
         {
             int tick = _world.Tick;
             ExpireDepotBlacklist(tick);
+            _owned.ExpireOrderBackoff(tick);
             if (tick >= 1)
             {
                 int fromTick = tick - 1;
@@ -666,6 +667,7 @@ namespace Wasteland.Sim.Ai
                     {
                         int issuer = (int)(ev.Key >> 32);
                         int sequence = (int)ev.Key;
+                        NoteOrderRejectFromEvent(ev, issuer, sequence);
                         BlacklistDepotNodeFromIntent(issuer, sequence, ev.RejectReason, ev.Param1);
                         RemoveIntentBySequence(issuer, sequence);
                         continue;
@@ -688,7 +690,166 @@ namespace Wasteland.Sim.Ai
                 ClearResolvedIntents();
             }
 
+            BlacklistDeadBuilders();
             DropStaleClaimTowns(tick);
+        }
+
+        private void NoteOrderRejectFromEvent(SimEvent ev, int issuer, int sequence)
+        {
+            CommandKind kind;
+            int battalionId;
+            int targetId;
+            if (TryIntentOf(issuer, sequence, out AiPendingIntent intent))
+            {
+                kind = CommandKindOfIssued(intent.Kind);
+                battalionId = intent.BattalionId;
+                targetId = intent.TargetId;
+            }
+            else
+            {
+                kind = InferRejectKind(ev.RejectReason);
+                battalionId = ev.SubjectId;
+                targetId = ev.Param0 != 0 ? ev.Param0 : ev.Param1;
+            }
+
+            _owned.NoteOrderReject(issuer, battalionId, kind, targetId, _world.Tick);
+        }
+
+        private bool TryIntentOf(int factionId, int sequence, out AiPendingIntent intent)
+        {
+            intent = default;
+            AiFactionState faction;
+            try
+            {
+                faction = _owned.GetFaction(factionId);
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < faction.IntentCount; i++)
+            {
+                if (faction.Intents[i].Sequence == sequence)
+                {
+                    intent = faction.Intents[i];
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static CommandKind CommandKindOfIssued(AiIssuedKind kind)
+        {
+            if (kind == AiIssuedKind.ClaimTown)
+            {
+                return CommandKind.ClaimTown;
+            }
+
+            if (kind == AiIssuedKind.BuildDepot)
+            {
+                return CommandKind.BuildDepot;
+            }
+
+            if (kind == AiIssuedKind.RaiseBattalion)
+            {
+                return CommandKind.RaiseBattalion;
+            }
+
+            return CommandKind.Move;
+        }
+
+        private static CommandKind InferRejectKind(CommandRejectReason reason)
+        {
+            if (reason == CommandRejectReason.NotCapturer
+                || reason == CommandRejectReason.AlreadyOwned
+                || reason == CommandRejectReason.UnknownTown
+                || reason == CommandRejectReason.NotSeatTown)
+            {
+                return CommandKind.ClaimTown;
+            }
+
+            if (reason == CommandRejectReason.NotBuilder
+                || reason == CommandRejectReason.BuildingNotBuildable
+                || reason == CommandRejectReason.UnknownNode
+                || reason == CommandRejectReason.TerritoryNotOwned
+                || reason == CommandRejectReason.NotConnectedToSupply
+                || reason == CommandRejectReason.DepotTooClose
+                || reason == CommandRejectReason.NodeHasDepot
+                || reason == CommandRejectReason.DepotCapReached)
+            {
+                return CommandKind.BuildDepot;
+            }
+
+            if (reason == CommandRejectReason.UnitNotRaisable
+                || reason == CommandRejectReason.TierLocked
+                || reason == CommandRejectReason.PopCapReached
+                || reason == CommandRejectReason.InsufficientManpower
+                || reason == CommandRejectReason.InsufficientMaterials
+                || reason == CommandRejectReason.InsufficientFuel)
+            {
+                return CommandKind.RaiseBattalion;
+            }
+
+            return CommandKind.Move;
+        }
+
+        private void BlacklistDeadBuilders()
+        {
+            _world.CopyDepots(_depotScratch);
+            for (int i = 0; i < _depotScratch.Count; i++)
+            {
+                DepotView depot = _depotScratch[i];
+                if (depot.State == DepotSiteState.Active || depot.NodeId == 0)
+                {
+                    continue;
+                }
+
+                if (!BuilderMissingOrDead(depot.OwnerFactionId, depot.BuilderBattalionId))
+                {
+                    continue;
+                }
+
+                BlacklistDepotNode(depot.OwnerFactionId, depot.NodeId, AiDepotBlacklistKind.Transient);
+                RemoveIntentByRefund(depot.OwnerFactionId, (int)CommandKind.BuildDepot, depot.NodeId);
+            }
+
+            for (int f = 0; f < _owned.FactionCount; f++)
+            {
+                AiFactionState faction = _owned.FactionAt(f);
+                for (int i = faction.IntentCount - 1; i >= 0; i--)
+                {
+                    AiPendingIntent intent = faction.Intents[i];
+                    if (intent.Kind != AiIssuedKind.BuildDepot)
+                    {
+                        continue;
+                    }
+
+                    if (!BuilderMissingOrDead(faction.FactionId, intent.BattalionId))
+                    {
+                        continue;
+                    }
+
+                    BlacklistDepotNode(faction.FactionId, intent.TargetId, AiDepotBlacklistKind.Transient);
+                    faction.RemoveIntentAt(i);
+                }
+            }
+        }
+
+        private bool BuilderMissingOrDead(int factionId, int battalionId)
+        {
+            if (battalionId == 0)
+            {
+                return true;
+            }
+
+            if (!_world.TryGetOwnBattalion(factionId, battalionId, out SimBattalion battalion))
+            {
+                return true;
+            }
+
+            return battalion.StrengthPpt <= 0;
         }
 
         private void ExpireDepotBlacklist(int tick)
@@ -976,13 +1137,9 @@ namespace Wasteland.Sim.Ai
                 return false;
             }
 
-            if (battalion.PathCount > 0 && battalion.PathXCm != null && battalion.PathYCm != null)
+            if (battalion.PathCount > 0)
             {
-                int last = battalion.PathCount - 1;
-                if (last < battalion.PathXCm.Length && last < battalion.PathYCm.Length)
-                {
-                    return battalion.PathXCm[last] == xCm && battalion.PathYCm[last] == yCm;
-                }
+                return true;
             }
 
             return battalion.TargetXCm == xCm && battalion.TargetYCm == yCm;
@@ -1031,7 +1188,23 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                if (IsEngineerBattalion(order.BattalionId))
+                if (IsEngineerBattalion(order.BattalionId) || !BattalionCanCapture(order.BattalionId))
+                {
+                    continue;
+                }
+
+                if (_owned.IsOrderBackedOff(
+                        faction.FactionId,
+                        order.BattalionId,
+                        CommandKind.ClaimTown,
+                        town.Id,
+                        _world.Tick)
+                    || _owned.IsOrderBackedOff(
+                        faction.FactionId,
+                        order.BattalionId,
+                        CommandKind.Move,
+                        town.Id,
+                        _world.Tick))
                 {
                     continue;
                 }
@@ -1163,6 +1336,15 @@ namespace Wasteland.Sim.Ai
                     AiPendingCommand pending = faction.Pending[i];
                     if (pending.ReadyTick <= tick)
                     {
+                        if (pending.Kind == CommandKind.Move
+                            && _owned.HasBackoffForBattalion(
+                                faction.FactionId,
+                                pending.BattalionId,
+                                tick))
+                        {
+                            continue;
+                        }
+
                         SimCommand command = new SimCommand(
                             tick,
                             faction.FactionId,
@@ -1417,7 +1599,7 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                if (IsEngineerBattalion(id))
+                if (IsEngineerBattalion(id) || !BattalionCanCapture(id))
                 {
                     continue;
                 }
@@ -1727,6 +1909,22 @@ namespace Wasteland.Sim.Ai
             }
 
             return role == AiConstants.RoleEngineer;
+        }
+
+        private bool BattalionCanCapture(int battalionId)
+        {
+            if (!_world.TryGetBattalionView(battalionId, out BattalionView view))
+            {
+                return false;
+            }
+
+            bool canCapture;
+            if (_balance.UnitCatalog.TryGetCanCapture(view.UnitId, out canCapture))
+            {
+                return canCapture;
+            }
+
+            return false;
         }
 
         private int CountAssignedTaskForces(AiFactionState faction)
