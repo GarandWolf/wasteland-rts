@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Wasteland.Sim.Commands;
+using Wasteland.Sim.Events;
 using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
@@ -59,6 +60,60 @@ namespace Wasteland.Sim.Ai
             }
 
             return stamped;
+        }
+
+        public int AllocateBattalionId()
+        {
+            return _inner.AllocateBattalionId();
+        }
+
+        public SimCommand SubmitRaiseBattalion(int factionId, string unitId, int rallyXCm, int rallyYCm)
+        {
+            return RecordRaise(_inner.SubmitRaiseBattalion(factionId, unitId, rallyXCm, rallyYCm));
+        }
+
+        public SimCommand SubmitRaiseBattalion(int factionId, int battalionId, string unitId, int rallyXCm, int rallyYCm)
+        {
+            return RecordRaise(_inner.SubmitRaiseBattalion(factionId, battalionId, unitId, rallyXCm, rallyYCm));
+        }
+
+        public bool HasBattalionRaiseStarted(int battalionId)
+        {
+            return _inner.HasBattalionRaiseStarted(battalionId);
+        }
+
+        public bool TryCopyProductionQueue(int factionId, List<ProductionQueueItem> into)
+        {
+            return _inner.TryCopyProductionQueue(factionId, into);
+        }
+
+        private SimCommand RecordRaise(SimCommand stamped)
+        {
+            if (_log.Count < AiConstants.CommandLogCapacity)
+            {
+                _log.Add(stamped.WithSchedule(0, 0));
+            }
+            else
+            {
+                DroppedFromLog++;
+            }
+
+            return stamped;
+        }
+
+        public bool TryGetRejection(int subjectId, out CommandRejectReason code, out int param0, out int param1)
+        {
+            return _inner.TryGetRejection(subjectId, out code, out param0, out param1);
+        }
+
+        public bool TryGetSeat(int factionId, out SeatView view)
+        {
+            return _inner.TryGetSeat(factionId, out view);
+        }
+
+        public bool TryGetBattalionView(int battalionId, out BattalionView view)
+        {
+            return _inner.TryGetBattalionView(battalionId, out view);
         }
 
         public void CopyOwnBattalionIds(int factionId, List<int> into)

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Movement;
@@ -39,9 +40,10 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(30, map.WhiteSalmonTownId);
             Assert.Equal(32, map.KlickitatTownId);
 
+            WrmbMap reader = WrmbMap.Load(AiSeamsTests.LoadGorgeV1Bytes());
             Assert.True(map.TryGetTerritory(9, out AiTerritoryRecord whiteSalmon));
             Assert.Equal(30, whiteSalmon.SeatTownId);
-            Assert.Equal(1152921504757793049UL, whiteSalmon.StableKey);
+            Assert.Equal(StableKeyByTerritoryId(reader, 9), whiteSalmon.StableKey);
 
             Assert.True(map.TryGetTown(32, out AiTownRecord klickitat));
             Assert.Equal(9, klickitat.TerritoryId);
@@ -49,7 +51,7 @@ namespace Wasteland.Sim.Tests
 
             Assert.True(map.TryGetTerritory(11, out AiTerritoryRecord goldendale));
             Assert.Equal(33, goldendale.SeatTownId);
-            Assert.Equal(1152921504757792391UL, goldendale.StableKey);
+            Assert.Equal(StableKeyByTerritoryId(reader, 11), goldendale.StableKey);
         }
 
         [Fact]
@@ -169,7 +171,7 @@ namespace Wasteland.Sim.Tests
             host.Run(120);
 
             AiFactionState remnant = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA);
-            Assert.True(host.Ai.OwnsTerritory(remnant.FactionId, AiHomeSeeder.RemnantHomeTerritoryId));
+            Assert.True(host.Ai.OwnsTerritory(remnant.FactionId, remnant.HomeTerritoryId));
             Assert.False(host.Ai.OwnsTerritory(remnant.FactionId, AiConstants.WhiteSalmonTerritoryId));
             for (int i = 0; i < remnant.DepotCount; i++)
             {
@@ -178,6 +180,19 @@ namespace Wasteland.Sim.Tests
             }
 
             host.Shutdown();
+        }
+
+        private static ulong StableKeyByTerritoryId(WrmbMap reader, int territoryId)
+        {
+            for (int i = 0; i < reader.Territories.Length; i++)
+            {
+                if (reader.Territories[i].Id == territoryId)
+                {
+                    return reader.Territories[i].StableKey;
+                }
+            }
+
+            throw new InvalidOperationException("TERR has no territory id " + territoryId + ".");
         }
 
         private static AiMapSnapshot Load()

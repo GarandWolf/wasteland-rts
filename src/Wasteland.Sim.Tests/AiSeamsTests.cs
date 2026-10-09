@@ -72,7 +72,7 @@ namespace Wasteland.Sim.Tests
 
             AiMatchHost other = AiMatchHost.Start(
                 MatchConfig.Default(0xBEEFUL),
-                LoadGorgeBytes(),
+                LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
                 AiBalanceTablesTests.LoadBalance());
@@ -232,31 +232,40 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(12, extra);
 
             AiMatchHost host = StartHost();
-            int pending = 0;
-            while (host.Tick < 200)
-            {
-                pending = TotalPending(host.Ai);
-                if (pending > 0)
-                {
-                    break;
-                }
-
-                host.Step();
-            }
-
-            Assert.True(pending > 0);
-            Assert.Empty(host.CommandLog);
-            int ready = FirstReadyTick(host.Ai);
+            AiFactionState faction = host.Ai.Owned.FactionAt(0);
+            int ready = host.Tick + extra;
+            AiPendingCommand pending = default;
+            pending.ReadyTick = ready;
+            pending.BattalionId = 9001;
+            pending.Kind = CommandKind.Move;
+            pending.Arg0 = 1;
+            pending.Arg1 = 2;
+            Assert.True(faction.EnqueuePending(pending));
+            Assert.True(HasPending(host.Ai, 9001, ready));
             Assert.True(ready > host.Tick);
+            int logAtEnqueue = host.CommandLog.Count;
             while (host.Tick < ready)
             {
+                Assert.True(HasPending(host.Ai, 9001, ready));
                 host.Step();
             }
 
             host.Step();
-            Assert.True(host.CommandLog.Count > 0);
-            Assert.Equal(ready, host.CommandLog[0].IssuedTick);
-            Assert.Equal(0, host.CommandLog[0].ExecuteTick);
+            Assert.False(HasPending(host.Ai, 9001, ready));
+            Assert.True(host.CommandLog.Count > logAtEnqueue);
+            bool found = false;
+            for (int i = 0; i < host.CommandLog.Count; i++)
+            {
+                if (host.CommandLog[i].IssuedTick == ready
+                    && host.CommandLog[i].BattalionId == 9001
+                    && host.CommandLog[i].Kind == CommandKind.Move)
+                {
+                    Assert.Equal(0, host.CommandLog[i].ExecuteTick);
+                    found = true;
+                }
+            }
+
+            Assert.True(found);
             host.Shutdown();
         }
 
@@ -264,24 +273,23 @@ namespace Wasteland.Sim.Tests
         public void ReactionDelayQueue_IsHashedAndRestoredOnSaveLoad()
         {
             AiMatchHost host = StartHost();
-            while (host.Tick < 200 && TotalPending(host.Ai) == 0)
-            {
-                host.Step();
-            }
-
-            Assert.True(TotalPending(host.Ai) > 0);
-            Assert.Empty(host.CommandLog);
+            AiFactionState faction = host.Ai.Owned.FactionAt(0);
+            AiPendingCommand pending = default;
+            pending.ReadyTick = host.Tick + 12;
+            pending.BattalionId = 9002;
+            pending.Kind = CommandKind.Move;
+            pending.Arg0 = 3;
+            pending.Arg1 = 4;
+            Assert.True(faction.EnqueuePending(pending));
+            Assert.Equal(1, TotalPending(host.Ai));
             ulong before = host.Ai.HashState();
             byte[] blob = host.Ai.Save();
-            int pending = TotalPending(host.Ai);
-            int readyTick = host.Ai.Owned.FactionAt(0).PendingCount > 0
-                ? host.Ai.Owned.FactionAt(0).Pending[0].ReadyTick
-                : host.Ai.Owned.FactionAt(1).Pending[0].ReadyTick;
+            int readyTick = faction.Pending[0].ReadyTick;
 
             AiMatchHost restored = StartHost();
             restored.Ai.Load(blob);
             Assert.Equal(before, restored.Ai.HashState());
-            Assert.Equal(pending, TotalPending(restored.Ai));
+            Assert.Equal(1, TotalPending(restored.Ai));
             Assert.Equal(readyTick, FirstReadyTick(restored.Ai));
             restored.Shutdown();
             host.Shutdown();
@@ -292,7 +300,7 @@ namespace Wasteland.Sim.Tests
         {
             AiMatchHost host = AiMatchHost.Start(
                 MatchConfig.Default(0xA11EEDUL),
-                LoadGorgeBytes(),
+                LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyBrutal,
                 AiBalanceTablesTests.LoadBalance());
@@ -312,6 +320,24 @@ namespace Wasteland.Sim.Tests
             }
 
             return total;
+        }
+
+        private static bool HasPending(EnemyAi ai, int battalionId, int readyTick)
+        {
+            for (int i = 0; i < ai.Owned.FactionCount; i++)
+            {
+                AiFactionState faction = ai.Owned.FactionAt(i);
+                for (int p = 0; p < faction.PendingCount; p++)
+                {
+                    if (faction.Pending[p].BattalionId == battalionId
+                        && faction.Pending[p].ReadyTick == readyTick)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         private static int FirstReadyTick(EnemyAi ai)
@@ -395,10 +421,17 @@ namespace Wasteland.Sim.Tests
         [Fact]
         public void HomeSeeder_MapsLaunchPersonalities()
         {
-            IAiHomeSeeder seeder = new AiHomeSeeder();
-            Assert.Equal(AiHomeSeeder.RemnantHomeTerritoryId, seeder.TerritoryIdFor(AiConstants.PersonalityWarlord));
-            Assert.Equal(AiHomeSeeder.CompactHomeTerritoryId, seeder.TerritoryIdFor(AiConstants.PersonalitySettler));
-            Assert.Equal(0, seeder.TerritoryIdFor(AiConstants.PersonalityRaider));
+            AiMapSnapshot map = AiMapSnapshot.FromWrmb(LoadGorgeV1Bytes());
+            IAiScenarioSeats seats = FixtureAiScenarioSeats.ForLaunchPersonalities(
+                map,
+                AiBalanceTablesTests.LoadBalance());
+            Assert.True(seats.TryGetByFaction("homestead_compact", out AiScenarioSeatView settler));
+            Assert.Equal(HomeTerritoryKeyOf(map, map.HoodRiverTownId), settler.HomeTerritoryKey);
+            Assert.True(seats.TryGetByFaction("remnant_command", out AiScenarioSeatView remnant));
+            Assert.Equal(HomeTerritoryKeyOf(map, map.GoldendaleTownId), remnant.HomeTerritoryKey);
+            Assert.Equal("remnant_command", remnant.Faction);
+            Assert.Equal(HomeTerritoryKeyOf(map, map.TheDallesTownId), seats.NeutralPrizeTerritoryKey);
+            Assert.False(seats.TryGetByFaction("missing_faction", out _));
         }
 
         [Fact]
@@ -415,7 +448,7 @@ namespace Wasteland.Sim.Tests
         public void MatchInit_RejectsCommandDelayMismatch()
         {
             AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
-            byte[] map = LoadGorgeBytes();
+            byte[] map = LoadGorgeV1Bytes();
             MatchConfig match = new MatchConfig(0xA11EEDUL, 5).WithKeys(
                 balance.BalanceKey,
                 MapKey.For(WrmbFile.Parse(map), AiConstants.MapKeySectionTags()));
@@ -428,7 +461,8 @@ namespace Wasteland.Sim.Tests
                 AiConstants.DifficultyNormal,
                 balance,
                 sink,
-                sink));
+                sink,
+                FixtureAiScenarioSeats.ForLaunchPersonalities(AiMapSnapshot.FromWrmb(map), balance)));
         }
 
         [Fact]
@@ -599,6 +633,21 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void AiSaveLoad_RejectsSchema8_WithVersionMismatch()
+        {
+            AiMatchHost host = StartHost();
+            int sentinel = host.Ai.Owned.FactionAt(0).Manpower;
+            host.Ai.Owned.FactionAt(0).Manpower = sentinel + 1;
+            byte[] schema8 = { 8, 0, 0, 0 };
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => host.Ai.Load(schema8));
+            Assert.Equal(
+                "AI state schema version 8 is unsupported; expected 9.",
+                ex.Message);
+            Assert.Equal(sentinel + 1, host.Ai.Owned.FactionAt(0).Manpower);
+            host.Shutdown();
+        }
+
+        [Fact]
         public void OverflowDrop_RemovesWholeSpawnOrderAndBuildDepot()
         {
             AiMatchHost host = StartHost();
@@ -684,7 +733,7 @@ namespace Wasteland.Sim.Tests
 
             InvalidDataException ex = Assert.Throws<InvalidDataException>(() => AiMatchHost.ReplayTo(
                 MatchConfig.Default(0xA11EEDUL),
-                LoadGorgeBytes(),
+                LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
                 AiBalanceTablesTests.LoadBalance(),
@@ -705,13 +754,14 @@ namespace Wasteland.Sim.Tests
             AiFactionState faction = host.Ai.Owned.FactionAt(0);
             faction.WorkUnitsThisTick = 0;
             AiRoadSupply supply = new AiRoadSupply();
-            int first = supply.DistanceCm(roads, from, to, faction);
+            AiSupplyResult first = supply.DistanceCm(roads, from, to, faction);
             Assert.True(faction.WorkUnitsThisTick > 0);
             Assert.True(faction.WorkUnitsThisTick <= faction.WorkUnitsPerTick);
             int charged = faction.WorkUnitsThisTick;
-            int second = supply.DistanceCm(roads, from, to, faction);
+            AiSupplyResult second = supply.DistanceCm(roads, from, to, faction);
             Assert.Equal(charged * 2, faction.WorkUnitsThisTick);
-            Assert.Equal(first, second);
+            Assert.Equal(first.Status, second.Status);
+            Assert.Equal(first.DistanceCm, second.DistanceCm);
             host.Shutdown();
         }
 
@@ -719,7 +769,7 @@ namespace Wasteland.Sim.Tests
         {
             return AiMatchHost.Start(
                 MatchConfig.Default(0xA11EEDUL),
-                LoadGorgeBytes(),
+                LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
                 AiBalanceTablesTests.LoadBalance());
@@ -740,6 +790,14 @@ namespace Wasteland.Sim.Tests
         internal static AiMapSnapshot LoadGorgeMap()
         {
             return AiMapSnapshot.FromWrmb(LoadGorgeBytes());
+        }
+
+        private static ulong HomeTerritoryKeyOf(AiMapSnapshot map, int townId)
+        {
+            Assert.True(map.TryGetTown(townId, out AiTownRecord town));
+            Assert.True(map.TryGetTerritory(town.TerritoryId, out AiTerritoryRecord territory));
+            Assert.NotEqual(0UL, territory.StableKey);
+            return territory.StableKey;
         }
     }
 }

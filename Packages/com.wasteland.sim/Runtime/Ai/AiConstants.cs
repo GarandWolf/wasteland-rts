@@ -6,7 +6,7 @@ namespace Wasteland.Sim.Ai
         public const int SchemaVersion = 1;
         public const int BalanceSchemaVersion = 1;
         public const int DataVersion = 1;
-        public const int StateSchemaVersion = 6;
+        public const int StateSchemaVersion = 9;
         public const int PendingCommandCapacity = 128;
         public const int CommandLogCapacity = 4096;
         public const int TickRateHz = SimConfig.TickRateHz;
@@ -45,13 +45,67 @@ namespace Wasteland.Sim.Ai
         public const int DepotMinSpacingCm = 804670;
         public const int MaxDepotsPerNode = 1;
         public const int BuildingTagDepot = 1;
+        public const int BuildingTagFortL1 = 2;
+        public const int BuildingTagFortL2 = 3;
+        public const int UnitKindInfantry = 1;
+        public const int UnitKindEngineer = 2;
+        public const int UnitKindTierII = 3;
+        public const int UnitKindTierIII = 4;
+
+        public const string RoleLineInfantry = "line_infantry";
+        public const string RoleAntiTank = "anti_tank";
+        public const string RoleGarrisonInfantry = "garrison_infantry";
+        public const string RoleEngineer = "engineer";
+        public const string RoleReconSpotter = "recon_spotter";
+        public const string RoleReconStrike = "recon_strike";
+        public const string TargetClassArmored = "armored";
+        public const string TargetClassSoft = "soft";
+        public const string BuildingRoleHq = "hq";
+        public const string BuildingRoleProduction = "production";
+        public const string BuildingRoleSupplyDepot = "supply_depot";
+        public const string BuildingRoleWall = "wall";
+        public const string BuildingRoleFortification = "fortification";
+        public const string BuildingRoleResource = "resource";
+        public const string BuildingRoleRecruitment = "recruitment";
+        public const string BuildingIdSupplyDepot = "supply_depot";
+
+        /// <summary>
+        /// Closed unit-role list. Mix keys are the first four; the rest load
+        /// from the shared pack and are never treated as rifle.
+        /// </summary>
+        public static readonly string[] UnitRoles =
+        {
+            RoleLineInfantry,
+            RoleAntiTank,
+            RoleGarrisonInfantry,
+            RoleEngineer,
+            "assault_infantry",
+            "breakthrough",
+            "indirect_fire",
+            RoleReconSpotter,
+            RoleReconStrike,
+            "supply"
+        };
+
+        /// <summary>
+        /// Closed building-role list from Designer PR #22, in authored order.
+        /// </summary>
+        public static readonly string[] BuildingRoles =
+        {
+            BuildingRoleHq,
+            BuildingRoleProduction,
+            BuildingRoleSupplyDepot,
+            BuildingRoleWall,
+            BuildingRoleFortification,
+            BuildingRoleResource,
+            BuildingRoleRecruitment
+        };
 
         public const string TierIITickNone = "none";
         public const int ClaimMarchSpeedCmPerSecond = 25000;
         public const int MinAcceptScore = 1000;
         public const int SeatAnchorBonusPpt = 1000;
         public const int BattalionIdStride = 100000;
-        public const int OpeningClaimBattalions = 1;
         public const int UnreachableCm = int.MaxValue / 4;
 
         public static string[] MapKeySectionTags()
@@ -95,6 +149,8 @@ namespace Wasteland.Sim.Ai
         None = 0,
         ClaimTown = 1,
         PlaceDepot = 2,
-        ExpandEconomy = 3
+        ExpandEconomy = 3,
+        AttackTown = 4,
+        DefendTown = 5
     }
 }

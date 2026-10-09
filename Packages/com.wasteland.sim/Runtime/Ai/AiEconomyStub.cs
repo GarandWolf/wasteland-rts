@@ -31,7 +31,7 @@ namespace Wasteland.Sim.Ai
         public int IncomePerMinute(int factionId)
         {
             AiFactionState faction = _owned.GetFaction(factionId);
-            AiPersonalityProfile personality = _balance.GetPersonality(faction.PersonalityId);
+            AiPersonalityProfile personality = _balance.GetPersonalityOrGeneric(faction.PersonalityId);
             int baseIncome = _balance.HqManpowerPerMin(personality.EconomyFactionId);
             bool contestedPays = _balance.ContestedHoldingPaysIncome;
             for (int i = 0; i < _map.TownCount; i++)

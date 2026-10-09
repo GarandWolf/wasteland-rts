@@ -12,7 +12,7 @@ namespace Wasteland.Sim.Tests
         /// (personalities + difficulty). Designer files under <c>data/balance</c>
         /// are not part of this pin. Re-pin when AI-owned files change.
         /// </summary>
-        public const ulong ExpectedAiOwnedBalanceKey = 0xA89B3C67EDEC2A7DUL;
+        public const ulong ExpectedAiOwnedBalanceKey = 0xE7008C30BE1FC2F0UL;
 
         [Fact]
         public void AiOwnedFiles_MatchExpectedBalanceKey()
@@ -59,6 +59,10 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(40, normal.StrategicCadenceTicks);
             Assert.Equal(60, normal.ManpowerReserveSeconds);
             Assert.Equal(20, normal.BattalionManpowerCost);
+            Assert.Equal(1500, normal.AttackStrengthRatioPpt);
+            Assert.Equal(1500, brutal.AttackStrengthRatioPpt);
+            Assert.Equal(1500, tables.GetDifficulty("easy").AttackStrengthRatioPpt);
+            Assert.Equal(1500, tables.GetDifficulty("hard").AttackStrengthRatioPpt);
             Assert.Equal(20, brutal.BattalionManpowerCost);
 
             AiPersonalityProfile warlordScores = tables.GetPersonality(AiConstants.PersonalityWarlord);
@@ -66,6 +70,9 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(200, warlordScores.BuildUpScoreBonus);
             Assert.Equal(1800, warlordScores.DepotBaseScore);
             Assert.Equal(400, warlordScores.AwayDepotScoreBonus);
+            Assert.Equal(300, warlordScores.PrizeTargetBonusPpt);
+            Assert.Equal(300, settler.PrizeTargetBonusPpt);
+            Assert.Equal(300, tables.GetPersonality(AiConstants.PersonalityRaider).PrizeTargetBonusPpt);
             Assert.Equal("remnant_command", warlordScores.EconomyFactionId);
             Assert.Equal("homestead_compact", settler.EconomyFactionId);
 
@@ -123,6 +130,41 @@ namespace Wasteland.Sim.Tests
             Assert.Throws<FormatException>(() => AiBalanceTables.Parse(
                 personalities,
                 difficulty.Replace("\"dataVersion\": 1", "\"dataVersion\": \"1\"")));
+        }
+
+        [Fact]
+        public void RejectsMissingLineUnitsPerAntiArmour()
+        {
+            string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json")
+                .Replace(
+                    "      \"prizeTargetBonusPpt\": 300,\n      \"lineUnitsPerAntiArmour\": 2",
+                    "      \"prizeTargetBonusPpt\": 300");
+            FormatException ex = Assert.Throws<FormatException>(() => AiBalanceTables.Parse(
+                personalities,
+                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")));
+            Assert.Contains(AiBalanceTables.RuleIdLineUnitsPerAntiArmour, ex.Message);
+        }
+
+        [Fact]
+        public void Personalities_ExposeLineUnitsPerAntiArmour()
+        {
+            AiBalanceTables tables = LoadBalance();
+            Assert.Equal(2, tables.GetPersonality(AiConstants.PersonalityWarlord).LineUnitsPerAntiArmour);
+            Assert.Equal(2, tables.GetPersonality(AiConstants.PersonalitySettler).LineUnitsPerAntiArmour);
+            Assert.Equal(2, tables.GetPersonality(AiConstants.PersonalityRaider).LineUnitsPerAntiArmour);
+        }
+
+        [Fact]
+        public void RejectsMissingPrizeTargetBonusPpt()
+        {
+            string personalities = GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json")
+                .Replace(
+                    "      \"awayDepotScoreBonus\": 400,\n      \"prizeTargetBonusPpt\": 300",
+                    "      \"awayDepotScoreBonus\": 400");
+            FormatException ex = Assert.Throws<FormatException>(() => AiBalanceTables.Parse(
+                personalities,
+                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json")));
+            Assert.Contains(AiBalanceTables.RuleIdPrizeTargetBonusPpt, ex.Message);
         }
 
         [Fact]
@@ -202,8 +244,7 @@ namespace Wasteland.Sim.Tests
 
         internal static AiBalanceTables LoadBalance()
         {
-            return AiBalanceTables.FromDirectory(
-                System.IO.Path.Combine(GoldenMapFiles.FindRepoRoot(), "data", "balance"));
+            return BalanceLoad.DecisionTables();
         }
     }
 }

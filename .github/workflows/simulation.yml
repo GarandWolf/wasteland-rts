@@ -41,3 +41,10 @@ jobs:
             echo "AI code must stay integer-only (no float/double)" >&2
             exit 1
           fi
+          if grep -RIn --include='*.cs' --exclude='ScenarioLoaderTests.cs' --exclude='GoldenMap*Tests.cs' \
+            -E '0x1000000|\b1152921[0-9]{12}' \
+            Packages/com.wasteland.sim/Runtime/Ai \
+            src/Wasteland.Sim.Tests; then
+            echo "AI code and tests must not embed hex or decimal territory-key literals" >&2
+            exit 1
+          fi

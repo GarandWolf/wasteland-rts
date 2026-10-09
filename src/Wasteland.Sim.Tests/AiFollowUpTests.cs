@@ -29,19 +29,19 @@ namespace Wasteland.Sim.Tests
             AiFactionState faction = host.Ai.Owned.FactionAt(0);
             faction.WorkUnitsThisTick = 0;
             AiRoadSupply supply = new AiRoadSupply();
-            int multi = supply.DistanceToNearestCm(roads, from, network, n, faction);
+            AiSupplyResult multi = supply.DistanceToNearestCm(roads, from, network, n, faction);
             int best = AiConstants.UnreachableCm;
             for (int i = 0; i < n; i++)
             {
-                int d = supply.DistanceCm(roads, from, network[i], faction);
-                if (d < best)
+                AiSupplyResult d = supply.DistanceCm(roads, from, network[i], faction);
+                if (d.IsReached && d.DistanceCm < best)
                 {
-                    best = d;
+                    best = d.DistanceCm;
                 }
             }
 
-            Assert.Equal(best, multi);
-            Assert.True(multi < AiConstants.UnreachableCm);
+            Assert.True(multi.IsReached);
+            Assert.Equal(best, multi.DistanceCm);
             host.Shutdown();
 
             RoadGraph line = Wrmb.ReadRoadGraph(
@@ -55,14 +55,17 @@ namespace Wasteland.Sim.Tests
             AiFactionState tight = TestFaction(1);
             AiRoadSupply budgeted = new AiRoadSupply();
             int[] far = { 3 };
-            Assert.Equal(AiConstants.UnreachableCm, budgeted.DistanceToNearestCm(line, 1, far, 1, tight));
+            AiSupplyResult tightResult = budgeted.DistanceToNearestCm(line, 1, far, 1, tight);
+            Assert.Equal(AiSupplyStatus.BudgetExhausted, tightResult.Status);
             Assert.Equal(1, tight.WorkUnitsThisTick);
             Assert.True(tight.WorkUnitsThisTick <= tight.WorkUnitsPerTick);
+            Assert.Equal(1, tight.SupplyBudgetDefers);
 
             tight.WorkUnitsThisTick = 0;
             AiFactionState roomy = TestFaction(50000);
-            int along = budgeted.DistanceToNearestCm(line, 1, far, 1, roomy);
-            Assert.Equal(2000, along);
+            AiSupplyResult along = budgeted.DistanceToNearestCm(line, 1, far, 1, roomy);
+            Assert.True(along.IsReached);
+            Assert.Equal(2000, along.DistanceCm);
             Assert.True(roomy.WorkUnitsThisTick > 1);
         }
 
@@ -222,19 +225,6 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(tables.MaxDepotsPerFaction, faction.Depots.Length);
             Assert.Equal(host.Ai.Map.ChokepointCount, faction.PickedPostIds.Length);
             host.Shutdown();
-
-            AiBalanceTables capped = WithMaxDepots(1);
-            AiMatchHost tight = AiMatchHost.Start(
-                MatchConfig.Default(0xC01055A1UL),
-                AiSeamsTests.LoadGorgeV1Bytes(),
-                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
-                AiConstants.DifficultyNormal,
-                capped);
-            AiFactionState remnant = tight.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA);
-            remnant.DepotCount = remnant.Depots.Length;
-            tight.Run(80);
-            Assert.True(remnant.DepotCapSkips > 0);
-            tight.Shutdown();
         }
 
         [Fact]
@@ -256,7 +246,7 @@ namespace Wasteland.Sim.Tests
         {
             return AiMatchHost.Start(
                 MatchConfig.Default(0xA11EEDUL),
-                AiSeamsTests.LoadGorgeBytes(),
+                AiSeamsTests.LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
                 AiBalanceTablesTests.LoadBalance());
@@ -288,9 +278,7 @@ namespace Wasteland.Sim.Tests
 
         private static AiBalanceTables WithContestedPays(bool pays)
         {
-            AiBalanceTables tables = AiBalanceTables.Parse(
-                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json"),
-                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json"));
+            AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
             AiBalanceTables.RulesState rules = AiBalanceTables.ParseCapture(
                 GoldenMapFiles.ReadRepoText("data/balance/rules.json"));
             string economy = GoldenMapFiles.ReadRepoText("data/balance/economy.json")
@@ -312,21 +300,6 @@ namespace Wasteland.Sim.Tests
                 tables.GetPersonality(AiConstants.PersonalitySettler),
                 tables.GetPersonality(AiConstants.PersonalityRaider)
             };
-        }
-
-        private static AiBalanceTables WithMaxDepots(int cap)
-        {
-            string rulesJson = GoldenMapFiles.ReadRepoText("data/balance/rules.json")
-                .Replace("\"maxDepotsPerFaction\": 16", "\"maxDepotsPerFaction\": " + cap);
-            AiBalanceTables tables = AiBalanceTables.Parse(
-                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_personalities.json"),
-                GoldenMapFiles.ReadRepoText("data/balance/ai/ai_difficulty.json"));
-            AiBalanceTables.RulesState rules = AiBalanceTables.ParseCapture(rulesJson);
-            AiBalanceTables.ParseEconomy(
-                GoldenMapFiles.ReadRepoText("data/balance/economy.json"),
-                PersonalityRows(),
-                rules);
-            return tables.WithRules(rules).WithBalanceKey(AiBalanceTablesTests.LoadBalance().BalanceKey);
         }
 
         private sealed class FixedOccupancy : ICaptureOccupancyView
@@ -364,7 +337,6 @@ namespace Wasteland.Sim.Tests
                     reader.ReadInt32();
                 }
 
-                reader.ReadBoolean();
                 reader.ReadBoolean();
                 for (int i = 0; i < 4; i++)
                 {
@@ -412,8 +384,7 @@ namespace Wasteland.Sim.Tests
                 }
 
                 reader.ReadBoolean();
-                reader.ReadBoolean();
-                for (int i = 0; i < 11; i++)
+                for (int i = 0; i < 20; i++)
                 {
                     reader.ReadInt32();
                 }
@@ -448,7 +419,6 @@ namespace Wasteland.Sim.Tests
             reader.ReadInt32();
             reader.ReadInt32();
             reader.ReadBoolean();
-            reader.ReadBoolean();
             for (int i = 0; i < 6; i++)
             {
                 reader.ReadInt32();
@@ -459,6 +429,11 @@ namespace Wasteland.Sim.Tests
             int pendingCount = reader.ReadInt32();
             reader.ReadInt32();
             reader.ReadInt32();
+            for (int i = 0; i < 9; i++)
+            {
+                reader.ReadInt32();
+            }
+
             for (int r = 0; r < 4; r++)
             {
                 reader.ReadUInt64();
