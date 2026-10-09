@@ -7,6 +7,13 @@ using Xunit;
 
 namespace Wasteland.Sim.Tests
 {
+    /// <summary>
+    /// AI capture follow-up. Two Gorge AI runs must match through a ClaimTown,
+    /// a BuildDepot reserve, a reserved-site refund, and a mid-run Save/ReplayTo.
+    /// Lead's 4000-tick hash/event identity belongs in DeterminismTests; scripted
+    /// capture belongs in GorgeCaptureDeterminismTests. This file does not add
+    /// to either.
+    /// </summary>
     public sealed class AiCaptureFollowUpTests
     {
         [Fact]
