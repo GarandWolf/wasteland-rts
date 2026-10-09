@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.Events;
+using Wasteland.Sim.Movement;
 using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
@@ -12,11 +13,17 @@ namespace Wasteland.Sim.Ai
     public sealed class SimWorldCommandSink : ISimCommandSink, ISimWorldView, ICaptureOccupancyView
     {
         private readonly SimWorld _world;
+        private RoadGraph? _roads;
         private int _lastSequence;
 
         public SimWorldCommandSink(SimWorld world)
         {
             _world = world ?? throw new ArgumentNullException(nameof(world));
+        }
+
+        public void BindRoads(RoadGraph roads)
+        {
+            _roads = roads;
         }
 
         public int LastSequence
@@ -123,6 +130,16 @@ namespace Wasteland.Sim.Ai
         public void CopyEventsInRange(int fromTick, int toTick, List<SimEvent> into)
         {
             _world.CopyEventsInRange(fromTick, toTick, into);
+        }
+
+        public int GetNodeTerritoryId(int nodeId)
+        {
+            if (_roads == null || !_roads.TryGetNodeIndex(nodeId, out int index))
+            {
+                return 0;
+            }
+
+            return _roads.GetNodeTerritoryId(index);
         }
 
         public CommandRejectReason PreviewDepotPlacement(int factionId, int nodeId, out int param0, out int param1)

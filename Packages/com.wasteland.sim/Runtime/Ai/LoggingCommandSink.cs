@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.Events;
+using Wasteland.Sim.Movement;
 using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
@@ -125,6 +126,16 @@ namespace Wasteland.Sim.Ai
         public void CopyEventsInRange(int fromTick, int toTick, List<SimEvent> into)
         {
             _inner.CopyEventsInRange(fromTick, toTick, into);
+        }
+
+        public void BindRoads(RoadGraph roads)
+        {
+            _inner.BindRoads(roads);
+        }
+
+        public int GetNodeTerritoryId(int nodeId)
+        {
+            return _inner.GetNodeTerritoryId(nodeId);
         }
 
         public CommandRejectReason PreviewDepotPlacement(int factionId, int nodeId, out int param0, out int param1)

@@ -651,7 +651,22 @@ namespace Wasteland.Sim.Tests
             byte[] schema8 = { 8, 0, 0, 0 };
             InvalidDataException ex = Assert.Throws<InvalidDataException>(() => host.Ai.Load(schema8));
             Assert.Equal(
-                "AI state schema version 8 is unsupported; expected 10.",
+                "AI state schema version 8 is unsupported; expected 11.",
+                ex.Message);
+            Assert.Equal(sentinel + 1, host.Ai.Owned.FactionAt(0).Manpower);
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void AiSaveLoad_RejectsSchema9_WithVersionMismatch()
+        {
+            AiMatchHost host = StartHost();
+            int sentinel = host.Ai.Owned.FactionAt(0).Manpower;
+            host.Ai.Owned.FactionAt(0).Manpower = sentinel + 1;
+            byte[] schema9 = { 9, 0, 0, 0 };
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => host.Ai.Load(schema9));
+            Assert.Equal(
+                "AI state schema version 9 is unsupported; expected 11.",
                 ex.Message);
             Assert.Equal(sentinel + 1, host.Ai.Owned.FactionAt(0).Manpower);
             host.Shutdown();

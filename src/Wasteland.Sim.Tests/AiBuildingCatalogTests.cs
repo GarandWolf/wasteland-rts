@@ -304,7 +304,7 @@ namespace Wasteland.Sim.Tests
                 1,
                 map.Roads,
                 tables.GetDifficulty(AiConstants.DifficultyNormal).AttackStrengthRatioPpt,
-                tables.DepotRangeCm,
+                1,
                 seats.NeutralPrizeTerritoryKey,
                 personality.PrizeTargetBonusPpt,
                 view,

@@ -6,9 +6,22 @@ namespace Wasteland.Sim.Ai
         public const int SchemaVersion = 1;
         public const int BalanceSchemaVersion = 1;
         public const int DataVersion = 1;
-        public const int StateSchemaVersion = 10;
+        public const int StateSchemaVersion = 11;
         public const int PendingCommandCapacity = 128;
         public const int PendingIntentCapacity = 32;
+        public const int DepotNodeBlacklistCapacity = 32;
+
+        /// <summary>
+        /// Drop a pending ClaimTown when the town still has no capture progress
+        /// after this many ticks (60 s at 20 Hz). Long enough that a command
+        /// delay plus a short walk is not treated as stuck; a claim that never
+        /// starts occupancy is released so the seat can retarget.
+        /// </summary>
+        public const int ClaimTownNoProgressTicks = 1200;
+
+        public const int DepotRejectSpamTicks = 8000;
+        public const int MaxDepotRejectsPerNode = 3;
+        public const int MaxMovesPerBattalion = 50;
         public const int CommandLogCapacity = 4096;
         public const int TickRateHz = SimConfig.TickRateHz;
         public const int FactionPlanOffsetTicks = 3;

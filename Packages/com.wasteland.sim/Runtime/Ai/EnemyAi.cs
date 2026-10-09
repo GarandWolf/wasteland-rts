@@ -84,7 +84,8 @@ namespace Wasteland.Sim.Ai
             _aiCommands = new ForwardingAiCommandSink(commands, owned);
             _seatView = _fixtureSeatView;
             _depots = new OwnedDepotView(owned, world);
-            _attackDefend = new AiAttackDefend(_aiCommands, new WorldTownQuery(this), _depots);
+            _attackDefend = new AiAttackDefend(_aiCommands, new WorldTownQuery(this), _depots, world);
+            BindWorldRoads(world, map.Roads);
             _attackTowns = new AiAttackTownInfo[System.Math.Max(1, map.TownCount)];
             _attackBattalions = new AiBattalionPin[16];
             _difficulty = difficulty;
@@ -98,6 +99,20 @@ namespace Wasteland.Sim.Ai
             _homes.Seed(_owned, _map, _balance);
             _homesSeeded = true;
             IssueOpeningForces();
+        }
+
+        private static void BindWorldRoads(ISimWorldView world, RoadGraph roads)
+        {
+            if (world is LoggingCommandSink logging)
+            {
+                logging.BindRoads(roads);
+                return;
+            }
+
+            if (world is SimWorldCommandSink sim)
+            {
+                sim.BindRoads(roads);
+            }
         }
 
         public IAiScenarioSeats Seats
@@ -653,17 +668,94 @@ namespace Wasteland.Sim.Ai
                 {
                     int issuer = (int)(ev.Key >> 32);
                     int sequence = (int)ev.Key;
+                    BlacklistDepotNodeFromIntent(issuer, sequence);
                     RemoveIntentBySequence(issuer, sequence);
                     continue;
                 }
 
                 if (ev.Kind == SimEventKind.OrderRefunded)
                 {
+                    if (ev.AuxId == (int)CommandKind.BuildDepot)
+                    {
+                        BlacklistDepotNode(ev.SubjectId, ev.Param0);
+                    }
+
                     RemoveIntentByRefund(ev.SubjectId, ev.AuxId, ev.Param0);
                 }
             }
 
             ClearResolvedIntents();
+            DropStaleClaimTowns(tick);
+        }
+
+        private void BlacklistDepotNodeFromIntent(int factionId, int sequence)
+        {
+            AiFactionState faction;
+            try
+            {
+                faction = _owned.GetFaction(factionId);
+            }
+            catch (InvalidOperationException)
+            {
+                return;
+            }
+
+            for (int i = 0; i < faction.IntentCount; i++)
+            {
+                AiPendingIntent intent = faction.Intents[i];
+                if (intent.Sequence == sequence && intent.Kind == AiIssuedKind.BuildDepot)
+                {
+                    faction.BlacklistNode(intent.TargetId);
+                    return;
+                }
+            }
+        }
+
+        private void BlacklistDepotNode(int factionId, int nodeId)
+        {
+            AiFactionState faction;
+            try
+            {
+                faction = _owned.GetFaction(factionId);
+            }
+            catch (InvalidOperationException)
+            {
+                return;
+            }
+
+            faction.BlacklistNode(nodeId);
+        }
+
+        private void DropStaleClaimTowns(int tick)
+        {
+            for (int f = 0; f < _owned.FactionCount; f++)
+            {
+                AiFactionState faction = _owned.FactionAt(f);
+                for (int i = faction.IntentCount - 1; i >= 0; i--)
+                {
+                    AiPendingIntent intent = faction.Intents[i];
+                    if (intent.Kind != AiIssuedKind.ClaimTown)
+                    {
+                        continue;
+                    }
+
+                    int age = tick - intent.IssuedTick;
+                    if (age < AiConstants.ClaimTownNoProgressTicks)
+                    {
+                        continue;
+                    }
+
+                    if (_world.TryGetTown(intent.TargetId, out TownView town)
+                        && (town.OwnerFactionId == faction.FactionId
+                            || town.CaptureFactionId == faction.FactionId
+                            || town.CaptureProgressTicks > 0))
+                    {
+                        continue;
+                    }
+
+                    faction.RemoveIntentAt(i);
+                }
+            }
         }
 
         private void RemoveIntentBySequence(int factionId, int sequence)

@@ -53,6 +53,7 @@ namespace Wasteland.Sim.Ai
         public AiIssuedKind Kind;
         public int BattalionId;
         public int TargetId;
+        public int IssuedTick;
     }
 
     public enum PendingEnqueueResult : byte
@@ -100,6 +101,7 @@ namespace Wasteland.Sim.Ai
         public int PickedPostCount;
         public int PendingCount;
         public int IntentCount;
+        public int BlacklistCount;
         public int PendingDropped;
         public int AttackTargetTownId;
         public int DefendTownId;
@@ -116,6 +118,7 @@ namespace Wasteland.Sim.Ai
         public readonly int[] PickedGroupIds;
         public readonly AiPendingCommand[] Pending;
         public readonly AiPendingIntent[] Intents;
+        public readonly int[] BlacklistedNodeIds;
         public SimRandom StrategyRng;
         public SimRandom TacticalRng;
         public SimRandom MistakeRng;
@@ -169,6 +172,7 @@ namespace Wasteland.Sim.Ai
             PickedGroupIds = new int[postCap];
             Pending = new AiPendingCommand[AiConstants.PendingCommandCapacity];
             Intents = new AiPendingIntent[AiConstants.PendingIntentCapacity];
+            BlacklistedNodeIds = new int[AiConstants.DepotNodeBlacklistCapacity];
             StrategyRng = strategyRng;
             TacticalRng = tacticalRng;
             MistakeRng = mistakeRng;
@@ -214,6 +218,65 @@ namespace Wasteland.Sim.Ai
 
             Intents[worst] = intent;
             SortIntents();
+        }
+
+        public bool IsNodeBlacklisted(int nodeId)
+        {
+            return IndexOfBlacklistedNode(nodeId) >= 0;
+        }
+
+        public void BlacklistNode(int nodeId)
+        {
+            if (nodeId == 0 || IsNodeBlacklisted(nodeId))
+            {
+                return;
+            }
+
+            if (BlacklistCount < BlacklistedNodeIds.Length)
+            {
+                BlacklistedNodeIds[BlacklistCount] = nodeId;
+                BlacklistCount++;
+                SortBlacklist();
+                return;
+            }
+
+            int last = BlacklistedNodeIds[BlacklistCount - 1];
+            if (nodeId >= last)
+            {
+                return;
+            }
+
+            BlacklistedNodeIds[BlacklistCount - 1] = nodeId;
+            SortBlacklist();
+        }
+
+        private int IndexOfBlacklistedNode(int nodeId)
+        {
+            for (int i = 0; i < BlacklistCount; i++)
+            {
+                if (BlacklistedNodeIds[i] == nodeId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private void SortBlacklist()
+        {
+            for (int i = 1; i < BlacklistCount; i++)
+            {
+                int row = BlacklistedNodeIds[i];
+                int j = i;
+                while (j > 0 && BlacklistedNodeIds[j - 1] > row)
+                {
+                    BlacklistedNodeIds[j] = BlacklistedNodeIds[j - 1];
+                    j--;
+                }
+
+                BlacklistedNodeIds[j] = row;
+            }
         }
 
         public bool RemoveIntentAt(int index)
@@ -546,6 +609,13 @@ namespace Wasteland.Sim.Ai
                     hash.AddByte((byte)intent.Kind);
                     hash.AddInt(intent.BattalionId);
                     hash.AddInt(intent.TargetId);
+                    hash.AddInt(intent.IssuedTick);
+                }
+
+                hash.AddInt(faction.BlacklistCount);
+                for (int b = 0; b < faction.BlacklistCount; b++)
+                {
+                    hash.AddInt(faction.BlacklistedNodeIds[b]);
                 }
             }
 
@@ -658,6 +728,13 @@ namespace Wasteland.Sim.Ai
                     writer.Write((byte)intent.Kind);
                     writer.Write(intent.BattalionId);
                     writer.Write(intent.TargetId);
+                    writer.Write(intent.IssuedTick);
+                }
+
+                writer.Write(faction.BlacklistCount);
+                for (int b = 0; b < faction.BlacklistCount; b++)
+                {
+                    writer.Write(faction.BlacklistedNodeIds[b]);
                 }
             }
 
@@ -904,12 +981,36 @@ namespace Wasteland.Sim.Ai
                 intent.Kind = ReadIssuedKind(reader);
                 intent.BattalionId = reader.ReadInt32();
                 intent.TargetId = reader.ReadInt32();
+                intent.IssuedTick = reader.ReadInt32();
                 if (intent.Sequence < 0)
                 {
                     throw new InvalidDataException("AI pending intent sequence is negative.");
                 }
 
+                if (intent.IssuedTick < 0)
+                {
+                    throw new InvalidDataException("AI pending intent issued tick is negative.");
+                }
+
                 loaded.Intents[n] = intent;
+            }
+
+            loaded.BlacklistCount = reader.ReadInt32();
+            if (loaded.BlacklistCount < 0 || loaded.BlacklistCount > current.BlacklistedNodeIds.Length)
+            {
+                throw new InvalidDataException("AI collection count exceeds slot capacity.");
+            }
+
+            loaded.BlacklistedNodeIds = new int[loaded.BlacklistCount];
+            for (int b = 0; b < loaded.BlacklistCount; b++)
+            {
+                int nodeId = reader.ReadInt32();
+                if (nodeId == 0)
+                {
+                    throw new InvalidDataException("AI blacklisted node id is zero.");
+                }
+
+                loaded.BlacklistedNodeIds[b] = nodeId;
             }
 
             return loaded;
@@ -933,6 +1034,7 @@ namespace Wasteland.Sim.Ai
             faction.PickedPostCount = loaded.PickedPostCount;
             faction.PendingCount = loaded.PendingCount;
             faction.IntentCount = loaded.IntentCount;
+            faction.BlacklistCount = loaded.BlacklistCount;
             faction.PendingDropped = loaded.PendingDropped;
             faction.DepotCapSkips = loaded.DepotCapSkips;
             faction.AttackTargetTownId = loaded.AttackTargetTownId;
@@ -974,6 +1076,11 @@ namespace Wasteland.Sim.Ai
             for (int n = 0; n < loaded.IntentCount; n++)
             {
                 faction.Intents[n] = loaded.Intents[n];
+            }
+
+            for (int b = 0; b < loaded.BlacklistCount; b++)
+            {
+                faction.BlacklistedNodeIds[b] = loaded.BlacklistedNodeIds[b];
             }
         }
 
@@ -1060,6 +1167,8 @@ namespace Wasteland.Sim.Ai
             public AiPendingCommand[] Pending = Array.Empty<AiPendingCommand>();
             public int IntentCount;
             public AiPendingIntent[] Intents = Array.Empty<AiPendingIntent>();
+            public int BlacklistCount;
+            public int[] BlacklistedNodeIds = Array.Empty<int>();
         }
 
         private static void RequireInt32(BinaryReader reader, int expected, string name)

@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using Wasteland.Sim.Commands;
+using Wasteland.Sim.Events;
 using Wasteland.Sim.Movement;
+using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
 {
@@ -61,6 +64,7 @@ namespace Wasteland.Sim.Ai
         private readonly IAiCommandSink _commands;
         private readonly IAiTownQuery _towns;
         private readonly IAiDepotQuery _depots;
+        private readonly ISimWorldView? _world;
         private readonly AiRoadSupply _roads = new AiRoadSupply();
         private IAiSeatView _seatView = new FixtureAiSeatView();
         private IAiUnitCatalog _catalog = AiUnitCatalog.Empty;
@@ -76,10 +80,20 @@ namespace Wasteland.Sim.Ai
         private int _pendingCount;
 
         public AiAttackDefend(IAiCommandSink commands, IAiTownQuery towns, IAiDepotQuery depots)
+            : this(commands, towns, depots, null)
+        {
+        }
+
+        public AiAttackDefend(
+            IAiCommandSink commands,
+            IAiTownQuery towns,
+            IAiDepotQuery depots,
+            ISimWorldView? world)
         {
             _commands = commands ?? throw new ArgumentNullException(nameof(commands));
             _towns = towns ?? throw new ArgumentNullException(nameof(towns));
             _depots = depots ?? throw new ArgumentNullException(nameof(depots));
+            _world = world;
         }
 
         public static bool StrengthAllowsAttack(int ownStrength, int defenderStrength, int attackStrengthRatioPpt)
@@ -647,6 +661,47 @@ namespace Wasteland.Sim.Ai
                         out waitX,
                         out waitY);
                     TryRaise(tick, faction, seat, waitRaiseId, waitX, waitY);
+                    if (TargetOutOfSupply(
+                        graph,
+                        target.NodeId,
+                        networkNodeIds,
+                        networkCount,
+                        faction,
+                        supplyReachCm))
+                    {
+                        TryPlaceForwardDepot(
+                            tick,
+                            faction,
+                            seat,
+                            towns,
+                            townCount,
+                            battalions,
+                            battalionCount,
+                            graph,
+                            networkNodeIds,
+                            networkCount,
+                            target.NodeId,
+                            supplyReachCm,
+                            false);
+                    }
+
+                    return;
+                }
+
+                DispatchPrizeGroup(
+                    tick,
+                    faction,
+                    battalions,
+                    battalionCount,
+                    target);
+                if (TargetOutOfSupply(
+                    graph,
+                    target.NodeId,
+                    networkNodeIds,
+                    networkCount,
+                    faction,
+                    supplyReachCm))
+                {
                     TryPlaceForwardDepot(
                         tick,
                         faction,
@@ -661,29 +716,8 @@ namespace Wasteland.Sim.Ai
                         target.NodeId,
                         supplyReachCm,
                         false);
-                    return;
                 }
 
-                DispatchPrizeGroup(
-                    tick,
-                    faction,
-                    battalions,
-                    battalionCount,
-                    target);
-                TryPlaceForwardDepot(
-                    tick,
-                    faction,
-                    seat,
-                    towns,
-                    townCount,
-                    battalions,
-                    battalionCount,
-                    graph,
-                    networkNodeIds,
-                    networkCount,
-                    target.NodeId,
-                    supplyReachCm,
-                    false);
                 return;
             }
 
@@ -723,18 +757,13 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            AiSupplyResult supply = _roads.DistanceToNearestCm(
+            if (TargetOutOfSupply(
                 graph,
                 target.NodeId,
                 networkNodeIds,
                 networkCount,
-                faction);
-            if (DeferIfExhausted(supply))
-            {
-                return;
-            }
-
-            if (supply.IsUnreachable || supply.DistanceCm > supplyReachCm)
+                faction,
+                supplyReachCm))
             {
                 TryPlaceForwardDepot(
                     tick,
@@ -828,6 +857,11 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
+            if (HasPendingDepotIntent(faction))
+            {
+                return;
+            }
+
             int cap = faction.Depots.Length;
             if (cap > 0 && _depots.CountSites(faction.FactionId) >= cap)
             {
@@ -859,6 +893,11 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < graph.NodeCount; i++)
             {
                 int nodeId = graph.GetNodeId(i);
+                if (faction.IsNodeBlacklisted(nodeId))
+                {
+                    continue;
+                }
+
                 int netDist = _roads.NetworkDistanceAt(i);
                 if (netDist > supplyReachCm)
                 {
@@ -878,6 +917,11 @@ namespace Wasteland.Sim.Ai
                 int nodeX = graph.GetNodeXCm(i);
                 int nodeY = graph.GetNodeYCm(i);
                 if (InUnintendedSeatZone(faction, towns, townCount, nodeX, nodeY))
+                {
+                    continue;
+                }
+
+                if (!DepotSiteAllowed(faction, towns, townCount, graph, i, nodeId))
                 {
                     continue;
                 }
@@ -961,11 +1005,15 @@ namespace Wasteland.Sim.Ai
 
                 if (escortId != 0 && escortId != engineerId)
                 {
-                    int escortCmd = _commands.SubmitMove(faction.FactionId, escortId, bestX, bestY);
-                    Issue(tick, faction, escortCmd);
-                    if (_commands.RejectOf(escortCmd) != AiCommandReject.None)
+                    AiBattalionPin escort = FindPin(battalions, battalionCount, escortId);
+                    if (escort.RoadNodeId != bestNode)
                     {
-                        return;
+                        int escortCmd = _commands.SubmitMove(faction.FactionId, escortId, bestX, bestY);
+                        Issue(tick, faction, escortCmd);
+                        if (_commands.RejectOf(escortCmd) != AiCommandReject.None)
+                        {
+                            return;
+                        }
                     }
                 }
             }
@@ -988,6 +1036,93 @@ namespace Wasteland.Sim.Ai
                 faction.DepotSiteTick = built.SiteTick;
                 faction.DepotActiveTick = built.ActiveTick;
             }
+        }
+
+        private bool TargetOutOfSupply(
+            Wasteland.Sim.Movement.RoadGraph graph,
+            int targetNodeId,
+            int[] networkNodeIds,
+            int networkCount,
+            AiFactionState faction,
+            int supplyReachCm)
+        {
+            AiSupplyResult supply = _roads.DistanceToNearestCm(
+                graph,
+                targetNodeId,
+                networkNodeIds,
+                networkCount,
+                faction);
+            if (DeferIfExhausted(supply))
+            {
+                return false;
+            }
+
+            return supply.IsUnreachable || supply.DistanceCm > supplyReachCm;
+        }
+
+        private static bool HasPendingDepotIntent(AiFactionState faction)
+        {
+            for (int i = 0; i < faction.IntentCount; i++)
+            {
+                if (faction.Intents[i].Kind == AiIssuedKind.BuildDepot)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool DepotSiteAllowed(
+            AiFactionState faction,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            Wasteland.Sim.Movement.RoadGraph graph,
+            int nodeIndex,
+            int nodeId)
+        {
+            if (_world == null)
+            {
+                return true;
+            }
+
+            int territoryId = _world.GetNodeTerritoryId(nodeId);
+            if (territoryId == 0)
+            {
+                territoryId = graph.GetNodeTerritoryId(nodeIndex);
+            }
+
+            if (!NodeTerritoryOwned(faction, towns, townCount, territoryId))
+            {
+                return false;
+            }
+
+            return _world.PreviewDepotPlacement(faction.FactionId, nodeId, out _, out _)
+                == CommandRejectReason.None;
+        }
+
+        private bool NodeTerritoryOwned(
+            AiFactionState faction,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            int territoryId)
+        {
+            ulong key = 0UL;
+            for (int i = 0; i < townCount; i++)
+            {
+                if (towns[i].TerritoryId == territoryId)
+                {
+                    key = towns[i].TerritoryStableKey;
+                    break;
+                }
+            }
+
+            if (key != 0UL && _world != null && _world.TryGetTerritory(key, out TerritoryView view))
+            {
+                return view.OwnerFactionId == faction.FactionId;
+            }
+
+            return faction.HomeTerritoryId == territoryId;
         }
 
         public static string SelectRaiseUnit(

@@ -151,6 +151,181 @@ namespace Wasteland.Sim.Tests
             host.Shutdown();
         }
 
+        [Fact]
+        public void PendingClaimTown_DropsAfterNoProgressTicks()
+        {
+            AiMatchHost host = AiMatchHost.Start(
+                MatchConfig.Default(AiVsAiGorgeTests.MatchSeed),
+                AiSeamsTests.LoadGorgeV1Bytes(),
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                AiConstants.DifficultyNormal,
+                AiBalanceTablesTests.LoadBalance());
+            AiFactionState remnant = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA);
+            remnant.EnqueueIntent(new AiPendingIntent
+            {
+                Sequence = 77,
+                Kind = AiIssuedKind.ClaimTown,
+                BattalionId = 11,
+                TargetId = host.Ai.Map.TheDallesTownId,
+                IssuedTick = host.Tick - AiConstants.ClaimTownNoProgressTicks
+            });
+            Assert.True(remnant.IntentCount > 0);
+            host.Run(1);
+            bool stillPending = false;
+            for (int i = 0; i < remnant.IntentCount; i++)
+            {
+                if (remnant.Intents[i].Sequence == 77)
+                {
+                    stillPending = true;
+                }
+            }
+
+            Assert.False(stillPending);
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void GorgeAi_RealBuildings_DoesNotSpamDepotRejectsOrMoves()
+        {
+            MatchConfig match = MatchConfig.Default(AiVsAiGorgeTests.MatchSeed);
+            byte[] map = AiSeamsTests.LoadGorgeV1Bytes();
+            int[] factions = { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB };
+            AiMatchHost host = AiMatchHost.Start(
+                match,
+                map,
+                factions,
+                AiConstants.DifficultyNormal,
+                BalanceLoad.Tables());
+            host.Run(AiConstants.DepotRejectSpamTicks);
+
+            List<RejectCount> rejects = new List<RejectCount>();
+            IReadOnlyList<SimEvent> events = host.World.Events;
+            IReadOnlyList<SimCommand> log = host.CommandLog;
+            for (int i = 0; i < events.Count; i++)
+            {
+                SimEvent ev = events[i];
+                if (ev.Kind != SimEventKind.CommandRejected || !IsDepotNodeReject(ev.RejectReason))
+                {
+                    continue;
+                }
+
+                int issuer = (int)(ev.Key >> 32);
+                int nodeId = ev.Param0;
+                if (nodeId == 0)
+                {
+                    continue;
+                }
+
+                int row = IndexOfReject(rejects, issuer, nodeId);
+                if (row < 0)
+                {
+                    RejectCount next = default;
+                    next.IssuerId = issuer;
+                    next.NodeId = nodeId;
+                    next.Count = 1;
+                    rejects.Add(next);
+                }
+                else
+                {
+                    RejectCount have = rejects[row];
+                    have.Count++;
+                    rejects[row] = have;
+                }
+            }
+
+            for (int i = 0; i < rejects.Count; i++)
+            {
+                Assert.True(
+                    rejects[i].Count <= AiConstants.MaxDepotRejectsPerNode,
+                    "seat " + rejects[i].IssuerId
+                    + " node " + rejects[i].NodeId
+                    + " rejected " + rejects[i].Count + " times.");
+            }
+
+            List<MoveCount> moves = new List<MoveCount>();
+            for (int i = 0; i < log.Count; i++)
+            {
+                if (log[i].Kind != CommandKind.Move)
+                {
+                    continue;
+                }
+
+                int battalionId = log[i].BattalionId;
+                int row = IndexOfMove(moves, battalionId);
+                if (row < 0)
+                {
+                    MoveCount next = default;
+                    next.BattalionId = battalionId;
+                    next.Count = 1;
+                    moves.Add(next);
+                }
+                else
+                {
+                    MoveCount have = moves[row];
+                    have.Count++;
+                    moves[row] = have;
+                }
+            }
+
+            for (int i = 0; i < moves.Count; i++)
+            {
+                Assert.True(
+                    moves[i].Count <= AiConstants.MaxMovesPerBattalion,
+                    "battalion " + moves[i].BattalionId
+                    + " received " + moves[i].Count + " Move commands.");
+            }
+
+            host.Shutdown();
+        }
+
+        private static bool IsDepotNodeReject(CommandRejectReason reason)
+        {
+            return reason == CommandRejectReason.UnknownNode
+                || reason == CommandRejectReason.TerritoryNotOwned
+                || reason == CommandRejectReason.NotConnectedToSupply
+                || reason == CommandRejectReason.DepotTooClose
+                || reason == CommandRejectReason.NodeHasDepot;
+        }
+
+        private static int IndexOfReject(List<RejectCount> rows, int issuerId, int nodeId)
+        {
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (rows[i].IssuerId == issuerId && rows[i].NodeId == nodeId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static int IndexOfMove(List<MoveCount> rows, int battalionId)
+        {
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (rows[i].BattalionId == battalionId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private struct RejectCount
+        {
+            public int IssuerId;
+            public int NodeId;
+            public int Count;
+        }
+
+        private struct MoveCount
+        {
+            public int BattalionId;
+            public int Count;
+        }
+
         private static void AssertAiActed(AiMatchHost host, int[] factions)
         {
             IReadOnlyList<SimCommand> log = host.CommandLog;

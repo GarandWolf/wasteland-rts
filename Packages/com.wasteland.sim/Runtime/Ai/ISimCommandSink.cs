@@ -80,6 +80,12 @@ namespace Wasteland.Sim.Ai
         /// </summary>
         void CopyEventsInRange(int fromTick, int toTick, List<SimEvent> into);
 
+        /// <summary>
+        /// Map territory id of a road node, or 0 if the node is unknown.
+        /// Bind the match road graph on the sink before the first tick.
+        /// </summary>
+        int GetNodeTerritoryId(int nodeId);
+
         CommandRejectReason PreviewDepotPlacement(int factionId, int nodeId, out int param0, out int param1);
     }
 

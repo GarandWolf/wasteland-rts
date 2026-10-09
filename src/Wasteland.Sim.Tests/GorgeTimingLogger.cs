@@ -18,12 +18,17 @@ namespace Wasteland.Sim.Tests
 
         public static GorgeTimingLog Run()
         {
+            return Run(AiBalanceTablesTests.LoadBalance());
+        }
+
+        public static GorgeTimingLog Run(AiBalanceTables balance)
+        {
             AiMatchHost host = AiMatchHost.Start(
                 MatchConfig.Default(AiVsAiGorgeTests.MatchSeed),
                 AiSeamsTests.LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
-                AiBalanceTablesTests.LoadBalance());
+                balance);
 
             int remnantId = AiConstants.DefaultAiFactionA;
             int compactId = AiConstants.DefaultAiFactionB;
@@ -50,6 +55,10 @@ namespace Wasteland.Sim.Tests
             int eventCursor = 0;
             bool remnantArrived = false;
             bool compactArrived = false;
+            bool remnantLeft = false;
+            bool compactLeft = false;
+            long remnantSpawnDistSq = MinDistSqTo(host, remnantId, dalles.XCm, dalles.YCm);
+            long compactSpawnDistSq = MinDistSqTo(host, compactId, dalles.XCm, dalles.YCm);
             int lastCaptureFaction = CaptureFaction(host, host.Ai.Map.TheDallesTownId);
             int lastOwner = host.Ai.Owned.TownOwnerAt(dallesIndex);
 
@@ -64,6 +73,20 @@ namespace Wasteland.Sim.Tests
                 }
 
                 eventCursor = AppendEvents(host, eventCursor, remnantId, compactId, spawnCounts, rows, log);
+                if (!compactLeft && MinDistSqTo(host, compactId, dalles.XCm, dalles.YCm) < compactSpawnDistSq)
+                {
+                    compactLeft = true;
+                    log.CompactLeaveTick = tick;
+                    rows.Add(new TimedEvent(tick, 48, "compact_dalles_leave"));
+                }
+
+                if (!remnantLeft && MinDistSqTo(host, remnantId, dalles.XCm, dalles.YCm) < remnantSpawnDistSq)
+                {
+                    remnantLeft = true;
+                    log.RemnantLeaveTick = tick;
+                    rows.Add(new TimedEvent(tick, 49, "remnant_dalles_leave"));
+                }
+
                 if (!compactArrived && FactionInDalles(host, compactId, dalles, radiusSq))
                 {
                     compactArrived = true;
@@ -301,6 +324,30 @@ namespace Wasteland.Sim.Tests
             return 0;
         }
 
+        private static long MinDistSqTo(AiMatchHost host, int factionId, int xCm, int yCm)
+        {
+            long best = long.MaxValue;
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.OwnerId != factionId)
+                {
+                    continue;
+                }
+
+                long dx = (long)battalion.PositionXCm - xCm;
+                long dy = (long)battalion.PositionYCm - yCm;
+                long distSq = (dx * dx) + (dy * dy);
+                if (distSq < best)
+                {
+                    best = distSq;
+                }
+            }
+
+            return best;
+        }
+
         private static bool FactionInDalles(
             AiMatchHost host,
             int factionId,
@@ -368,6 +415,8 @@ namespace Wasteland.Sim.Tests
     {
         public string Path = string.Empty;
         public string Jsonl = string.Empty;
+        public int CompactLeaveTick = -1;
+        public int RemnantLeaveTick = -1;
         public int CompactArriveTick = -1;
         public int RemnantArriveTick = -1;
         public int CompactCaptureStartTick = -1;

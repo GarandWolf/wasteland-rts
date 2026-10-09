@@ -184,6 +184,7 @@ namespace Wasteland.Sim.Ai
                 intent.Kind = kind;
                 intent.BattalionId = arg0;
                 intent.TargetId = arg1;
+                intent.IssuedTick = _inner.Tick;
                 _owned.EnqueueIntent(factionId, intent);
             }
 
