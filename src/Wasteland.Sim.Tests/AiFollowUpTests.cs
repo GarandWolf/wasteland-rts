@@ -589,7 +589,18 @@ namespace Wasteland.Sim.Tests
             original.Run(remain);
             restored.Run(remain);
             Assert.Equal(original.HashWorld(), restored.HashWorld());
-            AssertLogsEqual(original.CommandLog, restored.CommandLog);
+            List<SimCommand> replayed = new List<SimCommand>(savedLog.Length + restored.CommandLog.Count);
+            for (int i = 0; i < savedLog.Length; i++)
+            {
+                replayed.Add(savedLog[i]);
+            }
+
+            for (int i = 0; i < restored.CommandLog.Count; i++)
+            {
+                replayed.Add(restored.CommandLog[i]);
+            }
+
+            AssertLogsEqual(original.CommandLog, replayed);
             original.Shutdown();
             restored.Shutdown();
         }
