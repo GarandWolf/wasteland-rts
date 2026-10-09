@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "dataVersion": 8,
   "id": "mvp_timing_targets",
-  "source": "Designer MVP rules sheet (Oct 8 2026), section 5 'Expected timeline' (designer-sim estimates, not real-sim results) and section 7 step 2 (15 s tolerance). Scenario data/balance/scenarios/columbia_gorge_100mi_mvp.json on main b9e53fc, Normal difficulty.",
+  "source": "Designer MVP rules sheet (Oct 8 2026), section 5 'Expected timeline' (designer-sim estimates, not real-sim results) and section 7 step 2 (15 s tolerance). Scenario data/balance/scenarios/columbia_gorge_100mi_mvp.json on main b9e53fc, Normal difficulty. Retargeted after PR #18 (head 5db79ae): the Dalles arrivals and captures, remnant_tier2 and compact_at_1 now follow the real sim (straight node-to-node road stepping at wheeled 1200 cm/tick, arrival = first battalion inside the 1.5 mi capture disk). The other targets are still designer-sim estimates.",
   "ticksPerSecond": 20,
   "defaultToleranceTicks": 300,
   "sides": {
@@ -10,16 +10,16 @@
     "compact": "homestead_compact (seat slot 1, AI, Hood River)"
   },
   "lines": {
-    "baseline": "Compact takes The Dalles at 8:30. The Remnant keeps its third motor rifle battalion at home.",
-    "remnant_commit": "The Remnant commits its third motor rifle battalion to The Dalles, takes it at 8:02, builds the forward depot at node 614 and drives on Hood River."
+    "baseline": "Compact takes The Dalles at about 7:46. The Remnant keeps its third motor rifle battalion at home.",
+    "remnant_commit": "The Remnant commits its third motor rifle battalion to The Dalles, takes it at about 7:02, builds the forward depot at node 614 and drives on Hood River."
   },
   "targets": [
     {
       "id": "compact_dalles_arrive",
       "side": "compact",
-      "description": "First Compact battalion arrives in The Dalles (territory 4, key 0x10000000B3787512). Manpower-gated, so the same in both lines.",
-      "tick": 4560,
-      "clock": "3:48",
+      "description": "First Compact battalion enters the capture disk of The Dalles (town 14, territory 4, key 0x10000000B3787512; town-class disk 241402 cm = 1.5 mi). The Compact prize force (scouts + 2 rifles) leaves Hood River at tick 1288 and follows the sim's road movement: straight node-to-node over 11 waypoints at the wheeled 1200 cm/tick. Measured 3683 on PR #18 head 5db79ae (was 4560 from the designer sim's road lengths). Same in both lines. Must arrive before the Remnant: see orderChecks compact_first_at_dalles.",
+      "tick": 3680,
+      "clock": "3:04",
       "toleranceTicks": 300,
       "lines": [
         "baseline",
@@ -30,9 +30,9 @@
     {
       "id": "remnant_dalles_arrive",
       "side": "remnant",
-      "description": "First Remnant group (2 motor rifles + recon) arrives in The Dalles. Not in the rules sheet 5 table: from the designer sim (mvp/mvp_estimate.py 'Remnant arr 4:19', road distance Goldendale-The Dalles 5272961 cm from territory-roads.v1-marsh.json). The 33.0 vs 32.8 road-mi question is decided (Designer decision, 2026-10-08): units take Map Pipeline's 33.0 road-mi cheapest route; the difference is a few seconds, well inside the 300-tick tolerance, so this target is unchanged.",
-      "tick": 5180,
-      "clock": "4:19",
+      "description": "First Remnant group (starting force: 2 motor rifles + recon) enters the capture disk of The Dalles (1.5 mi). It leaves Goldendale at tick 40 and follows the sim's road movement: straight node-to-node over 17 waypoints at the wheeled 1200 cm/tick. The route is Goldendale node 953 to The Dalles node 499, 5272961 cm (32.8 road-mi) by road length; the straight legs are shorter. Measured 3976 on PR #18 head 5db79ae (was 5180 from the designer sim).",
+      "tick": 3980,
+      "clock": "3:19",
       "toleranceTicks": 300,
       "lines": [
         "baseline",
@@ -43,9 +43,9 @@
     {
       "id": "compact_dalles_capture",
       "side": "compact",
-      "description": "Compact completes the capture of The Dalles (baseline line: the Remnant does not commit a third rifle battalion).",
-      "tick": 10200,
-      "clock": "8:30",
+      "description": "Compact completes the capture of The Dalles (baseline line: the Remnant does not commit a third rifle battalion). Moved by the same -880 ticks as compact_dalles_arrive (was 10200). The capture lands on tick a+N (LD1); there is no reset on contest.",
+      "tick": 9320,
+      "clock": "7:46",
       "toleranceTicks": 300,
       "lines": [
         "baseline"
@@ -55,9 +55,9 @@
     {
       "id": "remnant_dalles_capture_commit",
       "side": "remnant",
-      "description": "Remnant completes the capture of The Dalles (commit line: the Remnant commits its third motor rifle battalion).",
-      "tick": 9640,
-      "clock": "8:02",
+      "description": "Remnant completes the capture of The Dalles (commit line: the Remnant commits its third motor rifle battalion). Moved by the same -1200 ticks as remnant_dalles_arrive (was 9640). The capture lands on tick a+N (LD1); there is no reset on contest.",
+      "tick": 8440,
+      "clock": "7:02",
       "toleranceTicks": 300,
       "lines": [
         "remnant_commit"
@@ -67,9 +67,9 @@
     {
       "id": "remnant_tier2",
       "side": "remnant",
-      "description": "Remnant Tier II research completes (autoResearch tier2, notBeforeTick 1200, researchTicks 1800).",
-      "tick": 3020,
-      "clock": "2:31",
+      "description": "Remnant Tier II research completes (autoResearch tier2: starts at notBeforeTick 1200, researchTicks 1800, so it completes at 3000). Measured 3000 on PR #18 head 5db79ae (was 3020).",
+      "tick": 3000,
+      "clock": "2:30",
       "toleranceTicks": 300,
       "lines": [
         "baseline",
@@ -158,15 +158,16 @@
     {
       "id": "compact_at_1",
       "side": "compact",
-      "description": "First raised compact_at_battalion completes (rules sheet 5 row 'Compact militia / AT', MVP estimate 4:45).",
-      "tick": 5700,
-      "clock": "4:45",
+      "description": "First raised compact_at_battalion completes. Reference value 1948 is the signed-off Compact raise order (L, L, AT at 648 / 1248 / 1948) on PR #18 (was 5700, the rules sheet 5 estimate 4:45). Advisory: reported but never fails the check.",
+      "tick": 1948,
+      "clock": "1:37",
       "toleranceTicks": 300,
       "lines": [
         "baseline",
         "remnant_commit"
       ],
-      "core": false
+      "core": false,
+      "advisory": true
     },
     {
       "id": "remnant_forward_depot",
@@ -200,6 +201,21 @@
       "clock": "20:51",
       "toleranceTicks": 300,
       "lines": [
+        "remnant_commit"
+      ],
+      "core": true
+    }
+  ],
+  "orderChecks": [
+    {
+      "id": "compact_first_at_dalles",
+      "description": "Design requirement: the Compact reaches The Dalles first, by a few hundred ticks (measured margin 293 on PR #18 head 5db79ae). margin = remnant_dalles_arrive - compact_dalles_arrive. FAIL if the margin is below minMarginTicks (the Compact is not strictly first, or either event is missing). WARN, without failing, if the margin is below warnBelowTicks.",
+      "first": "compact_dalles_arrive",
+      "then": "remnant_dalles_arrive",
+      "minMarginTicks": 1,
+      "warnBelowTicks": 200,
+      "lines": [
+        "baseline",
         "remnant_commit"
       ],
       "core": true
