@@ -5,8 +5,9 @@
                                        [--line baseline|remnant_commit] [--core-only]
 
 Python 3 standard library only. Prints a pass/drift table and exits:
-    0  every checked target is present and within its tolerance
-    1  at least one target drifted by more than its tolerance, or is missing from the log
+    0  every checked target is present and within its tolerance, and every order check holds
+    1  at least one non-advisory target drifted by more than its tolerance or is missing from the
+       log, or an order check failed
     2  bad input (unreadable or malformed targets file or run log, unknown --line)
 
 RUN LOG FORMAT (JSON lines, for the headless runner to emit)
@@ -28,6 +29,16 @@ TARGETS
     contain it are checked. --core-only checks only the targets marked "core": true (the events
     named in the rules sheet's tuning plan, section 7 step 2).
     drift = logged tick - target tick. A target passes when |drift| <= toleranceTicks.
+    A target with "advisory": true is still reported, but a drift or a missing event shows as
+    ADVISORY and never makes the check fail.
+
+ORDER CHECKS
+    The optional top-level "orderChecks" array states that one event must come before another:
+        {"id": ..., "first": "<target id>", "then": "<target id>", "minMarginTicks": int,
+         "warnBelowTicks": int, "lines": [...], "core": bool}
+    margin = tick(then) - tick(first). FAIL if either event is missing or margin < minMarginTicks.
+    WARN (does not fail) if margin < warnBelowTicks. --line and --core-only filter order checks
+    the same way as targets.
 """
 import argparse
 import json
@@ -88,6 +99,26 @@ def load_targets(path):
                 raise InputError(where + ": '%s' must be an integer >= 0" % key)
         if not isinstance(t["lines"], list) or not all(isinstance(x, str) for x in t["lines"]):
             raise InputError(where + ": 'lines' must be an array of strings")
+        if not isinstance(t.get("advisory", False), bool):
+            raise InputError(where + ": 'advisory' must be true or false")
+    orders = doc.get("orderChecks", [])
+    if not isinstance(orders, list):
+        raise InputError("targets %s: 'orderChecks' must be an array" % path)
+    for i, o in enumerate(orders):
+        where = "targets %s: orderChecks[%d]" % (path, i)
+        if not isinstance(o, dict):
+            raise InputError(where + ": expected an object")
+        for key in ("id", "first", "then", "minMarginTicks", "lines"):
+            if key not in o:
+                raise InputError(where + ": missing '%s'" % key)
+        for key in ("first", "then"):
+            if o[key] not in seen:
+                raise InputError(where + ": '%s' %r is not a target id" % (key, o[key]))
+        for key in ("minMarginTicks", "warnBelowTicks"):
+            if key in o and not is_int(o[key]):
+                raise InputError(where + ": '%s' must be an integer" % key)
+        if not isinstance(o["lines"], list) or not all(isinstance(x, str) for x in o["lines"]):
+            raise InputError(where + ": 'lines' must be an array of strings")
     return doc, tps
 
 
@@ -138,23 +169,37 @@ def main(argv=None):
                if args.line in t["lines"] and (t.get("core", False) or not args.core_only)]
     ids = {t["id"] for t in doc["targets"]}
     ignored = sorted(e for e in events if e not in ids)
+    orders = [o for o in doc.get("orderChecks", [])
+              if args.line in o["lines"] and (o.get("core", False) or not args.core_only)]
 
     header = ("RESULT", "SIDE", "TARGET ID", "TARGET", "LOGGED", "DRIFT", "TOL")
     rows = []
     failures = 0
+    advisories = 0
     for t in checked:
         tol = t["toleranceTicks"]
+        advisory = t.get("advisory", False)
         target = "%d (%s)" % (t["tick"], clock(t["tick"], tps))
         if t["id"] not in events:
-            rows.append(("MISSING", t["side"], t["id"], target, "-", "-", str(tol)))
-            failures += 1
+            if advisory:
+                rows.append(("ADVISORY", t["side"], t["id"], target, "missing", "-", str(tol)))
+                advisories += 1
+            else:
+                rows.append(("MISSING", t["side"], t["id"], target, "-", "-", str(tol)))
+                failures += 1
             continue
         tick = events[t["id"]][0]
         drift = tick - t["tick"]
         ok = abs(drift) <= tol
-        if not ok:
+        if ok:
+            result = "PASS"
+        elif advisory:
+            result = "ADVISORY"
+            advisories += 1
+        else:
+            result = "DRIFT"
             failures += 1
-        rows.append(("PASS" if ok else "DRIFT", t["side"], t["id"], target, "%d (%s)" % (tick, clock(tick, tps)),
+        rows.append((result, t["side"], t["id"], target, "%d (%s)" % (tick, clock(tick, tps)),
                      "%+d (%s)" % (drift, clock(drift, tps)), str(tol)))
 
     widths = [max(len(r[i]) for r in [header] + rows) for i in range(len(header))]
@@ -165,9 +210,35 @@ def main(argv=None):
     print(fmt % tuple("-" * w for w in widths))
     for r in rows:
         print(fmt % r)
-    print("%d passed, %d failed (drift or missing); %d log event ids not in the targets file were ignored%s" % (
-        len(rows) - failures, failures, len(ignored), (": " + ", ".join(ignored)) if ignored else ""))
-    return 1 if failures else 0
+    print("%d passed, %d failed (drift or missing), %d advisory; %d log event ids not in the targets file were ignored%s" % (
+        len(rows) - failures - advisories, failures, advisories, len(ignored),
+        (": " + ", ".join(ignored)) if ignored else ""))
+
+    order_failures = 0
+    if orders:
+        print()
+        print("Order checks: %d" % len(orders))
+        for o in orders:
+            a, b = events.get(o["first"]), events.get(o["then"])
+            if a is None or b is None:
+                missing = [x for x, v in ((o["first"], a), (o["then"], b)) if v is None]
+                print("FAIL  %s: missing %s" % (o["id"], ", ".join(missing)))
+                order_failures += 1
+                continue
+            margin = b[0] - a[0]
+            detail = "%s %d -> %s %d, margin %+d (min %d" % (
+                o["first"], a[0], o["then"], b[0], margin, o["minMarginTicks"])
+            if "warnBelowTicks" in o:
+                detail += ", warn below %d" % o["warnBelowTicks"]
+            detail += ")"
+            if margin < o["minMarginTicks"]:
+                print("FAIL  %s: %s" % (o["id"], detail))
+                order_failures += 1
+            elif "warnBelowTicks" in o and margin < o["warnBelowTicks"]:
+                print("WARN  %s: %s" % (o["id"], detail))
+            else:
+                print("PASS  %s: %s" % (o["id"], detail))
+    return 1 if failures or order_failures else 0
 
 
 if __name__ == "__main__":

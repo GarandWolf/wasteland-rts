@@ -27,11 +27,11 @@ Seat-to-seat road distances on the pinned marsh map (Map Pipeline output, cheape
 
 | Route | Road-mi |
 |---|---|
-| Goldendale – The Dalles | 33.0 |
+| Goldendale – The Dalles | 32.8 |
 | Hood River – The Dalles | 21.2 |
 | Goldendale – Hood River | 44.4 |
 
-Units travel Map Pipeline's cheapest route (decision DD4 in §5). The node-to-node distances in §3 are shortest paths by `REDG.lengthCm` between the named road nodes, used for the supply-range and spacing checks. On that measure Goldendale node 953 – The Dalles node 499 is 5272961 cm (32.8 road-mi), which is also the value in `territory-roads.v1-marsh.json` and the designer sim.
+Units follow the cheapest road route (DD4 in §5). The node-to-node distances in §3 are shortest paths by `REDG.lengthCm` between the named road nodes, used for the supply-range and spacing checks. On that measure Goldendale node 953 – The Dalles node 499 is 5272961 cm (32.8 road-mi), which is also the value in `territory-roads.v1-marsh.json` and the designer sim. The sim walks that route as straight node-to-node legs, which is shorter than the road length (see §4).
 
 A seat's **HQ holding** is the seat place of its `homeTerritoryKey` (Goldendale town 33 for the Remnant, Hood River town 26 for the Compact).
 
@@ -134,7 +134,22 @@ Distances below are from the marsh map with every edge usable (no enemy-controll
 
 ## 4. Timing targets
 
-The §5 timeline estimates live in `data/design/mvp_targets.json` (ticks, tolerance 300 = 15 s). `tools/check_mvp_timings.py` compares a headless run log against them. These are designer-sim estimates for the tuning pass, not acceptance asserts.
+The §5 timeline estimates live in `data/design/mvp_targets.json` (ticks, tolerance 300 = 15 s). `tools/check_mvp_timings.py` compares a headless run log against them. These are targets for the tuning pass, not acceptance asserts.
+
+**Retarget after PR #18 (head `5db79ae`).** The Dalles arrival targets now follow the real sim rather than road lengths, per Map Pipeline's read on #18. The sim steps units in a straight line from road node to road node at the wheeled speed (1200 cm/tick, `rules.json`), not along each edge's curved length. "Arrival" is the first battalion inside The Dalles capture disk (town class, 241402 cm = 1.5 mi), as logged by `GorgeTimingLogger`. Map Pipeline's straight-leg + disk prediction (3678 / 3966) is within 5–10 ticks of the log, so the early arrivals are geometry, not a speed bug.
+
+| Target | Was | Now | Basis |
+|---|---:|---:|---|
+| `compact_dalles_arrive` | 4560 | **3680** | Measured 3683. Compact scouts + 2 rifles leave Hood River at 1288; 11 waypoints |
+| `remnant_dalles_arrive` | 5180 | **3980** | Measured 3976. Remnant starting force (2 motor rifles + recon) leaves Goldendale at 40; 17 waypoints |
+| `compact_dalles_capture` (baseline) | 10200 | **9320** | Same shift as its arrival (−880); capture lands on *a* + N (LD1) |
+| `remnant_dalles_capture_commit` (commit) | 9640 | **8440** | Same shift as its arrival (−1200) |
+| `remnant_tier2` | 3020 | **3000** | `autoResearch` tier2 starts at 1200, 1800 ticks; measured 3000 |
+| `compact_at_1` | 5700 | **1948** | Signed-off Compact raise order L, L, AT (648 / 1248 / 1948). **Advisory**: reported, never fails |
+
+**Compact first (design requirement).** The Compact must reach The Dalles first, by a few hundred ticks (measured 293). The `orderChecks` entry `compact_first_at_dalles` fails the check if the Compact is not strictly first (or either arrival is missing) and warns, without failing, if the margin is under 200 ticks. The 300-tick tolerances on the two arrivals overlap, so this check is what enforces the order.
+
+Every other target is still a designer-sim estimate and has not been re-measured.
 
 ## 5. Decisions (2026-10-08)
 
@@ -142,7 +157,7 @@ The §5 timeline estimates live in `data/design/mvp_targets.json` (ticks, tolera
 - **DD1 Depots under construction. Designer decision, 2026-10-08.** A depot under construction counts for spacing (`depotMinSpacingCm`), the one-per-node limit (`maxDepotsPerNode`) and the 16 cap (`maxDepotsPerFaction`) from the tick its `BuildDepot` executes. It is destroyed if its territory is captured, exactly like a completed depot (K1).
 - **DD2 Cost timing. Designer decision, 2026-10-08.** The 200 materiel is charged when the command executes, on tick *T* + `commandDelayTicks` for a command issued on tick *T*. Nothing is charged when `BuildDepot` is rejected.
 - **DD3 Range boundary. Designer decision, 2026-10-08.** A site exactly at `depotRangeCm` (4828032) or `hqRangeCm` (6437376) counts as in range: road distance ≤ range. Spacing passes at ≥ 804670.
-- **DD4 Goldendale – The Dalles distance. Designer decision, 2026-10-08.** Units take Map Pipeline's cheapest route, 33.0 road-mi. The designer sim's 32.8 road-mi path (5272961 cm) differs by a few seconds of travel, well inside the 300-tick (15 s) tolerance, so the targets in `data/design/mvp_targets.json` (including `remnant_dalles_arrive` at 4:19) stay as they are.
+- **DD4 Goldendale – The Dalles distance. Designer decision, 2026-10-08; corrected after #18.** The cheapest road route is Goldendale node 953 – The Dalles node 499, 5272961 cm (**32.8 road-mi**). The earlier 33.0 road-mi figure is superseded. Travel time is set by the sim's straight node-to-node stepping over that route, not its road length, so `remnant_dalles_arrive` is now 3980 (§4).
 
 ## Test notes
 
@@ -152,4 +167,4 @@ The §5 timeline estimates live in `data/design/mvp_targets.json` (ticks, tolera
 ## Open questions
 
 1. **`_test` scenario loader defaults (later data PR).** Sheet §4 says absent `fuelEnabled`, `simultaneousHqLoss`, `raisableUnits`, `buildableBuildings` and `autoResearch` keep today's behaviour (defaults `true`, `"draw"`, every unit, every building, `[]`). Main's `ScenarioLoader` requires all five, so `columbia_gorge_100mi_test.json`, which has none of them, would not load. Nothing on main loads the test scenario today.
-2. **`compact_militia` target.** §5 gives "Compact militia / AT: 3:15 / 4:45" without saying which militia. In the designer sim (old Settler build order, rifles ×4 first) 3:15 is the second raised militia; the first is at 2:21. The real AI's build order differs from the designer sim (§6.5), so the Compact production targets are expected to move and are not marked `core`.
+2. **`compact_militia` target.** §5 gives "Compact militia / AT: 3:15 / 4:45" without saying which militia. In the designer sim (old Settler build order, rifles ×4 first) 3:15 is the second raised militia; the first is at 2:21. The real AI's build order differs from the designer sim (§6.5), so the Compact production targets are expected to move and are not marked `core`. On #18 the Compact starts with militia on the map (logged at tick 0) and does not raise militia, so `compact_militia` (3900) drifts on real runs; its meaning is unchanged here until this question is answered. `compact_at_1` is now advisory at 1948 (§4).
