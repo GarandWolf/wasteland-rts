@@ -618,24 +618,6 @@ namespace Wasteland.Sim.Ai
             int defender = readback.StrengthOf(readback.OwnerFactionId);
             if (prizeMarch)
             {
-                TryPlaceForwardDepot(
-                    tick,
-                    faction,
-                    seat,
-                    towns,
-                    townCount,
-                    battalions,
-                    battalionCount,
-                    graph,
-                    networkNodeIds,
-                    networkCount,
-                    target.NodeId,
-                    supplyReachCm);
-                if (_budgetDeferred)
-                {
-                    return;
-                }
-
                 if (!prizeGroupReady)
                 {
                     string waitRaiseId = SelectRaiseUnit(
@@ -665,6 +647,20 @@ namespace Wasteland.Sim.Ai
                         out waitX,
                         out waitY);
                     TryRaise(tick, faction, seat, waitRaiseId, waitX, waitY);
+                    TryPlaceForwardDepot(
+                        tick,
+                        faction,
+                        seat,
+                        towns,
+                        townCount,
+                        battalions,
+                        battalionCount,
+                        graph,
+                        networkNodeIds,
+                        networkCount,
+                        target.NodeId,
+                        supplyReachCm,
+                        false);
                     return;
                 }
 
@@ -674,6 +670,20 @@ namespace Wasteland.Sim.Ai
                     battalions,
                     battalionCount,
                     target);
+                TryPlaceForwardDepot(
+                    tick,
+                    faction,
+                    seat,
+                    towns,
+                    townCount,
+                    battalions,
+                    battalionCount,
+                    graph,
+                    networkNodeIds,
+                    networkCount,
+                    target.NodeId,
+                    supplyReachCm,
+                    false);
                 return;
             }
 
@@ -810,7 +820,8 @@ namespace Wasteland.Sim.Ai
             int[] networkNodeIds,
             int networkCount,
             int targetNodeId,
-            int supplyReachCm)
+            int supplyReachCm,
+            bool raiseIfMissing = true)
         {
             if (!CanBuildDepot(seat, _buildings))
             {
@@ -911,6 +922,11 @@ namespace Wasteland.Sim.Ai
 
             if (engineerId == 0)
             {
+                if (!raiseIfMissing)
+                {
+                    return;
+                }
+
                 string engineerIdToRaise = SelectRaiseUnit(
                     seat,
                     _catalog,
