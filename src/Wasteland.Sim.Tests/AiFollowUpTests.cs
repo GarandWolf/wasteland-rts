@@ -275,7 +275,7 @@ namespace Wasteland.Sim.Tests
             SimEvent unownedReject = RejectBuildDepot(host, remnant, engineer, unowned);
             Assert.Equal(CommandRejectReason.TerritoryNotOwned, unownedReject.RejectReason);
             Assert.Equal(unowned, unownedReject.Param0);
-            int unownedTerritory = host.Ai.Commands.GetNodeTerritoryId(unowned);
+            int unownedTerritory = NodeTerritory(host, unowned);
             Assert.Equal(unownedTerritory, BlacklistTerritory(host, remnant, unowned));
             Assert.Equal(AiDepotBlacklistKind.Placement, BlacklistKind(host, remnant, unowned));
 
@@ -292,7 +292,7 @@ namespace Wasteland.Sim.Tests
             SimEvent closeReject = RejectBuildDepot(host, remnant, engineer, tooClose);
             Assert.Equal(CommandRejectReason.DepotTooClose, closeReject.RejectReason);
             Assert.Equal(tooClose, closeReject.Param0);
-            int closeTerritory = host.Ai.Commands.GetNodeTerritoryId(tooClose);
+            int closeTerritory = NodeTerritory(host, tooClose);
             Assert.NotEqual(0, closeTerritory);
             Assert.NotEqual(closeReject.Param1, closeTerritory);
             Assert.Equal(closeTerritory, BlacklistTerritory(host, remnant, tooClose));
@@ -408,6 +408,17 @@ namespace Wasteland.Sim.Tests
             }
 
             return 0;
+        }
+
+        private static int NodeTerritory(AiMatchHost host, int nodeId)
+        {
+            RoadGraph roads = host.Ai.Map.Roads;
+            if (!roads.TryGetNodeIndex(nodeId, out int index))
+            {
+                return 0;
+            }
+
+            return roads.GetNodeTerritoryId(index);
         }
 
         private static int FirstPreviewNode(AiMatchHost host, int seat, CommandRejectReason reason)
