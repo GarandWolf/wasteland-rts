@@ -240,10 +240,9 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            int last = BlacklistedNodeIds[BlacklistCount - 1];
-            if (nodeId >= last)
+            for (int i = 0; i < BlacklistCount - 1; i++)
             {
-                return;
+                BlacklistedNodeIds[i] = BlacklistedNodeIds[i + 1];
             }
 
             BlacklistedNodeIds[BlacklistCount - 1] = nodeId;
