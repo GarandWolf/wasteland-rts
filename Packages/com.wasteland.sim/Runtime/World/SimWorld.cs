@@ -17,7 +17,7 @@ namespace Wasteland.Sim.World
     /// is authoritative at execute time; rejections emit
     /// <see cref="SimEventKind.CommandRejected"/>.
     /// </summary>
-    public sealed class SimWorld
+    public sealed partial class SimWorld
     {
         private readonly List<SimBattalion> _battalions = new List<SimBattalion>();
         private readonly Dictionary<int, int> _battalionIndexById = new Dictionary<int, int>();
@@ -26,6 +26,7 @@ namespace Wasteland.Sim.World
         private readonly Dictionary<int, int> _nextSequenceByIssuer = new Dictionary<int, int>();
         private readonly CommandQueue _commands = new CommandQueue();
         private readonly List<SimEvent> _events = new List<SimEvent>();
+        private readonly List<SimEvent> _eventHistory = new List<SimEvent>();
         private readonly List<SimCommand> _hashCommands = new List<SimCommand>();
         private readonly List<SimCommand> _reservedScan = new List<SimCommand>();
         private readonly List<SeatState> _seats = new List<SeatState>();
@@ -37,6 +38,12 @@ namespace Wasteland.Sim.World
         private readonly ulong _seed;
         private readonly int _commandDelayTicks;
         private int _nextEventId;
+
+        /// <summary>How many recent ticks <see cref="CopyEventsInRange"/> retains. Not hashed and not saved.</summary>
+        internal const int EventHistoryTicks = 64;
+
+        /// <summary>Test seam. The next road move rejects with <see cref="CommandRejectReason.NoPath"/>.</summary>
+        internal bool ForceNextRoadNoPath;
 
         public SimWorld(ulong seed)
             : this(MatchConfig.Default(seed))
@@ -117,12 +124,6 @@ namespace Wasteland.Sim.World
         public SimCommand Submit(SimCommand command)
         {
             int executeTick = checked(command.IssuedTick + _commandDelayTicks);
-            if (executeTick < Tick)
-            {
-                Emit(SimEventKind.CommandRejected, command.BattalionId, (int)CommandRejectReason.TooLate);
-                return command;
-            }
-
             if (!_nextSequenceByIssuer.TryGetValue(command.IssuerId, out int sequence))
             {
                 sequence = 0;
@@ -130,6 +131,12 @@ namespace Wasteland.Sim.World
 
             _nextSequenceByIssuer[command.IssuerId] = sequence + 1;
             SimCommand stamped = command.WithSchedule(executeTick, sequence);
+            if (executeTick < Tick)
+            {
+                Reject(stamped, CommandRejectReason.TooLate, 0, 0);
+                return stamped;
+            }
+
             _commands.Enqueue(stamped);
             if (stamped.Kind == CommandKind.SpawnBattalion || stamped.Kind == CommandKind.RaiseBattalion)
             {
@@ -421,8 +428,27 @@ namespace Wasteland.Sim.World
         {
             ProcessQueue();
             IntegrateMovement();
+            StartDepotBuilds();
+            ResolveCapture();
+            DestroyFlippedDepots();
+            if (_ownersChanged)
+            {
+                RecomputePopCaps();
+                _ownersChanged = false;
+            }
+
+            AdvanceDepotConstruction();
             Tick++;
+            PruneEventHistory();
             return HashState();
+        }
+
+        /// <summary>
+        /// Win/loss is reserved for a later pass. The HQ check does not run, so this stays not over.
+        /// </summary>
+        public MatchResultView MatchResult
+        {
+            get { return new MatchResultView(false); }
         }
 
         public ulong HashState()
@@ -499,6 +525,7 @@ namespace Wasteland.Sim.World
                 hash.AddBool(seat.FuelEnabled);
                 hash.AddInt(seat.PopUsed);
                 hash.AddInt(seat.PopCap);
+                hash.AddBool(seat.SupplyDepotAllowed);
                 int raisableCount = seat.Raisable == null ? 0 : seat.Raisable.Length;
                 hash.AddInt(raisableCount);
                 for (int r = 0; r < raisableCount; r++)
@@ -551,6 +578,7 @@ namespace Wasteland.Sim.World
                 hash.AddInt(unit.OwnerId);
             }
 
+            HashCaptureState(hash);
             return hash.Digest();
         }
 
@@ -571,8 +599,14 @@ namespace Wasteland.Sim.World
                     case CommandKind.RaiseBattalion:
                         ApplyRaise(command);
                         break;
+                    case CommandKind.ClaimTown:
+                        ApplyClaimTown(command);
+                        break;
+                    case CommandKind.BuildDepot:
+                        ApplyBuildDepot(command);
+                        break;
                     default:
-                        Emit(SimEventKind.CommandRejected, command.BattalionId, (int)CommandRejectReason.UnknownKind);
+                        Reject(command, CommandRejectReason.UnknownKind, 0, 0);
                         break;
                 }
             }
@@ -584,13 +618,13 @@ namespace Wasteland.Sim.World
         {
             if (_battalionIndexById.ContainsKey(command.BattalionId))
             {
-                Emit(SimEventKind.CommandRejected, command.BattalionId, (int)CommandRejectReason.DuplicateBattalion);
+                Reject(command, CommandRejectReason.DuplicateBattalion, 0, 0);
                 return;
             }
 
             if (command.Arg2 < 0)
             {
-                Emit(SimEventKind.CommandRejected, command.BattalionId, (int)CommandRejectReason.NegativeSpeed);
+                Reject(command, CommandRejectReason.NegativeSpeed, 0, 0);
                 return;
             }
 
@@ -644,20 +678,22 @@ namespace Wasteland.Sim.World
         {
             if (!_battalionIndexById.TryGetValue(command.BattalionId, out int index))
             {
-                Emit(SimEventKind.CommandRejected, command.BattalionId, (int)CommandRejectReason.UnknownBattalion);
+                Reject(command, CommandRejectReason.UnknownBattalion, 0, 0);
                 return;
             }
 
             SimBattalion battalion = _battalions[index];
             if (battalion.OwnerId != command.IssuerId)
             {
-                Emit(SimEventKind.CommandRejected, command.BattalionId, (int)CommandRejectReason.NotOwner);
+                Reject(command, CommandRejectReason.NotOwner, 0, 0);
                 return;
             }
 
+            DropReservedDepotForReorder(command);
+
             if (_movement != null && _roads != null)
             {
-                ApplyRoadMove(ref battalion, command.Arg0, command.Arg1);
+                ApplyRoadMove(ref battalion, command.Arg0, command.Arg1, command);
             }
             else
             {
@@ -969,12 +1005,19 @@ namespace Wasteland.Sim.World
             return true;
         }
 
-        private void ApplyRoadMove(ref SimBattalion battalion, int xCm, int yCm)
+        private bool ApplyRoadMove(ref SimBattalion battalion, int xCm, int yCm, SimCommand command)
         {
+            if (ForceNextRoadNoPath)
+            {
+                ForceNextRoadNoPath = false;
+                Reject(command, CommandRejectReason.NoPath, 0, 0);
+                return false;
+            }
+
             if (_roads.NodeCount < 1)
             {
-                Emit(SimEventKind.CommandRejected, battalion.Id, (int)CommandRejectReason.NoPath, 0, 0);
-                return;
+                Reject(command, CommandRejectReason.NoPath, 0, 0);
+                return false;
             }
 
             int fromNode = NearestNodeId(battalion.PositionXCm, battalion.PositionYCm);
@@ -982,8 +1025,8 @@ namespace Wasteland.Sim.World
             PathResult path = _movement.PathOnRoads(fromNode, toNode, battalion.MoveClass, RoadCostWeights.Uniform());
             if (!path.Reachable || path.Waypoints == null || path.Waypoints.Length == 0)
             {
-                Emit(SimEventKind.CommandRejected, battalion.Id, (int)CommandRejectReason.NoPath, fromNode, toNode);
-                return;
+                Reject(command, CommandRejectReason.NoPath, fromNode, toNode);
+                return false;
             }
 
             int start = 0;
@@ -1005,7 +1048,7 @@ namespace Wasteland.Sim.World
                 battalion.TargetXCm = xCm;
                 battalion.TargetYCm = yCm;
                 battalion.HasTarget = false;
-                return;
+                return true;
             }
 
             int[] xs = new int[count];
@@ -1031,6 +1074,7 @@ namespace Wasteland.Sim.World
             battalion.TargetXCm = xs[0];
             battalion.TargetYCm = ys[0];
             battalion.HasTarget = true;
+            return true;
         }
 
         private static void ClearPath(ref SimBattalion battalion)
@@ -1338,13 +1382,44 @@ namespace Wasteland.Sim.World
 
         private void Reject(SimCommand command, CommandRejectReason reason, int param0, int param1)
         {
-            Emit(SimEventKind.CommandRejected, command.BattalionId, (int)reason, param0, param1);
+            Emit(SimEventKind.CommandRejected, command.BattalionId, (int)reason, param0, param1, RejectKey(command));
+        }
+
+        private static ulong RejectKey(SimCommand command)
+        {
+            return ((ulong)(uint)command.IssuerId << 32) | (uint)command.Sequence;
         }
 
         private void Emit(SimEventKind kind, int subjectId, int auxId, int param0 = 0, int param1 = 0)
         {
-            _events.Add(new SimEvent(_nextEventId, Tick, kind, subjectId, auxId, param0, param1));
+            Emit(kind, subjectId, auxId, param0, param1, 0UL);
+        }
+
+        private void Emit(SimEventKind kind, int subjectId, int auxId, int param0, int param1, ulong key)
+        {
+            SimEvent ev = new SimEvent(_nextEventId, Tick, kind, subjectId, auxId, param0, param1, key);
+            _events.Add(ev);
+            _eventHistory.Add(ev);
             _nextEventId++;
+        }
+
+        /// <summary>
+        /// Derived read model for the AI. Not part of <see cref="HashState"/> and not saved.
+        /// <see cref="Ai.AiMatchHost.ReplayTo"/> rebuilds it by stepping from tick 0.
+        /// </summary>
+        private void PruneEventHistory()
+        {
+            int oldest = Tick - EventHistoryTicks;
+            int drop = 0;
+            while (drop < _eventHistory.Count && _eventHistory[drop].Tick < oldest)
+            {
+                drop++;
+            }
+
+            if (drop > 0)
+            {
+                _eventHistory.RemoveRange(0, drop);
+            }
         }
 
         private int BattalionIndexOf(int battalionId)
@@ -1413,6 +1488,7 @@ namespace Wasteland.Sim.World
             public bool FuelEnabled;
             public int PopUsed;
             public int PopCap;
+            public bool SupplyDepotAllowed;
             public int[] Raisable;
             public List<ProductionLane> Lanes;
         }

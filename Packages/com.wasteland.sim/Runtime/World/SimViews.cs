@@ -256,4 +256,144 @@ namespace Wasteland.Sim.World
             CompleteTick = completeTick;
         }
     }
+
+    /// <summary>Reserved, started, or finished supply depot.</summary>
+    public enum DepotSiteState : byte
+    {
+        Reserved = 0,
+        UnderConstruction = 1,
+        Active = 2
+    }
+
+    /// <summary>
+    /// One map town. <see cref="ZoneRadiusCm"/> is 0 for every town that is not
+    /// its territory's seat. <see cref="Tier"/> is the sim population band, -1 for scenery.
+    /// </summary>
+    public readonly struct TownView
+    {
+        public readonly int TownId;
+        public readonly int TerritoryId;
+        public readonly ulong TerritoryKey;
+        public readonly bool IsSeatTown;
+        public readonly int XCm;
+        public readonly int YCm;
+        public readonly int RoadNodeId;
+        public readonly int PopulationClass;
+        public readonly int Tier;
+        public readonly int ZoneRadiusCm;
+        public readonly int FortificationLevel;
+        public readonly int OwnerFactionId;
+        public readonly int CaptureFactionId;
+        public readonly int CaptureProgressTicks;
+        public readonly int CaptureNeededTicks;
+        public readonly int CaptureAbsentTicks;
+        public readonly bool Contested;
+
+        public TownView(
+            int townId,
+            int territoryId,
+            ulong territoryKey,
+            bool isSeatTown,
+            int xCm,
+            int yCm,
+            int roadNodeId,
+            int populationClass,
+            int tier,
+            int zoneRadiusCm,
+            int fortificationLevel,
+            int ownerFactionId,
+            int captureFactionId,
+            int captureProgressTicks,
+            int captureNeededTicks,
+            int captureAbsentTicks,
+            bool contested)
+        {
+            TownId = townId;
+            TerritoryId = territoryId;
+            TerritoryKey = territoryKey;
+            IsSeatTown = isSeatTown;
+            XCm = xCm;
+            YCm = yCm;
+            RoadNodeId = roadNodeId;
+            PopulationClass = populationClass;
+            Tier = tier;
+            ZoneRadiusCm = zoneRadiusCm;
+            FortificationLevel = fortificationLevel;
+            OwnerFactionId = ownerFactionId;
+            CaptureFactionId = captureFactionId;
+            CaptureProgressTicks = captureProgressTicks;
+            CaptureNeededTicks = captureNeededTicks;
+            CaptureAbsentTicks = captureAbsentTicks;
+            Contested = contested;
+        }
+    }
+
+    /// <summary>One map territory. <see cref="Key"/> is the map stable key.</summary>
+    public readonly struct TerritoryView
+    {
+        public readonly ulong Key;
+        public readonly int MapTerritoryId;
+        public readonly int SeatTownId;
+        public readonly int OwnerFactionId;
+
+        public TerritoryView(ulong key, int mapTerritoryId, int seatTownId, int ownerFactionId)
+        {
+            Key = key;
+            MapTerritoryId = mapTerritoryId;
+            SeatTownId = seatTownId;
+            OwnerFactionId = ownerFactionId;
+        }
+    }
+
+    /// <summary>
+    /// One depot site. <see cref="StartTick"/> and <see cref="ActiveTick"/> are -1
+    /// until the build starts. Territory comes from the map node.
+    /// </summary>
+    public readonly struct DepotView
+    {
+        public readonly int DepotId;
+        public readonly int OwnerFactionId;
+        public readonly int NodeId;
+        public readonly ulong TerritoryKey;
+        public readonly int BuilderBattalionId;
+        public readonly int SiteTick;
+        public readonly int StartTick;
+        public readonly int ActiveTick;
+        public readonly DepotSiteState State;
+
+        public DepotView(
+            int depotId,
+            int ownerFactionId,
+            int nodeId,
+            ulong territoryKey,
+            int builderBattalionId,
+            int siteTick,
+            int startTick,
+            int activeTick,
+            DepotSiteState state)
+        {
+            DepotId = depotId;
+            OwnerFactionId = ownerFactionId;
+            NodeId = nodeId;
+            TerritoryKey = territoryKey;
+            BuilderBattalionId = builderBattalionId;
+            SiteTick = siteTick;
+            StartTick = startTick;
+            ActiveTick = activeTick;
+            State = state;
+        }
+    }
+
+    /// <summary>
+    /// Win/loss is reserved. <see cref="IsOver"/> stays false until that pass lands.
+    /// </summary>
+    public readonly struct MatchResultView
+    {
+        public readonly bool IsOver;
+
+        public MatchResultView(bool isOver)
+        {
+            IsOver = isOver;
+        }
+    }
 }

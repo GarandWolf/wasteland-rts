@@ -37,6 +37,42 @@ namespace Wasteland.Sim.Events
         UnknownSeat = 13,
 
         /// <summary>Road A* found no path. Param0 = from node id, Param1 = to node id.</summary>
-        NoPath = 14
+        NoPath = 14,
+
+        /// <summary>Param0 = town id.</summary>
+        UnknownTown = 15,
+
+        /// <summary>The battalion cannot capture.</summary>
+        NotCapturer = 16,
+
+        /// <summary>The town is already owned by the issuer.</summary>
+        AlreadyOwned = 17,
+
+        /// <summary>The battalion cannot build.</summary>
+        NotBuilder = 18,
+
+        /// <summary>supply_depot is not in the seat buildable list.</summary>
+        BuildingNotBuildable = 19,
+
+        /// <summary>Param0 = node id.</summary>
+        UnknownNode = 20,
+
+        /// <summary>The node is not in a territory the builder owns. Param0 = node id, Param1 = territory id.</summary>
+        TerritoryNotOwned = 21,
+
+        /// <summary>The node is outside own HQ and depot supply range.</summary>
+        NotConnectedToSupply = 22,
+
+        /// <summary>Another depot is closer than the minimum road spacing.</summary>
+        DepotTooClose = 23,
+
+        /// <summary>The node already has a depot. Param0 = node id.</summary>
+        NodeHasDepot = 24,
+
+        /// <summary>Param0 = cap, Param1 = depots already counted.</summary>
+        DepotCapReached = 25,
+
+        /// <summary>The town is not a territory seat. Param0 = town id.</summary>
+        NotSeatTown = 26
     }
 }

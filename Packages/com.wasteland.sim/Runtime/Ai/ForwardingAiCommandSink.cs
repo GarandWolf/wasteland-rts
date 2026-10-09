@@ -15,6 +15,7 @@ namespace Wasteland.Sim.Ai
         private readonly AiOwnedState _owned;
         private readonly List<AiIssuedCommand> _issued = new List<AiIssuedCommand>();
         private int _nextId = 1;
+        private int _lastSequence;
 
         public ForwardingAiCommandSink(ISimCommandSink inner, AiOwnedState owned)
         {
@@ -39,15 +40,21 @@ namespace Wasteland.Sim.Ai
 
         public int SubmitMove(int factionId, int battalionId, int xCm, int yCm)
         {
-            _inner.Submit(SimCommand.Move(_inner.Tick, factionId, battalionId, xCm, yCm));
+            SimCommand stamped = _inner.Submit(SimCommand.Move(_inner.Tick, factionId, battalionId, xCm, yCm));
+            _lastSequence = stamped.Sequence;
             return Record(factionId, AiIssuedKind.Move, battalionId, xCm, yCm, 0, string.Empty);
+        }
+
+        /// <summary>Sequence stamped on the last command this sink forwarded into the world.</summary>
+        public int LastSequence
+        {
+            get { return _lastSequence; }
         }
 
         public int SubmitClaimTown(int factionId, int battalionId, int townId)
         {
-            // Occupancy capture has no CommandKind.ClaimTown. Do not stub it
-            // as Move(townId, 0): that overwrites the prize-march destination
-            // with the town id as an X coordinate.
+            SimCommand stamped = _inner.Submit(SimCommand.ClaimTown(_inner.Tick, factionId, battalionId, townId));
+            _lastSequence = stamped.Sequence;
             return Record(factionId, AiIssuedKind.ClaimTown, battalionId, townId, 0, 0, string.Empty);
         }
 
@@ -55,14 +62,14 @@ namespace Wasteland.Sim.Ai
         {
             _owned.GetFaction(factionId);
             SimCommand stamped = _inner.SubmitRaiseBattalion(factionId, unitId, xCm, yCm);
+            _lastSequence = stamped.Sequence;
             return Record(factionId, AiIssuedKind.RaiseBattalion, stamped.BattalionId, xCm, yCm, 0, unitId);
         }
 
         public int SubmitBuildDepot(int factionId, int battalionId, int nodeId)
         {
-            // TODO: follow-up of PR #24 — queue BuildDepot through the sim
-            // once that command exists. Keep SimCommand.Build until then.
-            _inner.Submit(SimCommand.Build(_inner.Tick, factionId, nodeId, 0, 0));
+            SimCommand stamped = _inner.Submit(SimCommand.BuildDepot(_inner.Tick, factionId, battalionId, nodeId));
+            _lastSequence = stamped.Sequence;
             return Record(factionId, AiIssuedKind.BuildDepot, battalionId, nodeId, 0, 0, string.Empty);
         }
 

@@ -197,6 +197,8 @@ namespace Wasteland.Sim.Ai
                 forwarding.RestoreIssuedRaises(commands, balance.ScenarioCatalog);
             }
 
+            // Event history is derived. Stepping from tick 0 rebuilds the last 64 ticks.
+            // It is not part of the AI save.
             int cursor = 0;
             while (world.Tick < tick)
             {
@@ -264,10 +266,9 @@ namespace Wasteland.Sim.Ai
                         "MVP seat " + scenarioSeat.Faction + " has no seat-town position on this map.");
                 }
 
-                // Starting cap only: economy.json popCap (base + hqBonus, hardCap).
-                // buildings.json hq.popCapBonus duplicates hqBonus and is not read.
-                // holdingTiers[].popCapBonus and the owner-change recompute are the
-                // capture PR (data/balance/balance-notes.md ~265).
+                // HQ-only cap. SimWorld.BindHoldings adds holdingTiers pop bonuses.
+                // This host does not bind holdings, so the seat stays on the catalog cap.
+                // buildings.json hq.popCapBonus is not read.
                 world.BindSeat(new SeatSetup(
                     factionId,
                     scenarioSeat.Slot,
