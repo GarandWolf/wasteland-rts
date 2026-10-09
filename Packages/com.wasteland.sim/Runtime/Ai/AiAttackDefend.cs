@@ -874,16 +874,16 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            int inFlightNode = _depots.InFlightNodeId(faction.FactionId, tick);
-            if (inFlightNode != 0 && !IsNodeBlacklisted(faction, inFlightNode))
-            {
-                return;
-            }
-
             int cap = faction.Depots.Length;
             if (cap > 0 && _depots.CountSites(faction.FactionId) >= cap)
             {
                 faction.DepotCapSkips++;
+                return;
+            }
+
+            int inFlightNode = _depots.InFlightNodeId(faction.FactionId, tick);
+            if (inFlightNode != 0 && !IsNodeBlacklisted(faction, inFlightNode))
+            {
                 return;
             }
 
