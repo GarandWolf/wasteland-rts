@@ -1,5 +1,4 @@
 using System.Collections.Generic;
-using System.Text;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.Events;
@@ -65,7 +64,7 @@ namespace Wasteland.Sim.Tests
             }
 
             Assert.True(claimed, "Gorge AI never claimed a town.");
-            Assert.True(depotBuilt, DiagnoseDepot(first));
+            Assert.True(depotBuilt, "Gorge AI never reserved a depot.");
             Assert.True(depotLost, "Gorge AI never lost a depot (refund or destroy).");
             Assert.Equal(firstHashes, secondHashes);
             Assert.Equal(firstEventKinds, secondEventKinds);
@@ -189,65 +188,6 @@ namespace Wasteland.Sim.Tests
             }
 
             into.Add(mix);
-        }
-
-        private static string DiagnoseDepot(AiMatchHost host)
-        {
-            AiFactionState compact = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionB);
-            AiFactionState remnant = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA);
-            int[] kinds = new int[8];
-            IReadOnlyList<SimCommand> log = host.CommandLog;
-            for (int i = 0; i < log.Count; i++)
-            {
-                int kind = (int)log[i].Kind;
-                if (kind >= 0 && kind < kinds.Length)
-                {
-                    kinds[kind]++;
-                }
-            }
-
-            List<DepotView> depots = new List<DepotView>();
-            host.World.CopyDepots(depots);
-            int engineers = 0;
-            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
-            for (int i = 0; i < battalions.Count; i++)
-            {
-                if (!host.World.TryGetBattalionView(battalions[i].Id, out BattalionView view))
-                {
-                    continue;
-                }
-
-                if (host.Ai.Balance.UnitCatalog.TryGetRole(view.UnitId, out string role)
-                    && role == AiConstants.RoleEngineer)
-                {
-                    engineers++;
-                }
-            }
-
-            StringBuilder text = new StringBuilder();
-            text.Append("Gorge AI never reserved a depot.");
-            text.Append(" tick=").Append(host.Tick);
-            text.Append(" depots=").Append(depots.Count);
-            text.Append(" engineers=").Append(engineers);
-            text.Append(" compactTarget=").Append(compact.AttackTargetTownId);
-            text.Append(" compactCapSkips=").Append(compact.DepotCapSkips);
-            text.Append(" compactReject=").Append(compact.LastRejectCode);
-            text.Append(" compactBackoff=").Append(compact.RejectBackoffUntilTick);
-            text.Append(" compactStreak=").Append(compact.RejectStreak);
-            text.Append(" remnantTarget=").Append(remnant.AttackTargetTownId);
-            text.Append(" remnantCapSkips=").Append(remnant.DepotCapSkips);
-            text.Append(" remnantReject=").Append(remnant.LastRejectCode);
-            text.Append(" remnantBackoff=").Append(remnant.RejectBackoffUntilTick);
-            text.Append(" remnantStreak=").Append(remnant.RejectStreak);
-            text.Append(" move=").Append(kinds[(int)CommandKind.Move]);
-            text.Append(" claim=").Append(kinds[(int)CommandKind.ClaimTown]);
-            text.Append(" raise=").Append(kinds[(int)CommandKind.RaiseBattalion]);
-            text.Append(" buildDepot=").Append(kinds[(int)CommandKind.BuildDepot]);
-            text.Append(" compactCanBuild=").Append(
-                AiAttackDefend.CanBuildDepot(
-                    host.Ai.Seats.SeatAt(1),
-                    host.Ai.Balance.BuildingCatalog));
-            return text.ToString();
         }
 
         private static bool HasReservedDepot(AiMatchHost host)
