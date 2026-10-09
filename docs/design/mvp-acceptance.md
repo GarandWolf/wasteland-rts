@@ -71,12 +71,13 @@ Formula: `ticks = timerTicksByTier[seatTier] × (1000 + min(L × fortificationTi
 
 Timer behaviour, unchanged from `rules.json capture`:
 
-- **C3** The timer runs only while capturer units with `canCapture` are inside the zone and no enemy combat unit is in it (`requiresZoneClearOfEnemyCombatUnits` true). Zone radius: village 160934 cm, town 241402 cm.
+- **C3** The timer runs only while capturer units with `canCapture` are inside the zone and no enemy combat unit is in it (`requiresZoneClearOfEnemyCombatUnits` true). **Zone radius** comes from the town's **map population class**, never from the scenario `seatTier`: on the marsh map the town-class radii are 80467 / 160934 / 241402 / 402336 cm for classes 0–3. The **capture timer** (`timerTicksByTier`) and the **pop-cap bonus** use the scenario `seatTier` (`derived.territories[].seatTier` / `places`). Example: Hood River is map class 1, so its zone is 160934 cm, but its `seatTier` is town (a designer override), so its timer is 2400 × 1250 / 1000 = 3000 ticks and its seat place counts as a town (+5) for the pop cap. The Dalles is map class 2 (town) and tier town, so its zone is 241402 cm. Two seats on one town: C9 and DD6; starting pop cap: DD7.
 - **C4** Contest pauses the timer and does not reset it (`onContest` `"pause"`, `resetOnContest` false). Example: Remnant capturers are in the Hood River zone, uncontested, for 2000 ticks; a Compact combat unit enters for 400 ticks and then dies. The timer resumes with 1000 ticks left, so the capture completes 3400 ticks after the timer started.
 - **C5** If the capturer leaves, the timer pauses. After 1200 ticks (`decayStartsAfterTicks`) it decays at 1 tick per tick (`decayTicksPerTick`).
 - **C6** Engineers can neither capture nor contest (`nonCombatUnitsCanCaptureOrContest` false; `canCapture` and `canContest` false on both engineer units). Engineers alone in the zone: no progress, and they do not pause an enemy timer.
 - **C7** Walls stay with the town on capture and serve the new owner, both for the timer and for the +200 defence (`garrisonDefensePpt` 200) (§3a).
 - **C8** Defenders in a walled HQ get +200 defence (`perFortificationLevel`).
+- **C9** Two seats on one town (DD6). Remnant and Compact combat units are both in The Dalles zone: both timers are paused and the single progress meter holds. When the first seat's capturers leave, its progress holds 1200 ticks and then decays 1 per tick (C5); the second seat's progress starts only when the meter reaches 0. Engineers never count (C6).
 
 ## 3. BuildDepot (§3, §3a, `rules.json supply`)
 
@@ -115,6 +116,7 @@ Distances below are from the marsh map with every edge usable (no enemy-controll
 | **D12 Buildings are not targets** | Units in range of an enemy depot. | The depot is not a valid attack target (§3a, combat rule (c)). |
 | **D13 Exactly at range** | A candidate node whose road distance to the builder's HQ is exactly 6437376 cm, or to one of its depots exactly 4828032 cm, and no closer source. | **Connected; accepted** (DD3). One cm farther is rejected. |
 | **D14 Under construction blocks** | Compact engineers start a depot at node X (construction not finished). Remnant issues `BuildDepot` at node X, or at a node less than 804670 cm from X. | **Rejected** (DD1). |
+| **D15 Builder lost before arrival** | Remnant `BuildDepot` at node 614 is accepted (200 charged, site reserved). Before the engineers are within 80467 cm of node 614, they die, get NoPath, or are re-ordered. | Site dropped, **200 materiel refunded**, `OrderRefunded` logged for the Remnant (DD5). After the build has started (builder within 80467 cm), losing the builder changes nothing: the depot completes 900 ticks after the start. |
 
 ### 3.1 Forward depot is required to attack Hood River
 
@@ -163,6 +165,9 @@ Every other target is still a designer-sim estimate and has not been re-measured
 - **DD2 Cost timing. Designer decision, 2026-10-08.** The 200 materiel is charged when the command executes, on tick *T* + `commandDelayTicks` for a command issued on tick *T*. Nothing is charged when `BuildDepot` is rejected.
 - **DD3 Range boundary. Designer decision, 2026-10-08.** A site exactly at `depotRangeCm` (4828032) or `hqRangeCm` (6437376) counts as in range: road distance ≤ range. Spacing passes at ≥ 804670.
 - **DD4 Goldendale – The Dalles distance. Designer decision, 2026-10-08; corrected after #18.** The cheapest road route is Goldendale node 953 – The Dalles node 499, 5272961 cm (**32.8 road-mi**). The earlier 33.0 road-mi figure is superseded. Travel time is set by the sim's straight node-to-node stepping over that route, not its road length, so `remnant_dalles_arrive` is now 3980 (§4).
+- **DD5 Build start and silent drop. Designer decision, 2026-10-08.** The 900 `buildTicks` start when the builder is within 80467 cm of the target node. Before that, if the builder dies, gets NoPath, or is re-ordered, the site is dropped, the 200 materiel is refunded and an `OrderRefunded` event is logged for the issuing seat. That is the only silent drop. Once the build has started it does not need the builder, which is free, and the depot completes on its own. A reserved, started or completed depot is destroyed with no refund if its territory is captured (DD1, K1). Agreed with the Lead for the ClaimTown/BuildDepot PR (D15).
+- **DD6 Two seats on one town. Designer decision, 2026-10-08.** For example the neutral The Dalles. This is C3 applied symmetrically: while both seats have combat units in the zone, both timers are paused. The town has one progress meter and nothing resets. When the first seat's capturers leave, its progress follows C5 (holds 1200 ticks, then decays 1 per tick), and the second seat's progress starts only when that meter reaches 0. Engineers never count (C6). Agreed with the Lead for the ClaimTown/BuildDepot PR (C9).
+- **DD7 Starting pop cap. Designer decision, 2026-10-08.** Starting caps are **Remnant 37** and **Compact 39** = `economy.json popCap.hqBonus` 30 + the summed `holdingTiers[].popCapBonus` of the places the seat holds, from scenario `derived.territories[].places` (hamlet 1, village 2, town 5, city 8), capped at `hardCap` 100. Goldendale is 3 hamlets + 2 villages = 7; Hood River is 4 hamlets + 1 town = 9. `buildings.json hq.popCapBonus` is not read (it duplicates `hqBonus`). The cap is recomputed on every owner change; taking The Dalles (1 hamlet + 2 villages + 1 town) adds +10.
 
 ## Test notes
 
