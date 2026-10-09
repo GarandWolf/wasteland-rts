@@ -46,6 +46,9 @@ namespace Wasteland.Sim.Scenario
             int startingManpower,
             int startingFuel,
             int startingMateriel,
+            int popCapBase,
+            int popCapHqBonus,
+            int popCapHardCap,
             string[] unitIds,
             string[] unitFactions,
             int[] unitTiers,
@@ -78,6 +81,9 @@ namespace Wasteland.Sim.Scenario
             StartingManpower = startingManpower;
             StartingFuel = startingFuel;
             StartingMateriel = startingMateriel;
+            PopCapBase = popCapBase;
+            PopCapHqBonus = popCapHqBonus;
+            PopCapHardCap = popCapHardCap;
             _unitIds = unitIds;
             _unitFactions = unitFactions;
             _unitTiers = unitTiers;
@@ -114,6 +120,37 @@ namespace Wasteland.Sim.Scenario
         public int StartingFuel { get; }
 
         public int StartingMateriel { get; }
+
+        /// <summary><c>economy.json</c> <c>popCap.base</c>.</summary>
+        public int PopCapBase { get; }
+
+        /// <summary><c>economy.json</c> <c>popCap.hqBonus</c>.</summary>
+        public int PopCapHqBonus { get; }
+
+        /// <summary><c>economy.json</c> <c>popCap.hardCap</c>.</summary>
+        public int PopCapHardCap { get; }
+
+        /// <summary>
+        /// Starting seat pop cap: min(<c>popCap.base</c> + <c>popCap.hqBonus</c>, <c>popCap.hardCap</c>).
+        /// Holding bonuses are not included. <c>data/balance/balance-notes.md</c> ~265 defines the
+        /// full cap as <c>popCap.hqBonus</c> plus owned <c>holdingTiers[].popCapBonus</c>, limited
+        /// by <c>hardCap</c>. That recompute on owner change (scenario
+        /// <c>derived.territories[].places</c>) and <c>buildings.json</c> <c>hq.popCapBonus</c>
+        /// (a duplicate of <c>hqBonus</c>) land in the capture PR and are not applied here.
+        /// </summary>
+        public int StartingSeatPopCap
+        {
+            get
+            {
+                long sum = (long)PopCapBase + PopCapHqBonus;
+                if (sum > PopCapHardCap)
+                {
+                    return PopCapHardCap;
+                }
+
+                return (int)sum;
+            }
+        }
 
         public static BalanceCatalog LoadFromDirectory(string balanceDirectory)
         {
@@ -199,6 +236,10 @@ namespace Wasteland.Sim.Scenario
             int startingFuel;
             int startingMateriel;
             ReadStartingResources(economyRoot, out startingManpower, out startingFuel, out startingMateriel);
+            int popCapBase;
+            int popCapHqBonus;
+            int popCapHardCap;
+            ReadPopCap(economyRoot, out popCapBase, out popCapHqBonus, out popCapHardCap);
 
             string[] unitIds;
             string[] unitFactions;
@@ -255,6 +296,9 @@ namespace Wasteland.Sim.Scenario
                 startingManpower,
                 startingFuel,
                 startingMateriel,
+                popCapBase,
+                popCapHqBonus,
+                popCapHardCap,
                 unitIds,
                 unitFactions,
                 unitTiers,
@@ -744,6 +788,27 @@ namespace Wasteland.Sim.Scenario
             materiel = IntAt(
                 Child(resources, "materiel", "economy.json $.startingResources.materiel"),
                 "economy.json $.startingResources.materiel",
+                0);
+        }
+
+        private static void ReadPopCap(
+            JsonValue economyRoot,
+            out int popCapBase,
+            out int popCapHqBonus,
+            out int popCapHardCap)
+        {
+            JsonValue popCap = Child(economyRoot, "popCap", "economy.json $.popCap");
+            popCapBase = IntAt(
+                Child(popCap, "base", "economy.json $.popCap.base"),
+                "economy.json $.popCap.base",
+                0);
+            popCapHqBonus = IntAt(
+                Child(popCap, "hqBonus", "economy.json $.popCap.hqBonus"),
+                "economy.json $.popCap.hqBonus",
+                0);
+            popCapHardCap = IntAt(
+                Child(popCap, "hardCap", "economy.json $.popCap.hardCap"),
+                "economy.json $.popCap.hardCap",
                 0);
         }
 
