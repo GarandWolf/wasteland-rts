@@ -483,6 +483,13 @@ namespace Wasteland.Sim.Tests
                 reader.ReadByte();
                 reader.ReadInt32();
                 reader.ReadInt32();
+                reader.ReadInt32();
+            }
+
+            int blacklistCount = reader.ReadInt32();
+            for (int b = 0; b < blacklistCount; b++)
+            {
+                reader.ReadInt32();
             }
         }
 
