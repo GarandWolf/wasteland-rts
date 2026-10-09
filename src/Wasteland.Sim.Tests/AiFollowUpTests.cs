@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Commands;
@@ -286,6 +287,20 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(
                 CommandRejectReason.NodeHasDepot,
                 host.World.PreviewDepotPlacement(remnant, legal, out _, out _));
+            RoadGraph roads = host.Ai.Map.Roads;
+            Assert.True(roads.TryGetNodeIndex(legal, out int legalIndex));
+            host.World.PlaceBattalion(
+                engineer,
+                roads.GetNodeXCm(legalIndex),
+                roads.GetNodeYCm(legalIndex));
+            int waited = 0;
+            while (!DepotIsActive(host, legal) && waited < 1200)
+            {
+                host.Run(1);
+                waited++;
+            }
+
+            Assert.True(DepotIsActive(host, legal));
 
             int tooClose = FirstPreviewNode(host, remnant, CommandRejectReason.DepotTooClose);
             Assert.True(tooClose != 0);
@@ -419,6 +434,21 @@ namespace Wasteland.Sim.Tests
             }
 
             return roads.GetNodeTerritoryId(index);
+        }
+
+        private static bool DepotIsActive(AiMatchHost host, int nodeId)
+        {
+            List<DepotView> depots = new List<DepotView>();
+            host.World.CopyDepots(depots);
+            for (int i = 0; i < depots.Count; i++)
+            {
+                if (depots[i].NodeId == nodeId && depots[i].State == DepotSiteState.Active)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static int FirstPreviewNode(AiMatchHost host, int seat, CommandRejectReason reason)
