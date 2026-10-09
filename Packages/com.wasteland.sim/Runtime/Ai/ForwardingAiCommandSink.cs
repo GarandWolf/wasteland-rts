@@ -51,6 +51,17 @@ namespace Wasteland.Sim.Ai
             get { return _lastSequence; }
         }
 
+        /// <summary>
+        /// Next id assigned to a non-raise issued command. Saved so
+        /// <see cref="AiFactionState.LastIssuedCommandId"/> does not collide
+        /// with a live battalion id after load.
+        /// </summary>
+        internal int NextIssuedId
+        {
+            get { return _nextId; }
+            set { _nextId = value < 1 ? 1 : value; }
+        }
+
         public int SubmitClaimTown(int factionId, int battalionId, int townId)
         {
             SimCommand stamped = _inner.Submit(SimCommand.ClaimTown(_inner.Tick, factionId, battalionId, townId));

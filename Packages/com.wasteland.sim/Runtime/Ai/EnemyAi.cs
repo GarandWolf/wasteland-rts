@@ -379,6 +379,7 @@ namespace Wasteland.Sim.Ai
 
         public ulong HashState()
         {
+            SyncIssuedCommandNextId();
             XxHash64Builder hash = new XxHash64Builder();
             hash.AddULong(_matchSeed);
             hash.AddInt(_commandDelayTicks);
@@ -399,16 +400,27 @@ namespace Wasteland.Sim.Ai
         public byte[] Save()
         {
             _owned.DroppedFromLog = DroppedFromLog;
+            SyncIssuedCommandNextId();
             return _owned.Save(_matchSeed, _balanceKey, _mapKey);
+        }
+
+        private void SyncIssuedCommandNextId()
+        {
+            ForwardingAiCommandSink? forwarding = _aiCommands as ForwardingAiCommandSink;
+            if (forwarding != null)
+            {
+                _owned.IssuedCommandNextId = forwarding.NextIssuedId;
+            }
         }
 
         public void Load(byte[] blob)
         {
             _owned.Load(blob, _matchSeed, _balanceKey, _mapKey);
             _homesSeeded = true;
-            for (int i = 0; i < _owned.FactionCount; i++)
+            ForwardingAiCommandSink? forwarding = _aiCommands as ForwardingAiCommandSink;
+            if (forwarding != null)
             {
-                _owned.FactionAt(i).LastIssuedCommandId = 0;
+                forwarding.NextIssuedId = _owned.IssuedCommandNextId;
             }
         }
 

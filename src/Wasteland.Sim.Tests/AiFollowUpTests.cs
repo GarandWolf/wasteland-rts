@@ -358,6 +358,87 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void FilledTables_SaveLoad_KeepsInsertSeqEvictionAndIssuedIds()
+        {
+            AiMatchHost host = StartCompactOnly();
+            int compact = AiConstants.DefaultAiFactionB;
+            FillSharedTables(host.Ai.Owned, compact, 5, host.Tick);
+            Assert.Equal(AiConstants.DepotNodeBlacklistCapacity, host.Ai.Owned.BlacklistCount);
+            Assert.Equal(AiConstants.OrderBackoffCapacity, host.Ai.Owned.BackoffCount);
+            host.Ai.Owned.BlacklistDepotNode(
+                compact,
+                90001,
+                host.Tick,
+                AiDepotBlacklistKind.Transient,
+                1,
+                0);
+            host.Ai.Owned.NoteOrderReject(compact, 5, CommandKind.Move, 90001, host.Tick);
+            host.Ai.Owned.EnqueueIntent(compact, new AiPendingIntent
+            {
+                Sequence = 90001,
+                Kind = AiIssuedKind.Move,
+                BattalionId = 5,
+                TargetId = 90001,
+                IssuedTick = host.Tick
+            });
+            Assert.Equal(AiConstants.DepotNodeBlacklistCapacity, host.Ai.Owned.BlacklistCount);
+            Assert.Equal(AiConstants.OrderBackoffCapacity, host.Ai.Owned.BackoffCount);
+            Assert.Equal(AiConstants.PendingIntentCapacity, host.Ai.Owned.GetFaction(compact).IntentCount);
+            Assert.False(host.Ai.Owned.IsDepotNodeBlacklisted(compact, 10000));
+            Assert.False(host.Ai.Owned.IsOrderBackedOff(compact, 5, CommandKind.Move, 20000, host.Tick + 1));
+            Assert.True(host.Ai.Owned.IsDepotNodeBlacklisted(compact, 90001));
+            Assert.Equal(0, IntentTarget(host.Ai.Owned.GetFaction(compact), 1));
+            Assert.Equal(90001, IntentTarget(host.Ai.Owned.GetFaction(compact), 90001));
+
+            ulong before = host.Ai.HashState();
+            byte[] blob = host.Ai.Save();
+            AiMatchHost restored = StartCompactOnly();
+            restored.Ai.Load(blob);
+            Assert.Equal(before, restored.Ai.HashState());
+            Assert.Equal(host.Ai.Owned.NextInsertSeq, restored.Ai.Owned.NextInsertSeq);
+            Assert.Equal(host.Ai.Owned.IssuedCommandNextId, restored.Ai.Owned.IssuedCommandNextId);
+            Assert.Equal(
+                host.Ai.Owned.GetFaction(compact).LastIssuedCommandId,
+                restored.Ai.Owned.GetFaction(compact).LastIssuedCommandId);
+            Assert.False(restored.Ai.Owned.IsDepotNodeBlacklisted(compact, 10000));
+            Assert.True(restored.Ai.Owned.IsDepotNodeBlacklisted(compact, 90001));
+
+            host.Ai.Owned.BlacklistDepotNode(
+                compact,
+                90002,
+                host.Tick,
+                AiDepotBlacklistKind.Transient,
+                1,
+                0);
+            restored.Ai.Owned.BlacklistDepotNode(
+                compact,
+                90002,
+                host.Tick,
+                AiDepotBlacklistKind.Transient,
+                1,
+                0);
+            Assert.Equal(host.Ai.HashState(), restored.Ai.HashState());
+            Assert.False(host.Ai.Owned.IsDepotNodeBlacklisted(compact, 10001));
+            Assert.False(restored.Ai.Owned.IsDepotNodeBlacklisted(compact, 10001));
+            restored.Shutdown();
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void SaveLoad_AiVsAiAndHumanVsAi_MatchUninterruptedTo20000()
+        {
+            int[] saveTicks = { 1500, 4000, 12000 };
+            AssertSaveLoadTo20000(
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                saveTicks,
+                fillAtTick: 12000);
+            AssertSaveLoadTo20000(
+                new[] { AiConstants.DefaultAiFactionB },
+                saveTicks,
+                fillAtTick: 12000);
+        }
+
+        [Fact]
         public void IsMarchingTo_ComparesLastWaypointSoAUnitCanRedirect()
         {
             SimBattalion marching = default;
@@ -720,6 +801,143 @@ namespace Wasteland.Sim.Tests
                 new[] { AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
                 AiBalanceTablesTests.LoadBalance());
+        }
+
+        private static AiMatchHost StartSaveLoadHost(int[] factions)
+        {
+            return AiMatchHost.Start(
+                MatchConfig.Default(AiVsAiGorgeTests.MatchSeed),
+                AiSeamsTests.LoadGorgeV1Bytes(),
+                factions,
+                AiConstants.DifficultyNormal,
+                AiBalanceTablesTests.LoadBalance());
+        }
+
+        private static void AssertSaveLoadTo20000(int[] factions, int[] saveTicks, int fillAtTick)
+        {
+            const int endTick = 20000;
+            AiMatchHost original = StartSaveLoadHost(factions);
+            int cursor = 0;
+            for (int s = 0; s < saveTicks.Length; s++)
+            {
+                int saveTick = saveTicks[s];
+                original.Run(saveTick - cursor);
+                cursor = saveTick;
+                if (saveTick == fillAtTick)
+                {
+                    FillSharedTables(
+                        original.Ai.Owned,
+                        original.Ai.Owned.FactionAt(0).FactionId,
+                        5,
+                        original.Tick);
+                    Assert.Equal(AiConstants.DepotNodeBlacklistCapacity, original.Ai.Owned.BlacklistCount);
+                    Assert.Equal(AiConstants.OrderBackoffCapacity, original.Ai.Owned.BackoffCount);
+                }
+
+                ulong worldAtSave = original.HashWorld();
+                ulong aiAtSave = original.Ai.HashState();
+                byte[] blob = original.Ai.Save();
+                SimCommand[] savedLog = CopyCommands(original.CommandLog);
+                AiMatchHost restored = AiMatchHost.ReplayTo(
+                    MatchConfig.Default(AiVsAiGorgeTests.MatchSeed),
+                    AiSeamsTests.LoadGorgeV1Bytes(),
+                    factions,
+                    AiConstants.DifficultyNormal,
+                    AiBalanceTablesTests.LoadBalance(),
+                    savedLog,
+                    blob,
+                    saveTick);
+                Assert.Equal(original.Tick, restored.Tick);
+                Assert.Equal(worldAtSave, restored.HashWorld());
+                Assert.Equal(aiAtSave, restored.Ai.HashState());
+
+                int remain = endTick - saveTick;
+                original.Run(remain);
+                restored.Run(remain);
+                Assert.Equal(endTick, original.Tick);
+                Assert.Equal(original.HashWorld(), restored.HashWorld());
+                Assert.Equal(original.Ai.HashState(), restored.Ai.HashState());
+                List<SimCommand> replayed = new List<SimCommand>(savedLog.Length + restored.CommandLog.Count);
+                for (int i = 0; i < savedLog.Length; i++)
+                {
+                    replayed.Add(savedLog[i]);
+                }
+
+                for (int i = 0; i < restored.CommandLog.Count; i++)
+                {
+                    replayed.Add(restored.CommandLog[i]);
+                }
+
+                AssertLogsEqual(original.CommandLog, replayed);
+                restored.Shutdown();
+
+                if (s + 1 < saveTicks.Length)
+                {
+                    original.Shutdown();
+                    original = StartSaveLoadHost(factions);
+                    cursor = 0;
+                }
+            }
+
+            original.Shutdown();
+        }
+
+        private static void FillSharedTables(AiOwnedState owned, int seatId, int battalionId, int tick)
+        {
+            int node = 10000;
+            while (owned.BlacklistCount < AiConstants.DepotNodeBlacklistCapacity)
+            {
+                owned.BlacklistDepotNode(
+                    seatId,
+                    node,
+                    tick,
+                    AiDepotBlacklistKind.Transient,
+                    1,
+                    0);
+                node++;
+            }
+
+            int target = 20000;
+            while (owned.BackoffCount < AiConstants.OrderBackoffCapacity)
+            {
+                owned.NoteOrderReject(seatId, battalionId, CommandKind.Move, target, tick);
+                target++;
+            }
+
+            AiFactionState faction = owned.GetFaction(seatId);
+            int sequence = 1;
+            while (faction.IntentCount < faction.Intents.Length)
+            {
+                owned.EnqueueIntent(seatId, new AiPendingIntent
+                {
+                    Sequence = sequence,
+                    Kind = AiIssuedKind.Move,
+                    BattalionId = battalionId,
+                    TargetId = sequence,
+                    IssuedTick = tick
+                });
+                sequence++;
+            }
+
+            int town = 1;
+            while (owned.ClaimTownCount < AiConstants.OrderBackoffCapacity)
+            {
+                owned.NoteAcceptedClaimTown(seatId, town);
+                town++;
+            }
+        }
+
+        private static int IntentTarget(AiFactionState faction, int sequence)
+        {
+            for (int i = 0; i < faction.IntentCount; i++)
+            {
+                if (faction.Intents[i].Sequence == sequence)
+                {
+                    return faction.Intents[i].TargetId;
+                }
+            }
+
+            return 0;
         }
 
         private static int EngineerOf(AiMatchHost host, int factionId)
@@ -1450,6 +1668,7 @@ namespace Wasteland.Sim.Tests
                 reader.ReadByte();
                 reader.ReadInt32();
                 reader.ReadInt32();
+                reader.ReadInt32();
             }
         }
 
@@ -1460,6 +1679,7 @@ namespace Wasteland.Sim.Tests
                 reader.ReadInt32();
                 reader.ReadInt32();
                 reader.ReadByte();
+                reader.ReadInt32();
                 reader.ReadInt32();
                 reader.ReadInt32();
                 reader.ReadInt32();
@@ -1556,7 +1776,10 @@ namespace Wasteland.Sim.Tests
                 reader.ReadInt32();
                 reader.ReadInt32();
                 reader.ReadInt32();
+                reader.ReadInt32();
             }
+
+            reader.ReadInt32();
         }
 
         private static void WriteInt32(byte[] blob, int offset, int value)

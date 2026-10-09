@@ -54,6 +54,7 @@ namespace Wasteland.Sim.Ai
         public int BattalionId;
         public int TargetId;
         public int IssuedTick;
+        public int InsertSeq;
     }
 
     public enum PendingEnqueueResult : byte
@@ -82,6 +83,7 @@ namespace Wasteland.Sim.Ai
         public AiDepotBlacklistKind Kind;
         public int TerritoryId;
         public int OwnerFactionId;
+        public int InsertSeq;
     }
 
     /// <summary>
@@ -93,6 +95,7 @@ namespace Wasteland.Sim.Ai
         public int SeatId;
         public int TownId;
         public int Count;
+        public int InsertSeq;
     }
 
     /// <summary>
@@ -107,6 +110,7 @@ namespace Wasteland.Sim.Ai
         public int TargetId;
         public int UntilTick;
         public int Streak;
+        public int InsertSeq;
     }
 
     /// <summary>
@@ -147,6 +151,7 @@ namespace Wasteland.Sim.Ai
         public int PickedPostCount;
         public int PendingCount;
         public int IntentCount;
+        public int NextIntentInsertSeq;
         public int PendingDropped;
         public int AttackTargetTownId;
         public int DefendTownId;
@@ -208,6 +213,7 @@ namespace Wasteland.Sim.Ai
 
             Posture = posture;
             NextOrderId = 1;
+            NextIntentInsertSeq = 1;
             NextBattalionId = factionId * AiConstants.BattalionIdStride + 1;
             Orders = new AiOrder[System.Math.Max(1, maxActiveOrders)];
             Depots = new AiDepot[System.Math.Max(1, maxDepotsPerFaction)];
@@ -239,6 +245,16 @@ namespace Wasteland.Sim.Ai
                 }
             }
 
+            if (intent.InsertSeq < 1)
+            {
+                intent.InsertSeq = NextIntentInsertSeq;
+                NextIntentInsertSeq++;
+                if (NextIntentInsertSeq < 1)
+                {
+                    NextIntentInsertSeq = 1;
+                }
+            }
+
             if (IntentCount < Intents.Length)
             {
                 InsertIntent(intent);
@@ -248,13 +264,13 @@ namespace Wasteland.Sim.Ai
             int worst = 0;
             for (int i = 1; i < IntentCount; i++)
             {
-                if (CompareIntents(Intents[i], Intents[worst]) < 0)
+                if (CompareIntentAge(Intents[i], Intents[worst]) < 0)
                 {
                     worst = i;
                 }
             }
 
-            if (CompareIntents(intent, Intents[worst]) <= 0)
+            if (CompareIntentAge(intent, Intents[worst]) <= 0)
             {
                 return;
             }
@@ -329,6 +345,17 @@ namespace Wasteland.Sim.Ai
             }
 
             return a.TargetId.CompareTo(b.TargetId);
+        }
+
+        public static int CompareIntentAge(AiPendingIntent a, AiPendingIntent b)
+        {
+            int c = a.InsertSeq.CompareTo(b.InsertSeq);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            return CompareIntents(a, b);
         }
 
         /// <summary>
@@ -434,6 +461,8 @@ namespace Wasteland.Sim.Ai
         public int DroppedFromLog;
         public int BlacklistCount;
         public int BackoffCount;
+        public int NextInsertSeq = 1;
+        public int IssuedCommandNextId = 1;
         public bool CaptureWatchReady;
 
         public AiOwnedState(AiFactionState[] factions, int townCount)
@@ -654,6 +683,13 @@ namespace Wasteland.Sim.Ai
             entry.Kind = kind;
             entry.TerritoryId = territoryId;
             entry.OwnerFactionId = ownerFactionId;
+            entry.InsertSeq = NextInsertSeq;
+            NextInsertSeq++;
+            if (NextInsertSeq < 1)
+            {
+                NextInsertSeq = 1;
+            }
+
             if (BlacklistCount < _blacklist.Length)
             {
                 _blacklist[BlacklistCount] = entry;
@@ -733,19 +769,19 @@ namespace Wasteland.Sim.Ai
 
         public static int CompareBlacklistAge(AiDepotBlacklistEntry a, AiDepotBlacklistEntry b)
         {
-            int c = a.AddedTick.CompareTo(b.AddedTick);
+            int c = a.InsertSeq.CompareTo(b.InsertSeq);
             if (c != 0)
             {
                 return c;
             }
 
-            c = a.NodeId.CompareTo(b.NodeId);
+            c = a.AddedTick.CompareTo(b.AddedTick);
             if (c != 0)
             {
                 return c;
             }
 
-            return a.SeatId.CompareTo(b.SeatId);
+            return CompareBlacklistKey(a, b);
         }
 
         public bool IsOrderBackedOff(int seatId, int battalionId, CommandKind kind, int targetId, int tick)
@@ -799,9 +835,17 @@ namespace Wasteland.Sim.Ai
             entry.Streak = streak;
             if (index >= 0)
             {
+                entry.InsertSeq = _backoff[index].InsertSeq;
                 _backoff[index] = entry;
                 SortBackoff();
                 return;
+            }
+
+            entry.InsertSeq = NextInsertSeq;
+            NextInsertSeq++;
+            if (NextInsertSeq < 1)
+            {
+                NextInsertSeq = 1;
             }
 
             if (BackoffCount < _backoff.Length)
@@ -910,6 +954,13 @@ namespace Wasteland.Sim.Ai
             entry.SeatId = seatId;
             entry.TownId = townId;
             entry.Count = 1;
+            entry.InsertSeq = NextInsertSeq;
+            NextInsertSeq++;
+            if (NextInsertSeq < 1)
+            {
+                NextInsertSeq = 1;
+            }
+
             _claimTowns[ClaimTownCount] = entry;
             ClaimTownCount++;
             SortClaimTowns();
@@ -1038,7 +1089,13 @@ namespace Wasteland.Sim.Ai
 
         public static int CompareBackoffAge(AiOrderBackoffEntry a, AiOrderBackoffEntry b)
         {
-            int c = a.UntilTick.CompareTo(b.UntilTick);
+            int c = a.InsertSeq.CompareTo(b.InsertSeq);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            c = a.UntilTick.CompareTo(b.UntilTick);
             if (c != 0)
             {
                 return c;
@@ -1084,6 +1141,7 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.PendingDropped);
                 hash.AddInt(faction.AttackTargetTownId);
                 hash.AddInt(faction.DefendTownId);
+                hash.AddInt(faction.LastIssuedCommandId);
                 hash.AddInt(faction.LastRejectCode);
                 hash.AddInt(faction.RejectBackoffUntilTick);
                 hash.AddInt(faction.RejectStreak);
@@ -1147,12 +1205,17 @@ namespace Wasteland.Sim.Ai
                     hash.AddInt(intent.BattalionId);
                     hash.AddInt(intent.TargetId);
                     hash.AddInt(intent.IssuedTick);
+                    hash.AddInt(intent.InsertSeq);
                 }
+
+                hash.AddInt(faction.NextIntentInsertSeq);
             }
 
             HashBlacklist(hash);
             HashBackoff(hash);
             HashClaimTowns(hash);
+            hash.AddInt(NextInsertSeq);
+            hash.AddInt(IssuedCommandNextId);
             hash.AddInt(_townOwnerIds.Length);
             for (int i = 0; i < _townOwnerIds.Length; i++)
             {
@@ -1270,7 +1333,10 @@ namespace Wasteland.Sim.Ai
                     writer.Write(intent.BattalionId);
                     writer.Write(intent.TargetId);
                     writer.Write(intent.IssuedTick);
+                    writer.Write(intent.InsertSeq);
                 }
+
+                writer.Write(faction.NextIntentInsertSeq);
             }
 
             WriteBlacklist(writer);
@@ -1288,6 +1354,9 @@ namespace Wasteland.Sim.Ai
                 writer.Write(_lastCaptureFaction[i]);
                 writer.Write(_lastCaptureProgress[i]);
             }
+
+            writer.Write(NextInsertSeq);
+            writer.Write(IssuedCommandNextId);
 
             writer.Flush();
             return stream.ToArray();
@@ -1381,6 +1450,18 @@ namespace Wasteland.Sim.Ai
                 }
             }
 
+            int loadedNextInsertSeq = reader.ReadInt32();
+            if (loadedNextInsertSeq < 1)
+            {
+                throw new InvalidDataException("AI table insert seq is invalid.");
+            }
+
+            int loadedIssuedCommandNextId = reader.ReadInt32();
+            if (loadedIssuedCommandNextId < 1)
+            {
+                throw new InvalidDataException("AI issued-command next id is invalid.");
+            }
+
             if (reader.BaseStream.Position != reader.BaseStream.Length)
             {
                 throw new InvalidDataException("AI save has trailing bytes.");
@@ -1421,6 +1502,9 @@ namespace Wasteland.Sim.Ai
                 _lastCaptureFaction[i] = lastCaptureFaction[i];
                 _lastCaptureProgress[i] = lastCaptureProgress[i];
             }
+
+            NextInsertSeq = loadedNextInsertSeq;
+            IssuedCommandNextId = loadedIssuedCommandNextId;
         }
 
         private static LoadedFaction ReadLoadedFaction(BinaryReader reader, AiFactionState current)
@@ -1582,17 +1666,24 @@ namespace Wasteland.Sim.Ai
                 intent.BattalionId = reader.ReadInt32();
                 intent.TargetId = reader.ReadInt32();
                 intent.IssuedTick = reader.ReadInt32();
+                intent.InsertSeq = reader.ReadInt32();
                 if (intent.Sequence < 0)
                 {
                     throw new InvalidDataException("AI pending intent sequence is negative.");
                 }
 
-                if (intent.IssuedTick < 0)
+                if (intent.IssuedTick < 0 || intent.InsertSeq < 1)
                 {
-                    throw new InvalidDataException("AI pending intent issued tick is negative.");
+                    throw new InvalidDataException("AI pending intent issued tick or insert seq is invalid.");
                 }
 
                 loaded.Intents[n] = intent;
+            }
+
+            loaded.NextIntentInsertSeq = reader.ReadInt32();
+            if (loaded.NextIntentInsertSeq < 1)
+            {
+                throw new InvalidDataException("AI pending intent insert seq is invalid.");
             }
 
             return loaded;
@@ -1616,6 +1707,7 @@ namespace Wasteland.Sim.Ai
             faction.PickedPostCount = loaded.PickedPostCount;
             faction.PendingCount = loaded.PendingCount;
             faction.IntentCount = loaded.IntentCount;
+            faction.NextIntentInsertSeq = loaded.NextIntentInsertSeq;
             faction.PendingDropped = loaded.PendingDropped;
             faction.DepotCapSkips = loaded.DepotCapSkips;
             faction.AttackTargetTownId = loaded.AttackTargetTownId;
@@ -1744,6 +1836,7 @@ namespace Wasteland.Sim.Ai
             public int[] PickedGroupIds = Array.Empty<int>();
             public AiPendingCommand[] Pending = Array.Empty<AiPendingCommand>();
             public int IntentCount;
+            public int NextIntentInsertSeq;
             public AiPendingIntent[] Intents = Array.Empty<AiPendingIntent>();
         }
 
@@ -1758,6 +1851,7 @@ namespace Wasteland.Sim.Ai
                 hash.AddByte((byte)entry.Kind);
                 hash.AddInt(entry.TerritoryId);
                 hash.AddInt(entry.OwnerFactionId);
+                hash.AddInt(entry.InsertSeq);
             }
         }
 
@@ -1772,6 +1866,7 @@ namespace Wasteland.Sim.Ai
                 writer.Write((byte)entry.Kind);
                 writer.Write(entry.TerritoryId);
                 writer.Write(entry.OwnerFactionId);
+                writer.Write(entry.InsertSeq);
             }
         }
 
@@ -1786,6 +1881,7 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(entry.TargetId);
                 hash.AddInt(entry.UntilTick);
                 hash.AddInt(entry.Streak);
+                hash.AddInt(entry.InsertSeq);
             }
         }
 
@@ -1800,6 +1896,7 @@ namespace Wasteland.Sim.Ai
                 writer.Write(entry.TargetId);
                 writer.Write(entry.UntilTick);
                 writer.Write(entry.Streak);
+                writer.Write(entry.InsertSeq);
             }
         }
 
@@ -1819,9 +1916,11 @@ namespace Wasteland.Sim.Ai
                 entry.TargetId = reader.ReadInt32();
                 entry.UntilTick = reader.ReadInt32();
                 entry.Streak = reader.ReadInt32();
+                entry.InsertSeq = reader.ReadInt32();
                 loaded[i] = entry;
                 if (entry.SeatId == 0 && entry.BattalionId == 0 && entry.Kind == 0
-                    && entry.TargetId == 0 && entry.UntilTick == 0 && entry.Streak == 0)
+                    && entry.TargetId == 0 && entry.UntilTick == 0 && entry.Streak == 0
+                    && entry.InsertSeq == 0)
                 {
                     continue;
                 }
@@ -1836,9 +1935,9 @@ namespace Wasteland.Sim.Ai
                     throw new InvalidDataException("AI order backoff kind byte is out of range.");
                 }
 
-                if (entry.UntilTick < 0 || entry.Streak < 0)
+                if (entry.UntilTick < 0 || entry.Streak < 0 || entry.InsertSeq < 1)
                 {
-                    throw new InvalidDataException("AI order backoff tick or streak is negative.");
+                    throw new InvalidDataException("AI order backoff tick, streak, or insert seq is invalid.");
                 }
 
                 if (!IsKnownFactionId(entry.SeatId))
@@ -1883,10 +1982,12 @@ namespace Wasteland.Sim.Ai
                 entry.Kind = (AiDepotBlacklistKind)kindByte;
                 entry.TerritoryId = reader.ReadInt32();
                 entry.OwnerFactionId = reader.ReadInt32();
+                entry.InsertSeq = reader.ReadInt32();
                 loaded[i] = entry;
                 if (entry.NodeId == 0 && entry.SeatId == 0 && entry.AddedTick == 0
                     && entry.Kind == AiDepotBlacklistKind.Transient
-                    && entry.TerritoryId == 0 && entry.OwnerFactionId == 0)
+                    && entry.TerritoryId == 0 && entry.OwnerFactionId == 0
+                    && entry.InsertSeq == 0)
                 {
                     continue;
                 }
@@ -1896,9 +1997,9 @@ namespace Wasteland.Sim.Ai
                     throw new InvalidDataException("AI depot blacklist node or seat is zero.");
                 }
 
-                if (entry.AddedTick < 0)
+                if (entry.AddedTick < 0 || entry.InsertSeq < 1)
                 {
-                    throw new InvalidDataException("AI depot blacklist tick is negative.");
+                    throw new InvalidDataException("AI depot blacklist tick or insert seq is invalid.");
                 }
 
                 if (!IsKnownFactionId(entry.SeatId))
@@ -2030,6 +2131,7 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(entry.SeatId);
                 hash.AddInt(entry.TownId);
                 hash.AddInt(entry.Count);
+                hash.AddInt(entry.InsertSeq);
             }
         }
 
@@ -2041,6 +2143,7 @@ namespace Wasteland.Sim.Ai
                 writer.Write(entry.SeatId);
                 writer.Write(entry.TownId);
                 writer.Write(entry.Count);
+                writer.Write(entry.InsertSeq);
             }
         }
 
@@ -2057,8 +2160,9 @@ namespace Wasteland.Sim.Ai
                 entry.SeatId = reader.ReadInt32();
                 entry.TownId = reader.ReadInt32();
                 entry.Count = reader.ReadInt32();
+                entry.InsertSeq = reader.ReadInt32();
                 loaded[i] = entry;
-                if (entry.SeatId == 0 && entry.TownId == 0 && entry.Count == 0)
+                if (entry.SeatId == 0 && entry.TownId == 0 && entry.Count == 0 && entry.InsertSeq == 0)
                 {
                     continue;
                 }
@@ -2068,9 +2172,9 @@ namespace Wasteland.Sim.Ai
                     throw new InvalidDataException("AI claim-town seat or town is zero.");
                 }
 
-                if (entry.Count < 1 || entry.Count > AiConstants.MaxClaimTownsPerSeatTown)
+                if (entry.Count < 1 || entry.Count > AiConstants.MaxClaimTownsPerSeatTown || entry.InsertSeq < 1)
                 {
-                    throw new InvalidDataException("AI claim-town count is out of range.");
+                    throw new InvalidDataException("AI claim-town count or insert seq is out of range.");
                 }
 
                 if (!IsKnownFactionId(entry.SeatId))
