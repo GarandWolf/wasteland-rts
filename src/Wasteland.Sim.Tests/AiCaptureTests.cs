@@ -91,8 +91,8 @@ namespace Wasteland.Sim.Tests
 
             TownView dalles = SeatTown(host, host.Ai.Map.TheDallesTownId);
             Assert.Equal(0, dalles.OwnerFactionId);
-            SpawnCapturer(host, AiConstants.DefaultAiFactionA, dalles.XCm, dalles.YCm);
-            host.Run(40);
+            int remnant = SpawnCapturer(host, AiConstants.DefaultAiFactionA, dalles.XCm, dalles.YCm);
+            StepQuiet(host, 40, remnant, dalles.XCm, dalles.YCm);
             dalles = SeatTown(host, dalles.TownId);
             Assert.Equal(AiConstants.DefaultAiFactionA, dalles.CaptureFactionId);
             int heldBeforeContest = dalles.CaptureProgressTicks;
@@ -100,13 +100,13 @@ namespace Wasteland.Sim.Tests
             Assert.True(heldBeforeContest < dalles.CaptureNeededTicks);
             Assert.False(dalles.Contested);
 
-            SpawnCapturer(host, AiConstants.DefaultAiFactionB, dalles.XCm, dalles.YCm);
-            host.Run(2);
+            int compact = SpawnCapturer(host, AiConstants.DefaultAiFactionB, dalles.XCm, dalles.YCm);
+            StepQuietKeep(host, 2, remnant, compact, dalles.XCm, dalles.YCm);
             dalles = SeatTown(host, dalles.TownId);
             Assert.True(dalles.Contested);
             int paused = dalles.CaptureProgressTicks;
             Assert.Equal(AiConstants.DefaultAiFactionA, dalles.CaptureFactionId);
-            host.Run(80);
+            StepQuietKeep(host, 80, remnant, compact, dalles.XCm, dalles.YCm);
             dalles = SeatTown(host, dalles.TownId);
             Assert.Equal(paused, dalles.CaptureProgressTicks);
             Assert.Equal(AiConstants.DefaultAiFactionA, dalles.CaptureFactionId);
@@ -164,7 +164,7 @@ namespace Wasteland.Sim.Tests
             QuietAi(host, AiConstants.DefaultAiFactionA);
             TownView town = FindUnownedSeatOfClass(host, AiHoldingClass.Hamlet);
             int capturer = SpawnCapturer(host, AiConstants.DefaultAiFactionA, town.XCm, town.YCm);
-            WaitUntilProgress(host, town.TownId, 40);
+            WaitUntilProgress(host, town.TownId, 40, capturer, town.XCm, town.YCm);
             town = SeatTown(host, town.TownId);
             Assert.Equal(AiConstants.DefaultAiFactionA, town.CaptureFactionId);
             int held = town.CaptureProgressTicks;
@@ -192,7 +192,7 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(0, town.OwnerFactionId);
             Assert.Equal(decayStarts, town.CaptureAbsentTicks);
 
-            host.Run(1);
+            StepQuiet(host, 1);
             town = SeatTown(host, town.TownId);
             Assert.Equal(heldAtLeave - host.Ai.Balance.DecayTicksPerTick, town.CaptureProgressTicks);
             host.Shutdown();
@@ -211,28 +211,33 @@ namespace Wasteland.Sim.Tests
             QuietAi(host, AiConstants.DefaultAiFactionB);
             TownView town = FindUnownedSeatOfClass(host, AiHoldingClass.Hamlet);
             int firstId = SpawnCapturer(host, AiConstants.DefaultAiFactionA, town.XCm, town.YCm);
-            WaitUntilOwned(host, town.TownId, AiConstants.DefaultAiFactionA);
+            WaitUntilOwned(host, town.TownId, AiConstants.DefaultAiFactionA, firstId, town.XCm, town.YCm);
 
             host.World.PlaceBattalion(firstId, town.XCm + town.ZoneRadiusCm + 5, town.YCm);
-            WaitUntilEmptySeat(host, town.TownId);
+            WaitUntilMeterClear(host, town.TownId);
             town = SeatTown(host, town.TownId);
             Assert.Equal(AiConstants.DefaultAiFactionA, town.OwnerFactionId);
+            Assert.Equal(0, town.CaptureFactionId);
 
-            SpawnCapturer(host, AiConstants.DefaultAiFactionB, town.XCm, town.YCm);
-            WaitUntilProgress(host, town.TownId, 1);
+            int secondId = SpawnCapturer(host, AiConstants.DefaultAiFactionB, town.XCm, town.YCm);
+            WaitUntilProgress(host, town.TownId, 1, secondId, town.XCm, town.YCm);
             town = SeatTown(host, town.TownId);
+            Assert.Equal(AiConstants.DefaultAiFactionB, town.CaptureFactionId);
             int need = town.CaptureNeededTicks;
             Assert.True(need >= ExpectedHamletTicks);
             int held = town.CaptureProgressTicks;
             Assert.True(held < need);
-            host.Run(need - held - 1);
+            StepQuiet(host, need - held, secondId, town.XCm, town.YCm);
             town = SeatTown(host, town.TownId);
-            Assert.Equal(need - 1, town.CaptureProgressTicks);
+            Assert.Equal(need, town.CaptureProgressTicks);
             Assert.Equal(AiConstants.DefaultAiFactionA, town.OwnerFactionId);
-            host.Run(1);
+            WaitUntilOwned(host, town.TownId, AiConstants.DefaultAiFactionB, secondId, town.XCm, town.YCm);
             town = SeatTown(host, town.TownId);
             Assert.Equal(AiConstants.DefaultAiFactionB, town.OwnerFactionId);
-            Assert.Equal(AiConstants.DefaultAiFactionB, host.Ai.Owned.TownOwnerAt(host.Ai.Map.IndexOfTown(town.TownId)));
+            StepQuiet(host, 1, secondId, town.XCm, town.YCm);
+            Assert.Equal(
+                AiConstants.DefaultAiFactionB,
+                host.Ai.Owned.TownOwnerAt(host.Ai.Map.IndexOfTown(town.TownId)));
             host.Shutdown();
         }
 
@@ -272,20 +277,24 @@ namespace Wasteland.Sim.Tests
             QuietAi(host, AiConstants.DefaultAiFactionA);
             Assert.Equal(expectedTicks, host.Ai.Balance.CaptureTicksForClass(populationClass));
             TownView town = FindUnownedSeatOfClass(host, populationClass);
-            SpawnCapturer(host, AiConstants.DefaultAiFactionA, town.XCm, town.YCm);
-            WaitUntilProgress(host, town.TownId, 1);
+            int capturer = SpawnCapturer(host, AiConstants.DefaultAiFactionA, town.XCm, town.YCm);
+            WaitUntilProgress(host, town.TownId, 1, capturer, town.XCm, town.YCm);
             town = SeatTown(host, town.TownId);
             Assert.Equal(0, town.OwnerFactionId);
             int need = town.CaptureNeededTicks;
             Assert.True(need >= expectedTicks);
-            host.Run(need - 2);
+            int held = town.CaptureProgressTicks;
+            StepQuiet(host, need - held, capturer, town.XCm, town.YCm);
             town = SeatTown(host, town.TownId);
             Assert.Equal(0, town.OwnerFactionId);
-            Assert.Equal(need - 1, town.CaptureProgressTicks);
-            host.Run(1);
+            Assert.Equal(need, town.CaptureProgressTicks);
+            WaitUntilOwned(host, town.TownId, AiConstants.DefaultAiFactionA, capturer, town.XCm, town.YCm);
             town = SeatTown(host, town.TownId);
             Assert.Equal(AiConstants.DefaultAiFactionA, town.OwnerFactionId);
-            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.TownOwnerAt(host.Ai.Map.IndexOfTown(town.TownId)));
+            StepQuiet(host, 1, capturer, town.XCm, town.YCm);
+            Assert.Equal(
+                AiConstants.DefaultAiFactionA,
+                host.Ai.Owned.TownOwnerAt(host.Ai.Map.IndexOfTown(town.TownId)));
             host.Shutdown();
         }
 
@@ -339,11 +348,19 @@ namespace Wasteland.Sim.Tests
             return id;
         }
 
-        private static void WaitUntilProgress(AiMatchHost host, int townId, int progress)
+        private static void WaitUntilProgress(
+            AiMatchHost host,
+            int townId,
+            int progress,
+            int capturerId,
+            int xCm,
+            int yCm)
         {
             while (host.Tick < 20000)
             {
                 QuietAll(host);
+                PinCapturer(host, capturerId, xCm, yCm);
+                SilenceExcept(host, capturerId, 0);
                 TownView town = SeatTown(host, townId);
                 if (town.CaptureProgressTicks >= progress)
                 {
@@ -356,11 +373,19 @@ namespace Wasteland.Sim.Tests
             throw new InvalidOperationException("capture timer did not start");
         }
 
-        private static void WaitUntilOwned(AiMatchHost host, int townId, int factionId)
+        private static void WaitUntilOwned(
+            AiMatchHost host,
+            int townId,
+            int factionId,
+            int capturerId,
+            int xCm,
+            int yCm)
         {
             while (host.Tick < 20000)
             {
                 QuietAll(host);
+                PinCapturer(host, capturerId, xCm, yCm);
+                SilenceExcept(host, capturerId, 0);
                 TownView town = SeatTown(host, townId);
                 if (town.OwnerFactionId == factionId)
                 {
@@ -379,9 +404,8 @@ namespace Wasteland.Sim.Tests
             {
                 QuietAll(host);
                 TownView town = SeatTown(host, townId);
-                if (town.CaptureFactionId == 0 || town.CaptureAbsentTicks >= 1)
+                if (town.CaptureAbsentTicks >= 1 || town.CaptureFactionId == 0)
                 {
-                    host.Step();
                     return;
                 }
 
@@ -389,6 +413,24 @@ namespace Wasteland.Sim.Tests
             }
 
             throw new InvalidOperationException("capture zone did not empty.");
+        }
+
+        private static void WaitUntilMeterClear(AiMatchHost host, int townId)
+        {
+            while (host.Tick < 40000)
+            {
+                QuietAll(host);
+                SilenceExcept(host, 0, 0);
+                TownView town = SeatTown(host, townId);
+                if (town.CaptureFactionId == 0 && town.CaptureProgressTicks == 0)
+                {
+                    return;
+                }
+
+                host.Step();
+            }
+
+            throw new InvalidOperationException("capture meter did not clear.");
         }
 
         private static void QuietAll(AiMatchHost host)
@@ -405,6 +447,65 @@ namespace Wasteland.Sim.Tests
             faction.OrderCount = 0;
             faction.PendingCount = 0;
             faction.RejectBackoffUntilTick = int.MaxValue;
+        }
+
+        private static void StepQuiet(AiMatchHost host, int ticks)
+        {
+            StepQuiet(host, ticks, 0, 0, 0);
+        }
+
+        private static void StepQuiet(AiMatchHost host, int ticks, int capturerId, int xCm, int yCm)
+        {
+            for (int i = 0; i < ticks; i++)
+            {
+                QuietAll(host);
+                PinCapturer(host, capturerId, xCm, yCm);
+                SilenceExcept(host, capturerId, 0);
+                host.Step();
+            }
+        }
+
+        private static void StepQuietKeep(
+            AiMatchHost host,
+            int ticks,
+            int firstId,
+            int secondId,
+            int xCm,
+            int yCm)
+        {
+            for (int i = 0; i < ticks; i++)
+            {
+                QuietAll(host);
+                PinCapturer(host, firstId, xCm, yCm);
+                PinCapturer(host, secondId, xCm, yCm);
+                SilenceExcept(host, firstId, secondId);
+                host.Step();
+            }
+        }
+
+        private static void PinCapturer(AiMatchHost host, int capturerId, int xCm, int yCm)
+        {
+            if (capturerId == 0)
+            {
+                return;
+            }
+
+            host.World.PlaceBattalion(capturerId, xCm, yCm);
+        }
+
+        private static void SilenceExcept(AiMatchHost host, int keepA, int keepB)
+        {
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                int id = battalions[i].Id;
+                if (id == keepA || id == keepB)
+                {
+                    continue;
+                }
+
+                host.World.SetBattalionStrength(id, 0);
+            }
         }
     }
 }

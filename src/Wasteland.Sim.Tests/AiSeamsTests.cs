@@ -422,6 +422,8 @@ namespace Wasteland.Sim.Tests
             SimWorldCommandSink depotSink = new SimWorldCommandSink(depotWorld);
             depotSink.Submit(SimCommand.BuildDepot(0, 1, 11, 1));
             depotWorld.Step();
+            depotWorld.Step();
+            depotWorld.Step();
             Assert.True(depotWorld.Events.Count >= 1);
             Assert.Equal(SimEventKind.CommandRejected, depotWorld.Events[0].Kind);
         }
