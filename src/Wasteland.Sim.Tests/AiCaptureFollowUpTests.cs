@@ -10,6 +10,9 @@ namespace Wasteland.Sim.Tests
     /// <summary>
     /// AI capture follow-up. Two Gorge AI runs must match through a ClaimTown,
     /// a BuildDepot reserve, a reserved-site refund, and a mid-run Save/ReplayTo.
+    /// Each run must have a non-empty command log, a Move from every AI seat, a
+    /// RaiseBattalion in the log, and at least one ClaimTown and one BuildDepot.
+    /// Remnant's authored prize group does not raise in this window; Compact does.
     /// Lead's 4000-tick hash/event identity belongs in DeterminismTests; scripted
     /// capture belongs in GorgeCaptureDeterminismTests. This file does not add
     /// to either.
@@ -155,9 +158,10 @@ namespace Wasteland.Sim.Tests
             Assert.True(log.Count > 0, "AI command log is empty.");
             bool claimed = false;
             bool built = false;
+            bool raised = false;
             int seatCount = factions.Length;
-            int[] raises = new int[seatCount];
             int[] moves = new int[seatCount];
+            int[] orders = new int[seatCount];
             int[] seatIds = new int[seatCount];
             for (int s = 0; s < seatCount; s++)
             {
@@ -178,15 +182,22 @@ namespace Wasteland.Sim.Tests
                     built = true;
                 }
 
+                if (command.Kind == CommandKind.RaiseBattalion)
+                {
+                    raised = true;
+                }
+
                 int seat = IndexOfId(seatIds, command.IssuerId);
                 if (seat < 0)
                 {
                     continue;
                 }
 
-                if (command.Kind == CommandKind.RaiseBattalion)
+                if (command.Kind == CommandKind.RaiseBattalion
+                    || command.Kind == CommandKind.ClaimTown
+                    || command.Kind == CommandKind.BuildDepot)
                 {
-                    raises[seat]++;
+                    orders[seat]++;
                 }
 
                 if (command.Kind == CommandKind.Move)
@@ -197,14 +208,15 @@ namespace Wasteland.Sim.Tests
 
             Assert.True(claimed, "AI never issued ClaimTown.");
             Assert.True(built, "AI never issued BuildDepot.");
+            Assert.True(raised, "AI never issued RaiseBattalion.");
             for (int s = 0; s < seatCount; s++)
             {
                 Assert.True(
-                    raises[s] > 0,
-                    "AI seat " + seatIds[s] + " never issued RaiseBattalion.");
-                Assert.True(
                     moves[s] > 0,
                     "AI seat " + seatIds[s] + " never issued Move.");
+                Assert.True(
+                    orders[s] > 0,
+                    "AI seat " + seatIds[s] + " never issued RaiseBattalion, ClaimTown, or BuildDepot.");
             }
         }
 
