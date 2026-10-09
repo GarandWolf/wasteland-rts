@@ -50,6 +50,9 @@ namespace Wasteland.Sim.Ai
         private readonly string[] _queuedUnitIds = new string[AiConstants.PendingCommandCapacity];
         private bool _shutdown;
         private bool _homesSeeded;
+        private bool _captureWatchReady;
+        private readonly int[] _lastCaptureFaction;
+        private readonly int[] _lastCaptureProgress;
         private int _strategicSliceRuns;
 
         private struct Candidate
@@ -96,6 +99,8 @@ namespace Wasteland.Sim.Ai
             _adjacencyHash = HashAdjacency(map.Adjacency);
             _candidates = new Candidate[System.Math.Max(1, difficulty.MaxCandidateGoals)];
             _networkScratch = new int[balance.ConnectivityScratchSize];
+            _lastCaptureFaction = new int[System.Math.Max(1, map.TownCount)];
+            _lastCaptureProgress = new int[System.Math.Max(1, map.TownCount)];
             _homes.Seed(_owned, _map, _balance);
             _homesSeeded = true;
             IssueOpeningForces();
@@ -406,6 +411,7 @@ namespace Wasteland.Sim.Ai
         {
             _owned.Load(blob, _matchSeed, _balanceKey, _mapKey);
             _homesSeeded = true;
+            _captureWatchReady = false;
             for (int i = 0; i < _owned.FactionCount; i++)
             {
                 _owned.FactionAt(i).LastIssuedCommandId = 0;
@@ -673,6 +679,12 @@ namespace Wasteland.Sim.Ai
                         continue;
                     }
 
+                    if (ev.Kind == SimEventKind.TownOwnerChanged)
+                    {
+                        _owned.ResetClaimTownsForTown(ev.SubjectId);
+                        continue;
+                    }
+
                     if (ev.Kind == SimEventKind.OrderRefunded)
                     {
                         if (ev.AuxId == (int)CommandKind.BuildDepot
@@ -690,6 +702,8 @@ namespace Wasteland.Sim.Ai
 
                 ClearResolvedIntents();
             }
+
+            ResetClaimTownsOnCaptureDrop();
 
             BlacklistDeadBuilders();
             DropStaleClaimTowns(tick);
@@ -1087,6 +1101,51 @@ namespace Wasteland.Sim.Ai
             }
         }
 
+        private void ResetClaimTownsOnCaptureDrop()
+        {
+            _world.CopyTowns(_townScratch);
+            if (!_captureWatchReady)
+            {
+                for (int i = 0; i < _townScratch.Count; i++)
+                {
+                    TownView town = _townScratch[i];
+                    int index = _map.IndexOfTown(town.TownId);
+                    if (index < 0 || index >= _lastCaptureFaction.Length)
+                    {
+                        continue;
+                    }
+
+                    _lastCaptureFaction[index] = town.CaptureFactionId;
+                    _lastCaptureProgress[index] = town.CaptureProgressTicks;
+                }
+
+                _captureWatchReady = true;
+                return;
+            }
+
+            for (int i = 0; i < _townScratch.Count; i++)
+            {
+                TownView town = _townScratch[i];
+                int index = _map.IndexOfTown(town.TownId);
+                if (index < 0 || index >= _lastCaptureFaction.Length)
+                {
+                    continue;
+                }
+
+                int lastFaction = _lastCaptureFaction[index];
+                int lastProgress = _lastCaptureProgress[index];
+                bool capturerCleared = lastFaction != 0 && town.CaptureFactionId == 0;
+                bool progressDropped = lastProgress > 0 && town.CaptureProgressTicks == 0;
+                if (capturerCleared || progressDropped)
+                {
+                    _owned.ResetClaimTownsForTown(town.TownId);
+                }
+
+                _lastCaptureFaction[index] = town.CaptureFactionId;
+                _lastCaptureProgress[index] = town.CaptureProgressTicks;
+            }
+        }
+
         private void ClearResolvedIntents()
         {
             _world.CopyDepots(_depotScratch);
@@ -1377,6 +1436,16 @@ namespace Wasteland.Sim.Ai
                                 faction.FactionId,
                                 pending.BattalionId,
                                 tick))
+                        {
+                            continue;
+                        }
+
+                        if (pending.Kind == CommandKind.Move
+                            && _world.TryGetOwnBattalion(
+                                faction.FactionId,
+                                pending.BattalionId,
+                                out SimBattalion marching)
+                            && marching.HasTarget)
                         {
                             continue;
                         }

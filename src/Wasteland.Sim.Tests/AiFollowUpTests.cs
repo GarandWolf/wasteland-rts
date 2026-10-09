@@ -442,6 +442,82 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void InProgressCapture_DoesNotGetAnotherClaimTown()
+        {
+            TownView capturing = new TownView(
+                30,
+                3,
+                3UL,
+                true,
+                1000,
+                2000,
+                3,
+                1,
+                1,
+                500,
+                0,
+                0,
+                2,
+                10,
+                40,
+                0,
+                false);
+            Assert.True(AiAttackDefend.ClaimTownIsOccupiedBy(capturing, 2, 0, 0));
+            Assert.True(AiAttackDefend.ClaimTownIsOccupiedBy(capturing, 2, 1000, 2000));
+            Assert.False(AiAttackDefend.ClaimTownIsOccupiedBy(
+                new TownView(30, 3, 3UL, true, 1000, 2000, 3, 1, 1, 500, 0, 0, 0, 0, 40, 0, false),
+                2,
+                0,
+                0));
+            Assert.True(AiAttackDefend.ClaimTownIsOccupiedBy(
+                new TownView(30, 3, 3UL, true, 1000, 2000, 3, 1, 1, 500, 0, 0, 0, 0, 40, 0, false),
+                2,
+                1000,
+                2000));
+
+            AiOwnedState owned = new AiOwnedState(new[] { TestFaction(4) }, 1);
+            owned.EnqueueIntent(1, new AiPendingIntent
+            {
+                Sequence = 1,
+                Kind = AiIssuedKind.ClaimTown,
+                BattalionId = 5,
+                TargetId = 30,
+                IssuedTick = 0
+            });
+            Assert.True(owned.HasPendingClaimTown(1, 30));
+            Assert.True(owned.NoteAcceptedClaimTown(1, 30));
+            Assert.True(owned.NoteAcceptedClaimTown(1, 30));
+            Assert.True(owned.NoteAcceptedClaimTown(1, 30));
+            Assert.False(owned.NoteAcceptedClaimTown(1, 30));
+            Assert.Equal(3, owned.AcceptedClaimTowns(1, 30));
+            owned.ResetClaimTownsForTown(30);
+            Assert.Equal(0, owned.AcceptedClaimTowns(1, 30));
+        }
+
+        [Fact]
+        public void PendingMove_DoesNotRetriggerWhenBattalionAlreadyHasATarget()
+        {
+            AiMatchHost host = StartHost();
+            QuietAi(host);
+            int remnant = AiConstants.DefaultAiFactionA;
+            int engineer = RemnantEngineer(host);
+            Assert.True(engineer != 0);
+            Assert.True(TryBattalion(host, engineer, out SimBattalion before));
+            int destX = before.PositionXCm + 200000;
+            int destY = before.PositionYCm;
+            host.World.Submit(SimCommand.Move(host.Tick, remnant, engineer, destX, destY));
+            host.Run(host.World.CommandDelayTicks + 2);
+            Assert.True(TryBattalion(host, engineer, out SimBattalion marching));
+            Assert.True(marching.HasTarget);
+            int moves = CountMoves(host, engineer);
+            AiFactionState faction = host.Ai.Owned.GetFaction(remnant);
+            Assert.True(host.Ai.Issue(faction, CommandKind.Move, engineer, destX, destY, 0));
+            host.Run(faction.ReactionExtraTicks + 2);
+            Assert.Equal(moves, CountMoves(host, engineer));
+            host.Shutdown();
+        }
+
+        [Fact]
         public void HashInto_IncludesDroppedFromLog()
         {
             AiMatchHost host = StartHost();
@@ -639,6 +715,37 @@ namespace Wasteland.Sim.Tests
             }
 
             return false;
+        }
+
+        private static bool TryBattalion(AiMatchHost host, int battalionId, out SimBattalion battalion)
+        {
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                if (battalions[i].Id == battalionId)
+                {
+                    battalion = battalions[i];
+                    return true;
+                }
+            }
+
+            battalion = default;
+            return false;
+        }
+
+        private static int CountMoves(AiMatchHost host, int battalionId)
+        {
+            int count = 0;
+            IReadOnlyList<SimCommand> log = host.CommandLog;
+            for (int i = 0; i < log.Count; i++)
+            {
+                if (log[i].Kind == CommandKind.Move && log[i].BattalionId == battalionId)
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         private static AiOrderBackoffEntry BackoffOf(

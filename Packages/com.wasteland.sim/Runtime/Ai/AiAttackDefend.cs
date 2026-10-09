@@ -2290,6 +2290,11 @@ namespace Wasteland.Sim.Ai
                 return false;
             }
 
+            if (ShouldSkipClaimTown(faction, battalionId, target))
+            {
+                return false;
+            }
+
             if (!AlreadyOnTheWay(faction.FactionId, battalionId, target.XCm, target.YCm))
             {
                 int moveId = _commands.SubmitMove(faction.FactionId, battalionId, target.XCm, target.YCm);
@@ -2302,7 +2307,77 @@ namespace Wasteland.Sim.Ai
 
             int claimId = _commands.SubmitClaimTown(faction.FactionId, battalionId, target.Id);
             Issue(tick, faction, claimId);
-            return _commands.RejectOf(claimId) == AiCommandReject.None;
+            if (_commands.RejectOf(claimId) != AiCommandReject.None)
+            {
+                return false;
+            }
+
+            if (_owned != null)
+            {
+                _owned.NoteAcceptedClaimTown(faction.FactionId, target.Id);
+            }
+
+            return true;
+        }
+
+        internal static bool ClaimTownIsOccupiedBy(
+            TownView town,
+            int factionId,
+            int battalionXCm,
+            int battalionYCm)
+        {
+            if (town.OwnerFactionId == factionId || town.CaptureFactionId == factionId)
+            {
+                return true;
+            }
+
+            if (town.ZoneRadiusCm <= 0)
+            {
+                return false;
+            }
+
+            long dx = (long)battalionXCm - town.XCm;
+            long dy = (long)battalionYCm - town.YCm;
+            long radiusSq = (long)town.ZoneRadiusCm * town.ZoneRadiusCm;
+            return (dx * dx) + (dy * dy) <= radiusSq;
+        }
+
+        private bool ShouldSkipClaimTown(AiFactionState faction, int battalionId, AiAttackTownInfo target)
+        {
+            if (_owned != null)
+            {
+                if (_owned.HasPendingClaimTown(faction.FactionId, target.Id))
+                {
+                    return true;
+                }
+
+                if (_owned.AcceptedClaimTowns(faction.FactionId, target.Id)
+                    >= AiConstants.MaxClaimTownsPerSeatTown)
+                {
+                    return true;
+                }
+            }
+
+            if (_world == null || !_world.TryGetTown(target.Id, out TownView town))
+            {
+                return false;
+            }
+
+            if (town.OwnerFactionId == faction.FactionId || town.CaptureFactionId == faction.FactionId)
+            {
+                return true;
+            }
+
+            if (battalionId == 0 || !_world.TryGetOwnBattalion(faction.FactionId, battalionId, out SimBattalion battalion))
+            {
+                return false;
+            }
+
+            return ClaimTownIsOccupiedBy(
+                town,
+                faction.FactionId,
+                battalion.PositionXCm,
+                battalion.PositionYCm);
         }
 
         private void EnsureBuilderMarchingTo(

@@ -36,6 +36,7 @@ namespace Wasteland.Sim.Ai
         public const int DepotRejectSpamTicksLong = 20000;
         public const int MaxDepotRejectsPerNode = 3;
         public const int MaxRejectsPerOrderKey = 3;
+        public const int MaxClaimTownsPerSeatTown = 3;
         public const int MaxBuildDepotsPerSeat = 5;
         public const int MaxMovesPerBattalion = 50;
         public const int NodeControlRadiusCm = 80467;

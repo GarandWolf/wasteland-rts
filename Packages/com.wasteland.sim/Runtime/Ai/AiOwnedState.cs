@@ -85,6 +85,17 @@ namespace Wasteland.Sim.Ai
     }
 
     /// <summary>
+    /// Accepted ClaimTowns for one (seat, town) in the current ownership
+    /// period. Not saved and not hashed; the cap is a live-match backstop.
+    /// </summary>
+    public struct AiClaimTownCount
+    {
+        public int SeatId;
+        public int TownId;
+        public int Count;
+    }
+
+    /// <summary>
     /// One backed-off order key (seat, unit, kind, target). Saved and hashed
     /// as a fixed-size array sorted by those four fields.
     /// </summary>
@@ -415,6 +426,7 @@ namespace Wasteland.Sim.Ai
         // Shared 128-slot list for every seat, keyed by (node, seat).
         private readonly AiDepotBlacklistEntry[] _blacklist;
         private readonly AiOrderBackoffEntry[] _backoff;
+        private readonly AiClaimTownCount[] _claimTowns;
 
         public int DroppedFromLog;
         public int BlacklistCount;
@@ -445,7 +457,10 @@ namespace Wasteland.Sim.Ai
             _townOwnerIds = new int[townCount];
             _blacklist = new AiDepotBlacklistEntry[AiConstants.DepotNodeBlacklistCapacity];
             _backoff = new AiOrderBackoffEntry[AiConstants.OrderBackoffCapacity];
+            _claimTowns = new AiClaimTownCount[AiConstants.OrderBackoffCapacity];
         }
+
+        public int ClaimTownCount;
 
         public AiDepotBlacklistEntry[] DepotBlacklist
         {
@@ -755,6 +770,116 @@ namespace Wasteland.Sim.Ai
             }
 
             return false;
+        }
+
+        public int AcceptedClaimTowns(int seatId, int townId)
+        {
+            int index = IndexOfClaimTown(seatId, townId);
+            if (index < 0)
+            {
+                return 0;
+            }
+
+            return _claimTowns[index].Count;
+        }
+
+        public bool NoteAcceptedClaimTown(int seatId, int townId)
+        {
+            if (seatId == 0 || townId == 0)
+            {
+                return false;
+            }
+
+            int index = IndexOfClaimTown(seatId, townId);
+            if (index >= 0)
+            {
+                AiClaimTownCount have = _claimTowns[index];
+                if (have.Count >= AiConstants.MaxClaimTownsPerSeatTown)
+                {
+                    return false;
+                }
+
+                have.Count++;
+                _claimTowns[index] = have;
+                return true;
+            }
+
+            if (ClaimTownCount >= _claimTowns.Length)
+            {
+                return false;
+            }
+
+            AiClaimTownCount entry = default;
+            entry.SeatId = seatId;
+            entry.TownId = townId;
+            entry.Count = 1;
+            _claimTowns[ClaimTownCount] = entry;
+            ClaimTownCount++;
+            return true;
+        }
+
+        public void ResetClaimTownsForTown(int townId)
+        {
+            if (townId == 0)
+            {
+                return;
+            }
+
+            int write = 0;
+            for (int i = 0; i < ClaimTownCount; i++)
+            {
+                if (_claimTowns[i].TownId == townId)
+                {
+                    continue;
+                }
+
+                if (write != i)
+                {
+                    _claimTowns[write] = _claimTowns[i];
+                }
+
+                write++;
+            }
+
+            for (int i = write; i < ClaimTownCount; i++)
+            {
+                _claimTowns[i] = default;
+            }
+
+            ClaimTownCount = write;
+        }
+
+        public bool HasPendingClaimTown(int factionId, int townId)
+        {
+            AiFactionState faction;
+            if (!TryGetFaction(factionId, out faction))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < faction.IntentCount; i++)
+            {
+                AiPendingIntent intent = faction.Intents[i];
+                if (intent.Kind == AiIssuedKind.ClaimTown && intent.TargetId == townId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private int IndexOfClaimTown(int seatId, int townId)
+        {
+            for (int i = 0; i < ClaimTownCount; i++)
+            {
+                if (_claimTowns[i].SeatId == seatId && _claimTowns[i].TownId == townId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
         }
 
         private int IndexOfBackoff(int seatId, int battalionId, byte kind, int targetId)
