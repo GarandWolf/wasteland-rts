@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Wasteland.Sim.Ai;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.Events;
 using Wasteland.Sim.World;
@@ -16,33 +17,56 @@ namespace Wasteland.Sim.Tests
         public void SameSeedAndCommandLog_ProducesIdenticalHashesEveryTick()
         {
             IReadOnlyList<SimCommand> log = ScriptedMatch();
-            List<ulong> first = Run(MatchSeed, log);
-            List<ulong> second = Run(MatchSeed, log);
+            RunResult first = Run(MatchSeed, log);
+            RunResult second = Run(MatchSeed, log);
 
-            Assert.Equal(MatchTicks, first.Count);
-            Assert.Equal(first, second);
+            Assert.Equal(MatchTicks, first.Hashes.Count);
+            Assert.Equal(first.Hashes, second.Hashes);
+            AssertSameEvents(first.Events, second.Events);
+            Assert.Contains(first.Events, ev => ev.Tick < MatchTicks - SimWorld.EventHistoryTicks);
+            AssertSameEvents(first.Recent, second.Recent);
+            Assert.True(first.Recent.Count < first.Events.Count);
         }
 
         [Fact]
         public void DifferentCommandLog_ProducesDifferentHash()
         {
             List<SimCommand> log = new List<SimCommand>(ScriptedMatch());
-            List<ulong> baseline = Run(MatchSeed, log);
+            RunResult baseline = Run(MatchSeed, log);
 
             log.Add(SimCommand.Move(40, Issuer, 1, xCm: 1000, yCm: 9000));
-            List<ulong> mutated = Run(MatchSeed, log);
+            RunResult mutated = Run(MatchSeed, log);
 
-            Assert.NotEqual(baseline[baseline.Count - 1], mutated[mutated.Count - 1]);
-            Assert.NotEqual(baseline, mutated);
+            Assert.NotEqual(baseline.Hashes[baseline.Hashes.Count - 1], mutated.Hashes[mutated.Hashes.Count - 1]);
+            Assert.NotEqual(baseline.Hashes, mutated.Hashes);
         }
 
         [Fact]
         public void DifferentSeed_ProducesDifferentHash()
         {
             IReadOnlyList<SimCommand> log = ScriptedMatch();
-            List<ulong> a = Run(MatchSeed, log);
-            List<ulong> b = Run(MatchSeed + 1UL, log);
-            Assert.NotEqual(a[a.Count - 1], b[b.Count - 1]);
+            RunResult a = Run(MatchSeed, log);
+            RunResult b = Run(MatchSeed + 1UL, log);
+            Assert.NotEqual(a.Hashes[a.Hashes.Count - 1], b.Hashes[b.Hashes.Count - 1]);
+        }
+
+        /// <summary>
+        /// The AI issues commands for both seats. Two runs from one seed keep
+        /// the same per-tick hashes and the full event log, including ticks
+        /// that have already fallen out of the 64-tick history window.
+        /// </summary>
+        [Fact]
+        public void AiMatchHost_FourThousandTicks_IsIdenticalAcrossRuns()
+        {
+            const int ticks = 4000;
+            AiRun first = RunAi(ticks);
+            AiRun second = RunAi(ticks);
+            Assert.Equal(ticks, first.WorldHashes.Count);
+            Assert.Equal(first.WorldHashes, second.WorldHashes);
+            Assert.Equal(first.HostHashes, second.HostHashes);
+            AssertSameEvents(first.Events, second.Events);
+            Assert.Contains(first.Events, ev => ev.Tick < ticks - SimWorld.EventHistoryTicks);
+            AssertSameEvents(first.Recent, second.Recent);
         }
 
         [Fact]
@@ -140,7 +164,7 @@ namespace Wasteland.Sim.Tests
             };
         }
 
-        private static List<ulong> Run(ulong seed, IReadOnlyList<SimCommand> log)
+        private static RunResult Run(ulong seed, IReadOnlyList<SimCommand> log)
         {
             SimWorld world = new SimWorld(MatchConfig.Default(seed));
             for (int i = 0; i < log.Count; i++)
@@ -148,13 +172,79 @@ namespace Wasteland.Sim.Tests
                 world.Submit(log[i]);
             }
 
-            List<ulong> hashes = new List<ulong>(MatchTicks);
+            RunResult result = new RunResult();
             for (int i = 0; i < MatchTicks; i++)
             {
-                hashes.Add(world.Step());
+                result.Hashes.Add(world.Step());
             }
 
-            return hashes;
+            result.Events = CopyEvents(world);
+            world.CopyEventsInRange(world.Tick - SimWorld.EventHistoryTicks, world.Tick - 1, result.Recent);
+            return result;
+        }
+
+        private static AiRun RunAi(int ticks)
+        {
+            AiMatchHost host = AiMatchHost.Start(
+                MatchConfig.Default(0xA14000UL),
+                AiSeamsTests.LoadGorgeV1Bytes(),
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                AiConstants.DifficultyNormal,
+                AiBalanceTablesTests.LoadBalance());
+            AiRun run = new AiRun();
+            for (int i = 0; i < ticks; i++)
+            {
+                host.Step();
+                run.WorldHashes.Add(host.World.HashState());
+                run.HostHashes.Add(host.HashWorld());
+            }
+
+            run.Events = CopyEvents(host.World);
+            host.World.CopyEventsInRange(host.Tick - SimWorld.EventHistoryTicks, host.Tick - 1, run.Recent);
+            host.Shutdown();
+            return run;
+        }
+
+        private static List<SimEvent> CopyEvents(SimWorld world)
+        {
+            List<SimEvent> copy = new List<SimEvent>(world.Events.Count);
+            for (int i = 0; i < world.Events.Count; i++)
+            {
+                copy.Add(world.Events[i]);
+            }
+
+            return copy;
+        }
+
+        private static void AssertSameEvents(List<SimEvent> left, List<SimEvent> right)
+        {
+            Assert.Equal(left.Count, right.Count);
+            for (int i = 0; i < left.Count; i++)
+            {
+                Assert.Equal(left[i].EventId, right[i].EventId);
+                Assert.Equal(left[i].Tick, right[i].Tick);
+                Assert.Equal(left[i].Kind, right[i].Kind);
+                Assert.Equal(left[i].SubjectId, right[i].SubjectId);
+                Assert.Equal(left[i].AuxId, right[i].AuxId);
+                Assert.Equal(left[i].Param0, right[i].Param0);
+                Assert.Equal(left[i].Param1, right[i].Param1);
+                Assert.Equal(left[i].Key, right[i].Key);
+            }
+        }
+
+        private sealed class RunResult
+        {
+            public readonly List<ulong> Hashes = new List<ulong>();
+            public List<SimEvent> Events = new List<SimEvent>();
+            public readonly List<SimEvent> Recent = new List<SimEvent>();
+        }
+
+        private sealed class AiRun
+        {
+            public readonly List<ulong> WorldHashes = new List<ulong>();
+            public readonly List<ulong> HostHashes = new List<ulong>();
+            public List<SimEvent> Events = new List<SimEvent>();
+            public readonly List<SimEvent> Recent = new List<SimEvent>();
         }
     }
 }
