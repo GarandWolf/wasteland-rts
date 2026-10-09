@@ -495,6 +495,38 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void NoPathMove_RetriedTwice_DoublesBackoffStreak()
+        {
+            AiMatchHost host = StartHost();
+            QuietAi(host);
+            int remnant = AiConstants.DefaultAiFactionA;
+            int engineer = RemnantEngineer(host);
+            Assert.True(engineer != 0);
+            int dallesIndex = host.Ai.Map.IndexOfTown(host.Ai.Map.TheDallesTownId);
+            AiTownRecord dalles = host.Ai.Map.TownAt(dallesIndex);
+            host.World.ForceNextRoadNoPath = true;
+            host.Ai.AiCommands.SubmitMove(remnant, engineer, dalles.XCm, dalles.YCm);
+            int destNode = MoveIntentTarget(host, remnant, engineer);
+            Assert.True(destNode != 0);
+            Assert.Equal(0, host.Ai.Owned.BackoffCount);
+            int firstRejectTick = StepUntilBackoff(host, remnant, engineer, destNode, 1);
+            AiOrderBackoffEntry first = BackoffOf(host.Ai.Owned, remnant, engineer, CommandKind.Move, destNode);
+            Assert.Equal(1, first.Streak);
+            Assert.Equal(firstRejectTick + AiAttackDefend.RejectBackoffStartTicks, first.UntilTick);
+
+            host.World.ForceNextRoadNoPath = true;
+            host.Ai.AiCommands.SubmitMove(remnant, engineer, dalles.XCm, dalles.YCm);
+            Assert.Equal(1, BackoffOf(host.Ai.Owned, remnant, engineer, CommandKind.Move, destNode).Streak);
+            int secondRejectTick = StepUntilBackoff(host, remnant, engineer, destNode, 2);
+            AiOrderBackoffEntry doubled = BackoffOf(host.Ai.Owned, remnant, engineer, CommandKind.Move, destNode);
+            Assert.Equal(2, doubled.Streak);
+            Assert.Equal(
+                secondRejectTick + (AiAttackDefend.RejectBackoffStartTicks * 2),
+                doubled.UntilTick);
+            host.Shutdown();
+        }
+
+        [Fact]
         public void PendingMove_DoesNotRetriggerWhenBattalionAlreadyHasATarget()
         {
             AiMatchHost host = StartHost();
@@ -819,6 +851,53 @@ namespace Wasteland.Sim.Tests
 
             battalion = default;
             return false;
+        }
+
+        private static int MoveIntentTarget(AiMatchHost host, int seatId, int battalionId)
+        {
+            AiFactionState faction = host.Ai.Owned.GetFaction(seatId);
+            for (int i = 0; i < faction.IntentCount; i++)
+            {
+                AiPendingIntent intent = faction.Intents[i];
+                if (intent.Kind == AiIssuedKind.Move && intent.BattalionId == battalionId)
+                {
+                    return intent.TargetId;
+                }
+            }
+
+            return 0;
+        }
+
+        private static int StepUntilBackoff(
+            AiMatchHost host,
+            int seatId,
+            int battalionId,
+            int destNode,
+            int streak)
+        {
+            for (int i = 0; i < 8; i++)
+            {
+                QuietAi(host);
+                int at = host.Tick;
+                host.Step();
+                if (host.Ai.Owned.BackoffCount == 0)
+                {
+                    continue;
+                }
+
+                AiOrderBackoffEntry row = BackoffOf(
+                    host.Ai.Owned,
+                    seatId,
+                    battalionId,
+                    CommandKind.Move,
+                    destNode);
+                if (row.Streak >= streak)
+                {
+                    return at;
+                }
+            }
+
+            throw new InvalidOperationException("NoPath Move never reached streak " + streak + ".");
         }
 
         private static int CountMoves(AiMatchHost host, int battalionId)
