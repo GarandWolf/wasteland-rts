@@ -474,15 +474,28 @@ namespace Wasteland.Sim.Ai
 
         public AiFactionState GetFaction(int factionId)
         {
+            AiFactionState faction;
+            if (TryGetFaction(factionId, out faction))
+            {
+                return faction;
+            }
+
+            throw new InvalidOperationException("Unknown AI faction " + factionId + ".");
+        }
+
+        public bool TryGetFaction(int factionId, out AiFactionState faction)
+        {
             for (int i = 0; i < _factions.Length; i++)
             {
                 if (_factions[i].FactionId == factionId)
                 {
-                    return _factions[i];
+                    faction = _factions[i];
+                    return true;
                 }
             }
 
-            throw new InvalidOperationException("Unknown AI faction " + factionId + ".");
+            faction = null!;
+            return false;
         }
 
         public int TownOwnerAt(int townIndex)
@@ -701,28 +714,31 @@ namespace Wasteland.Sim.Ai
             SortBackoff();
         }
 
+        public void NoteOrderSuccess(int seatId, int battalionId, CommandKind kind, int targetId)
+        {
+            int index = IndexOfBackoff(seatId, battalionId, (byte)kind, targetId);
+            if (index < 0)
+            {
+                return;
+            }
+
+            for (int i = index; i < BackoffCount - 1; i++)
+            {
+                _backoff[i] = _backoff[i + 1];
+            }
+
+            _backoff[BackoffCount - 1] = default;
+            BackoffCount--;
+        }
+
+        /// <summary>
+        /// Live backoff still uses <see cref="AiOrderBackoffEntry.UntilTick"/>.
+        /// Expired rows stay so the next reject on the same key can double.
+        /// Only <see cref="NoteOrderSuccess"/> clears a streak.
+        /// </summary>
         public void ExpireOrderBackoff(int tick)
         {
-            int write = 0;
-            for (int i = 0; i < BackoffCount; i++)
-            {
-                if (tick < _backoff[i].UntilTick)
-                {
-                    if (write != i)
-                    {
-                        _backoff[write] = _backoff[i];
-                    }
-
-                    write++;
-                }
-            }
-
-            for (int i = write; i < BackoffCount; i++)
-            {
-                _backoff[i] = default;
-            }
-
-            BackoffCount = write;
+            _ = tick;
         }
 
         public bool HasBackoffForBattalion(int seatId, int battalionId, int tick)
@@ -1098,7 +1114,7 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < towns; i++)
             {
                 townOwners[i] = reader.ReadInt32();
-                if (!IsKnownFactionId(townOwners[i]))
+                if (!IsKnownTownOwnerId(townOwners[i]))
                 {
                     throw new InvalidDataException("AI faction id is not in this match.");
                 }
@@ -1678,6 +1694,22 @@ namespace Wasteland.Sim.Ai
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Town owners follow the world, including a human MVP seat that is
+        /// not in <see cref="_factions"/>. Backoff and blacklist still require
+        /// an AI faction so a human reject cannot load into this match.
+        /// </summary>
+        private bool IsKnownTownOwnerId(int factionId)
+        {
+            if (IsKnownFactionId(factionId))
+            {
+                return true;
+            }
+
+            return factionId == AiConstants.DefaultAiFactionA
+                || factionId == AiConstants.DefaultAiFactionB;
         }
 
         private static void SortByFactionId(AiFactionState[] factions)

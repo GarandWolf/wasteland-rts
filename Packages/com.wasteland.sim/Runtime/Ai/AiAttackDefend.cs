@@ -570,7 +570,7 @@ namespace Wasteland.Sim.Ai
                 return true;
             }
 
-            if (MoveBlocked(faction, battalionId, CommandKind.Move, defendTownId, tick))
+            if (MoveBlocked(faction, battalionId, CommandKind.Move, defendNodeId, tick))
             {
                 return true;
             }
@@ -1043,7 +1043,7 @@ namespace Wasteland.Sim.Ai
                 }
             }
 
-            if (MoveBlocked(faction, engineerId, CommandKind.BuildDepot, bestNode, tick))
+            if (MoveBlocked(faction, engineerId, CommandKind.BuildDepot, bestNode, bestNode, tick))
             {
                 return;
             }
@@ -2285,7 +2285,7 @@ namespace Wasteland.Sim.Ai
                 return false;
             }
 
-            if (MoveBlocked(faction, battalionId, CommandKind.ClaimTown, target.Id, tick))
+            if (MoveBlocked(faction, battalionId, CommandKind.ClaimTown, target.Id, target.NodeId, tick))
             {
                 return false;
             }
@@ -2342,7 +2342,7 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            if (MoveBlocked(faction, builderId, CommandKind.BuildDepot, nodeId, tick))
+            if (MoveBlocked(faction, builderId, CommandKind.BuildDepot, nodeId, nodeId, tick))
             {
                 return;
             }
@@ -2385,6 +2385,15 @@ namespace Wasteland.Sim.Ai
                 return false;
             }
 
+            return IsMarchingTo(battalion, xCm, yCm);
+        }
+
+        /// <summary>
+        /// A road move is only "already going there" when the last waypoint is
+        /// the new dest. Any other dest can pull the unit off the march.
+        /// </summary>
+        internal static bool IsMarchingTo(SimBattalion battalion, int xCm, int yCm)
+        {
             if (!battalion.HasTarget)
             {
                 return false;
@@ -2392,7 +2401,18 @@ namespace Wasteland.Sim.Ai
 
             if (battalion.PathCount > 0)
             {
-                return true;
+                if (battalion.PathXCm == null || battalion.PathYCm == null)
+                {
+                    return false;
+                }
+
+                int last = battalion.PathCount - 1;
+                if (last >= battalion.PathXCm.Length || last >= battalion.PathYCm.Length)
+                {
+                    return false;
+                }
+
+                return battalion.PathXCm[last] == xCm && battalion.PathYCm[last] == yCm;
             }
 
             return battalion.TargetXCm == xCm && battalion.TargetYCm == yCm;
@@ -2430,6 +2450,17 @@ namespace Wasteland.Sim.Ai
             int targetId,
             int tick)
         {
+            return MoveBlocked(faction, battalionId, kind, targetId, 0, tick);
+        }
+
+        private bool MoveBlocked(
+            AiFactionState faction,
+            int battalionId,
+            CommandKind kind,
+            int targetId,
+            int moveNodeId,
+            int tick)
+        {
             if (_owned == null || battalionId == 0)
             {
                 return false;
@@ -2440,8 +2471,18 @@ namespace Wasteland.Sim.Ai
                 return true;
             }
 
-            return kind != CommandKind.Move
-                && _owned.IsOrderBackedOff(faction.FactionId, battalionId, CommandKind.Move, targetId, tick);
+            if (kind == CommandKind.Move)
+            {
+                return false;
+            }
+
+            return moveNodeId != 0
+                && _owned.IsOrderBackedOff(
+                    faction.FactionId,
+                    battalionId,
+                    CommandKind.Move,
+                    moveNodeId,
+                    tick);
         }
 
         private void NoteIssuedReject(int tick, AiFactionState faction, int commandId)
@@ -2498,7 +2539,7 @@ namespace Wasteland.Sim.Ai
             return CommandKind.Move;
         }
 
-        private static int TargetOfIssued(AiIssuedCommand cmd)
+        private int TargetOfIssued(AiIssuedCommand cmd)
         {
             if (cmd.Kind == AiIssuedKind.ClaimTown || cmd.Kind == AiIssuedKind.BuildDepot)
             {
@@ -2507,10 +2548,20 @@ namespace Wasteland.Sim.Ai
 
             if (cmd.Kind == AiIssuedKind.Move)
             {
-                return cmd.Arg1;
+                return MoveDestinationNode(_world, cmd.Arg1, cmd.Arg2);
             }
 
             return 0;
+        }
+
+        internal static int MoveDestinationNode(ISimWorldView? world, int xCm, int yCm)
+        {
+            if (world == null)
+            {
+                return 0;
+            }
+
+            return world.GetNearestNodeId(xCm, yCm);
         }
 
         private int NearestIdle(
@@ -2573,7 +2624,13 @@ namespace Wasteland.Sim.Ai
                 }
 
                 if (claimTownId != 0
-                    && MoveBlocked(faction, pin.Id, CommandKind.ClaimTown, claimTownId, _commands.Tick))
+                    && MoveBlocked(
+                        faction,
+                        pin.Id,
+                        CommandKind.ClaimTown,
+                        claimTownId,
+                        toNodeId,
+                        _commands.Tick))
                 {
                     continue;
                 }

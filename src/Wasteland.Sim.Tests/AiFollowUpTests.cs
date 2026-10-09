@@ -321,6 +321,127 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void HumanRejectAndDeadBuilder_DoNotEnterAiLists_AndSaveLoadHashes()
+        {
+            int remnant = AiConstants.DefaultAiFactionA;
+            int compact = AiConstants.DefaultAiFactionB;
+            AiMatchHost host = StartCompactOnly();
+            Assert.Equal(1, host.Ai.Owned.FactionCount);
+            Assert.Equal(compact, host.Ai.Owned.FactionAt(0).FactionId);
+            Assert.True(host.World.TryGetSeat(remnant, out _));
+            QuietAi(host);
+
+            int engineer = EngineerOf(host, remnant);
+            Assert.True(engineer != 0);
+            host.World.Submit(SimCommand.ClaimTown(host.Tick, remnant, engineer, 0));
+            host.Run(host.World.CommandDelayTicks + 2);
+            Assert.False(HasSeatBackoff(host, remnant));
+            Assert.False(HasSeatBlacklist(host, remnant));
+
+            int legal = FirstPreviewNode(host, remnant, CommandRejectReason.None);
+            Assert.True(legal != 0);
+            host.World.Submit(SimCommand.BuildDepot(host.Tick, remnant, engineer, legal));
+            host.Run(host.World.CommandDelayTicks + 2);
+            Assert.True(HasReservedDepot(host, remnant, legal, engineer));
+            host.World.SetBattalionStrength(engineer, 0);
+            host.Run(1);
+            Assert.False(HasSeatBackoff(host, remnant));
+            Assert.False(HasSeatBlacklist(host, remnant));
+
+            ulong before = host.Ai.HashState();
+            byte[] blob = host.Ai.Save();
+            AiMatchHost restored = StartCompactOnly();
+            restored.Ai.Load(blob);
+            Assert.Equal(before, restored.Ai.HashState());
+            restored.Shutdown();
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void IsMarchingTo_ComparesLastWaypointSoAUnitCanRedirect()
+        {
+            SimBattalion marching = default;
+            marching.HasTarget = true;
+            marching.PathCount = 2;
+            marching.PathXCm = new[] { 1000, 2000 };
+            marching.PathYCm = new[] { 0, 0 };
+            Assert.True(AiAttackDefend.IsMarchingTo(marching, 2000, 0));
+            Assert.False(AiAttackDefend.IsMarchingTo(marching, 0, 0));
+            Assert.False(AiAttackDefend.IsMarchingTo(marching, 1000, 0));
+
+            SimBattalion straight = default;
+            straight.HasTarget = true;
+            straight.TargetXCm = 500;
+            straight.TargetYCm = 700;
+            Assert.True(AiAttackDefend.IsMarchingTo(straight, 500, 700));
+            Assert.False(AiAttackDefend.IsMarchingTo(straight, 0, 0));
+        }
+
+        [Fact]
+        public void MoveBackoff_KeysWritesAndLookupsOnDestinationNode()
+        {
+            Assert.Equal(44, EnemyAi.RejectTargetId(CommandKind.Move, 11, 44));
+            Assert.Equal(11, EnemyAi.RejectTargetId(CommandKind.Move, 11, 0));
+
+            AiMvpAttackTests.Harness townKey = ContestedHq();
+            AiOwnedState townOwned = new AiOwnedState(new[] { townKey.Faction }, 1);
+            AiAttackDefend townPlanner = new AiAttackDefend(
+                townKey.Sink,
+                townKey,
+                townKey.Sink,
+                null,
+                townOwned);
+            townOwned.NoteOrderReject(townKey.Faction.FactionId, 5, CommandKind.Move, 10, 0);
+            AiBattalionPin[] townPins =
+            {
+                AiMvpAttackTests.PinWithRole(5, 2000, 0, 2, AiConstants.RoleLineInfantry)
+            };
+            townKey.SetBattalions(townPins);
+            TickPlanner(townKey, townPlanner, townPins);
+            Assert.True(IssuedMove(townKey.Sink, 5));
+
+            AiMvpAttackTests.Harness nodeKey = ContestedHq();
+            AiOwnedState nodeOwned = new AiOwnedState(new[] { nodeKey.Faction }, 1);
+            AiAttackDefend nodePlanner = new AiAttackDefend(
+                nodeKey.Sink,
+                nodeKey,
+                nodeKey.Sink,
+                null,
+                nodeOwned);
+            nodeOwned.NoteOrderReject(nodeKey.Faction.FactionId, 5, CommandKind.Move, 1, 0);
+            AiBattalionPin[] nodePins =
+            {
+                AiMvpAttackTests.PinWithRole(5, 2000, 0, 2, AiConstants.RoleLineInfantry)
+            };
+            nodeKey.SetBattalions(nodePins);
+            TickPlanner(nodeKey, nodePlanner, nodePins);
+            Assert.False(IssuedMove(nodeKey.Sink, 5));
+        }
+
+        [Fact]
+        public void OrderBackoffStreak_SurvivesExpiry_AndResetsOnlyOnSuccess()
+        {
+            AiOwnedState owned = new AiOwnedState(new[] { TestFaction(4) }, 1);
+            owned.NoteOrderReject(1, 5, CommandKind.Move, 44, 0);
+            AiOrderBackoffEntry first = BackoffOf(owned, 1, 5, CommandKind.Move, 44);
+            Assert.Equal(1, first.Streak);
+            Assert.Equal(AiAttackDefend.RejectBackoffStartTicks, first.UntilTick);
+            owned.ExpireOrderBackoff(first.UntilTick);
+            Assert.False(owned.IsOrderBackedOff(1, 5, CommandKind.Move, 44, first.UntilTick));
+            Assert.Equal(1, BackoffOf(owned, 1, 5, CommandKind.Move, 44).Streak);
+
+            owned.NoteOrderReject(1, 5, CommandKind.Move, 44, first.UntilTick);
+            AiOrderBackoffEntry doubled = BackoffOf(owned, 1, 5, CommandKind.Move, 44);
+            Assert.Equal(2, doubled.Streak);
+            Assert.Equal(first.UntilTick + (AiAttackDefend.RejectBackoffStartTicks * 2), doubled.UntilTick);
+
+            owned.NoteOrderSuccess(1, 5, CommandKind.Move, 44);
+            Assert.Equal(0, owned.BackoffCount);
+            owned.NoteOrderReject(1, 5, CommandKind.Move, 44, doubled.UntilTick);
+            Assert.Equal(1, BackoffOf(owned, 1, 5, CommandKind.Move, 44).Streak);
+        }
+
+        [Fact]
         public void HashInto_IncludesDroppedFromLog()
         {
             AiMatchHost host = StartHost();
@@ -391,6 +512,155 @@ namespace Wasteland.Sim.Tests
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
                 AiBalanceTablesTests.LoadBalance());
+        }
+
+        private static AiMatchHost StartCompactOnly()
+        {
+            return AiMatchHost.Start(
+                MatchConfig.Default(0xA11EEDUL),
+                AiSeamsTests.LoadGorgeV1Bytes(),
+                new[] { AiConstants.DefaultAiFactionB },
+                AiConstants.DifficultyNormal,
+                AiBalanceTablesTests.LoadBalance());
+        }
+
+        private static int EngineerOf(AiMatchHost host, int factionId)
+        {
+            for (int i = 0; i < host.World.BattalionCount; i++)
+            {
+                SimBattalion battalion = host.World.Battalions[i];
+                if (battalion.OwnerId != factionId)
+                {
+                    continue;
+                }
+
+                if (host.World.TryGetBattalionView(battalion.Id, out BattalionView view)
+                    && view.UnitId != null
+                    && view.UnitId.IndexOf("engineer", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return battalion.Id;
+                }
+            }
+
+            return 0;
+        }
+
+        private static bool HasSeatBackoff(AiMatchHost host, int seatId)
+        {
+            for (int i = 0; i < host.Ai.Owned.BackoffCount; i++)
+            {
+                if (host.Ai.Owned.OrderBackoff[i].SeatId == seatId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasSeatBlacklist(AiMatchHost host, int seatId)
+        {
+            for (int i = 0; i < host.Ai.Owned.BlacklistCount; i++)
+            {
+                if (host.Ai.Owned.DepotBlacklist[i].SeatId == seatId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool HasReservedDepot(AiMatchHost host, int seatId, int nodeId, int builderId)
+        {
+            List<DepotView> depots = new List<DepotView>();
+            host.World.CopyDepots(depots);
+            for (int i = 0; i < depots.Count; i++)
+            {
+                DepotView depot = depots[i];
+                if (depot.OwnerFactionId == seatId
+                    && depot.NodeId == nodeId
+                    && depot.State != DepotSiteState.Active
+                    && depot.BuilderBattalionId == builderId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static AiMvpAttackTests.Harness ContestedHq()
+        {
+            AiMvpAttackTests.Harness harness = AiMvpAttackTests.Harness.Line();
+            harness.Towns[10] = new AiTownReadback(1, true, 1, 1, 2, 4);
+            return harness;
+        }
+
+        private static void TickPlanner(
+            AiMvpAttackTests.Harness harness,
+            AiAttackDefend planner,
+            AiBattalionPin[] pins)
+        {
+            harness.Faction.WorkUnitsThisTick = 0;
+            harness.Sink.Tick = 0;
+            harness.SeatView.Refresh(harness.Seat, 0);
+            planner.Tick(
+                0,
+                harness.Faction,
+                harness.Seat,
+                harness.TownRows,
+                harness.TownRows.Length,
+                pins,
+                pins.Length,
+                harness.Network,
+                1,
+                harness.Roads,
+                1500,
+                harness.SupplyReachCm,
+                harness.PrizeTerritoryKey,
+                harness.PrizeTargetBonusPpt,
+                harness.SeatView,
+                harness.Catalog,
+                harness.Buildings,
+                harness.LineUnitsPerAntiArmour,
+                harness.MinGarrisonPerTown,
+                harness.TaskForceTargetSize);
+        }
+
+        private static bool IssuedMove(RecordingAiCommandSink sink, int battalionId)
+        {
+            for (int i = 0; i < sink.Log.Count; i++)
+            {
+                if (sink.Log[i].Kind == AiIssuedKind.Move && sink.Log[i].Arg0 == battalionId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static AiOrderBackoffEntry BackoffOf(
+            AiOwnedState owned,
+            int seatId,
+            int battalionId,
+            CommandKind kind,
+            int targetId)
+        {
+            for (int i = 0; i < owned.BackoffCount; i++)
+            {
+                AiOrderBackoffEntry row = owned.OrderBackoff[i];
+                if (row.SeatId == seatId
+                    && row.BattalionId == battalionId
+                    && row.Kind == (byte)kind
+                    && row.TargetId == targetId)
+                {
+                    return row;
+                }
+            }
+
+            throw new InvalidOperationException("Missing backoff row.");
         }
 
         private static void QuietAi(AiMatchHost host)

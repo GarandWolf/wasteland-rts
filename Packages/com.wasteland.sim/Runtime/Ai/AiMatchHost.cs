@@ -244,16 +244,27 @@ namespace Wasteland.Sim.Ai
                 mapName,
                 MvpScenarioId);
             world.BindCatalog(catalog);
-            for (int i = 0; i < factionIds.Length; i++)
+            int[] worldFactions =
             {
-                int factionId = factionIds[i];
+                AiConstants.DefaultAiFactionA,
+                AiConstants.DefaultAiFactionB
+            };
+            for (int i = 0; i < worldFactions.Length; i++)
+            {
+                int factionId = worldFactions[i];
                 if (!TryMvpSeat(scenario, factionId, out ScenarioSeat scenarioSeat))
                 {
                     continue;
                 }
 
-                AiFactionState faction = ai.Owned.GetFaction(factionId);
-                if (!ai.Map.TryGetTown(faction.HomeTownId, out AiTownRecord town)
+                int homeTownId = scenarioSeat.HomeTownId;
+                AiFactionState aiFaction;
+                if (ai.Owned.TryGetFaction(factionId, out aiFaction))
+                {
+                    homeTownId = aiFaction.HomeTownId;
+                }
+
+                if (!ai.Map.TryGetTown(homeTownId, out AiTownRecord town)
                     || (town.XCm == 0 && town.YCm == 0))
                 {
                     throw new InvalidOperationException(

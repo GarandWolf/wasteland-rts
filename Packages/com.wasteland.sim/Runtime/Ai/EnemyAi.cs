@@ -675,7 +675,8 @@ namespace Wasteland.Sim.Ai
 
                     if (ev.Kind == SimEventKind.OrderRefunded)
                     {
-                        if (ev.AuxId == (int)CommandKind.BuildDepot)
+                        if (ev.AuxId == (int)CommandKind.BuildDepot
+                            && _owned.TryGetFaction(ev.SubjectId, out _))
                         {
                             BlacklistDepotNode(
                                 ev.SubjectId,
@@ -696,6 +697,11 @@ namespace Wasteland.Sim.Ai
 
         private void NoteOrderRejectFromEvent(SimEvent ev, int issuer, int sequence)
         {
+            if (!_owned.TryGetFaction(issuer, out _))
+            {
+                return;
+            }
+
             CommandKind kind;
             int battalionId;
             int targetId;
@@ -709,10 +715,20 @@ namespace Wasteland.Sim.Ai
             {
                 kind = InferRejectKind(ev.RejectReason);
                 battalionId = ev.SubjectId;
-                targetId = ev.Param0 != 0 ? ev.Param0 : ev.Param1;
+                targetId = RejectTargetId(kind, ev.Param0, ev.Param1);
             }
 
             _owned.NoteOrderReject(issuer, battalionId, kind, targetId, _world.Tick);
+        }
+
+        internal static int RejectTargetId(CommandKind kind, int param0, int param1)
+        {
+            if (kind == CommandKind.Move && param1 != 0)
+            {
+                return param1;
+            }
+
+            return param0 != 0 ? param0 : param1;
         }
 
         private bool TryIntentOf(int factionId, int sequence, out AiPendingIntent intent)
@@ -802,6 +818,11 @@ namespace Wasteland.Sim.Ai
             {
                 DepotView depot = _depotScratch[i];
                 if (depot.State == DepotSiteState.Active || depot.NodeId == 0)
+                {
+                    continue;
+                }
+
+                if (!_owned.TryGetFaction(depot.OwnerFactionId, out _))
                 {
                     continue;
                 }
@@ -1081,6 +1102,20 @@ namespace Wasteland.Sim.Ai
                             && (town.OwnerFactionId == faction.FactionId
                                 || town.CaptureFactionId == faction.FactionId))
                         {
+                            _owned.NoteOrderSuccess(
+                                faction.FactionId,
+                                intent.BattalionId,
+                                CommandKind.ClaimTown,
+                                intent.TargetId);
+                            if (town.RoadNodeId != 0)
+                            {
+                                _owned.NoteOrderSuccess(
+                                    faction.FactionId,
+                                    intent.BattalionId,
+                                    CommandKind.Move,
+                                    town.RoadNodeId);
+                            }
+
                             faction.RemoveIntentAt(i);
                         }
 
@@ -1097,6 +1132,16 @@ namespace Wasteland.Sim.Ai
                         DepotView depot = _depotScratch[d];
                         if (depot.OwnerFactionId == faction.FactionId && depot.NodeId == intent.TargetId)
                         {
+                            _owned.NoteOrderSuccess(
+                                faction.FactionId,
+                                intent.BattalionId,
+                                CommandKind.BuildDepot,
+                                intent.TargetId);
+                            _owned.NoteOrderSuccess(
+                                faction.FactionId,
+                                intent.BattalionId,
+                                CommandKind.Move,
+                                intent.TargetId);
                             faction.RemoveIntentAt(i);
                             break;
                         }
@@ -1133,17 +1178,7 @@ namespace Wasteland.Sim.Ai
         /// </summary>
         private static bool AlreadyMovingTo(SimBattalion battalion, int xCm, int yCm)
         {
-            if (!battalion.HasTarget)
-            {
-                return false;
-            }
-
-            if (battalion.PathCount > 0)
-            {
-                return true;
-            }
-
-            return battalion.TargetXCm == xCm && battalion.TargetYCm == yCm;
+            return AiAttackDefend.IsMarchingTo(battalion, xCm, yCm);
         }
 
         private static bool InRadius(int ax, int ay, int bx, int by, long radiusSq)
@@ -1204,7 +1239,7 @@ namespace Wasteland.Sim.Ai
                         faction.FactionId,
                         order.BattalionId,
                         CommandKind.Move,
-                        town.Id,
+                        town.RoadNodeId,
                         _world.Tick))
                 {
                     continue;

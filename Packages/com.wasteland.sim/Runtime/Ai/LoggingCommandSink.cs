@@ -138,6 +138,11 @@ namespace Wasteland.Sim.Ai
             return _inner.GetNodeTerritoryId(nodeId);
         }
 
+        public int GetNearestNodeId(int xCm, int yCm)
+        {
+            return _inner.GetNearestNodeId(xCm, yCm);
+        }
+
         public CommandRejectReason PreviewDepotPlacement(int factionId, int nodeId, out int param0, out int param1)
         {
             return _inner.PreviewDepotPlacement(factionId, nodeId, out param0, out param1);

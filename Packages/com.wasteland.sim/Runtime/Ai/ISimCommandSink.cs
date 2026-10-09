@@ -86,6 +86,12 @@ namespace Wasteland.Sim.Ai
         /// </summary>
         int GetNodeTerritoryId(int nodeId);
 
+        /// <summary>
+        /// Nearest road node to a point, or 0 if the graph is unbound.
+        /// Ties break to the lower node id.
+        /// </summary>
+        int GetNearestNodeId(int xCm, int yCm);
+
         CommandRejectReason PreviewDepotPlacement(int factionId, int nodeId, out int param0, out int param1);
     }
 
