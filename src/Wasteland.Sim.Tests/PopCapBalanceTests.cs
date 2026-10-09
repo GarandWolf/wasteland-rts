@@ -31,6 +31,9 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(12, catalog.PopCapHqBonus);
             Assert.Equal(15, catalog.StartingSeatPopCap);
 
+            // base 3 + hqBonus 12 + Goldendale holdings 7, and Hood River holdings 9.
+            const int RemnantCap = 22;
+            const int CompactCap = 24;
             AiBalanceTables tables = AiBalanceTablesTests.LoadBalance().WithScenarioCatalog(catalog);
             byte[] map = AiSeamsTests.LoadGorgeV1Bytes();
             int[] factions =
@@ -44,8 +47,9 @@ namespace Wasteland.Sim.Tests
                 factions,
                 AiConstants.DifficultyNormal,
                 tables);
-            AssertPopCap(host, AiConstants.DefaultAiFactionA, 15);
-            AssertPopCap(host, AiConstants.DefaultAiFactionB, 15);
+            Assert.Equal(15, catalog.StartingSeatPopCap);
+            AssertPopCap(host, AiConstants.DefaultAiFactionA, RemnantCap);
+            AssertPopCap(host, AiConstants.DefaultAiFactionB, CompactCap);
 
             byte[] blob = host.Ai.Save();
             AiMatchHost replay = AiMatchHost.ReplayTo(
@@ -57,8 +61,8 @@ namespace Wasteland.Sim.Tests
                 new SimCommand[0],
                 blob,
                 0);
-            AssertPopCap(replay, AiConstants.DefaultAiFactionA, 15);
-            AssertPopCap(replay, AiConstants.DefaultAiFactionB, 15);
+            AssertPopCap(replay, AiConstants.DefaultAiFactionA, RemnantCap);
+            AssertPopCap(replay, AiConstants.DefaultAiFactionB, CompactCap);
             host.Shutdown();
             replay.Shutdown();
         }

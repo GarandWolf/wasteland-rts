@@ -660,7 +660,7 @@ namespace Wasteland.Sim.World
                     }
                 }
 
-                int cap = _catalog.PopCapHqBonus + bonus;
+                long cap = (long)_catalog.PopCapBase + _catalog.PopCapHqBonus + bonus;
                 if (cap > _catalog.PopCapHardCap)
                 {
                     cap = _catalog.PopCapHardCap;
@@ -671,7 +671,7 @@ namespace Wasteland.Sim.World
                     cap = 0;
                 }
 
-                seat.PopCap = cap;
+                seat.PopCap = (int)cap;
                 _seats[s] = seat;
             }
         }

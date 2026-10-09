@@ -266,8 +266,7 @@ namespace Wasteland.Sim.Ai
                         "MVP seat " + scenarioSeat.Faction + " has no seat-town position on this map.");
                 }
 
-                // HQ-only cap. SimWorld.BindHoldings adds holdingTiers pop bonuses.
-                // This host does not bind holdings, so the seat stays on the catalog cap.
+                // BindHoldings replaces this with base + hqBonus + owned holding bonuses.
                 // buildings.json hq.popCapBonus is not read.
                 world.BindSeat(new SeatSetup(
                     factionId,
@@ -287,6 +286,8 @@ namespace Wasteland.Sim.Ai
                     scenarioSeat.AutoResearch,
                     scenarioSeat.StartingUnits));
             }
+
+            world.BindHoldings(scenario, ai.Map);
         }
 
         /// <summary>

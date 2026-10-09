@@ -240,7 +240,7 @@ namespace Wasteland.Sim.World
             Emit(
                 SimEventKind.OrderRefunded,
                 depot.OwnerFactionId,
-                (int)CommandKind.Move,
+                (int)CommandKind.BuildDepot,
                 depot.NodeId,
                 depot.MaterielCharged,
                 depot.TerritoryKey);

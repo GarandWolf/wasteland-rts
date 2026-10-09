@@ -404,7 +404,7 @@ namespace Wasteland.Sim.Tests
             moved.Step();
             Assert.Empty(Depots(moved));
             Assert.Equal(before + cost, Materials(moved, Remnant));
-            Assert.Equal((int)CommandKind.Move, LastKind(moved, SimEventKind.OrderRefunded).AuxId);
+            Assert.Equal((int)CommandKind.BuildDepot, LastKind(moved, SimEventKind.OrderRefunded).AuxId);
         }
 
         [Fact]
@@ -569,6 +569,152 @@ namespace Wasteland.Sim.Tests
             Assert.True(recent.Count < world.Events.Count);
         }
 
+        [Fact]
+        public void SecondBuildDepot_DropsTheFirstSite_AndRefunds()
+        {
+            SimWorld world = RoadWorld();
+            int engineer = Engineer(world, Remnant);
+            int first = FirstLegalNode(world, Remnant);
+            int started = Materials(world, Remnant);
+            world.PlaceBattalion(engineer, 0, 0);
+            world.Submit(SimCommand.BuildDepot(world.Tick, Remnant, engineer, first));
+            world.Step();
+            Assert.Equal(DepotSiteState.Reserved, OnlyDepot(world).State);
+            int second = FirstLegalNode(world, Remnant);
+            Assert.NotEqual(first, second);
+            world.Submit(SimCommand.BuildDepot(world.Tick, Remnant, engineer, second));
+            world.Step();
+            Assert.Equal(second, OnlyDepot(world).NodeId);
+            Assert.Equal(started - Catalog().Capture.DepotMateriel, Materials(world, Remnant));
+            SimEvent refund = LastKind(world, SimEventKind.OrderRefunded);
+            Assert.Equal((int)CommandKind.BuildDepot, refund.AuxId);
+            Assert.Equal(first, refund.Param0);
+            Assert.Equal(Catalog().Capture.DepotMateriel, refund.Param1);
+        }
+
+        [Fact]
+        public void OrderRefunded_RestoresFuel_WhenFuelIsEnabled()
+        {
+            SimWorld world = RoadWorld(true);
+            int engineer = Engineer(world, Remnant);
+            int node = FirstLegalNode(world, Remnant);
+            int fuel = world.FuelOf(Remnant);
+            int materiel = Materials(world, Remnant);
+            world.PlaceBattalion(engineer, 0, 0);
+            world.Submit(SimCommand.BuildDepot(world.Tick, Remnant, engineer, node));
+            world.Step();
+            Assert.Equal(fuel - Catalog().Capture.DepotFuel, world.FuelOf(Remnant));
+            Assert.Equal(materiel - Catalog().Capture.DepotMateriel, Materials(world, Remnant));
+            world.Submit(SimCommand.Move(world.Tick, Remnant, engineer, 1000, 1000));
+            world.Step();
+            Assert.Empty(Depots(world));
+            Assert.Equal(fuel, world.FuelOf(Remnant));
+            Assert.Equal(materiel, Materials(world, Remnant));
+            Assert.Equal(Catalog().Capture.DepotMateriel, LastKind(world, SimEventKind.OrderRefunded).Param1);
+        }
+
+        [Fact]
+        public void Host_Gorge_BindsHoldings_AcceptsClaimAndDepot()
+        {
+            Ensure();
+            byte[] mapBytes = AiSeamsTests.LoadGorgeV1Bytes();
+            int[] factions = { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB };
+            AiMatchHost host = AiMatchHost.Start(
+                MatchConfig.Default(11UL),
+                mapBytes,
+                factions,
+                AiConstants.DifficultyNormal,
+                AiBalanceTablesTests.LoadBalance());
+            Assert.True(host.World.TryGetSeat(Remnant, out SeatView remnant));
+            Assert.True(host.World.TryGetSeat(Compact, out SeatView compact));
+            Assert.Equal(37, remnant.PopCap);
+            Assert.Equal(39, compact.PopCap);
+            BalanceCatalog? scenarioCatalog = AiBalanceTablesTests.LoadBalance().ScenarioCatalog;
+            Assert.NotNull(scenarioCatalog);
+            Assert.Equal(30, scenarioCatalog.StartingSeatPopCap);
+
+            int dallesId = host.Ai.Map.TheDallesTownId;
+            Assert.True(host.World.TryGetTown(dallesId, out TownView dalles));
+            Assert.True(dalles.IsSeatTown);
+            Assert.Equal(0, dalles.OwnerFactionId);
+            Assert.True(dalles.ZoneRadiusCm > 0);
+            int capturer = FastCapturer(host.World, Remnant);
+            host.Ai.Commands.Submit(SimCommand.ClaimTown(host.Tick, Remnant, capturer, dallesId));
+            Step(host.World, host.World.CommandDelayTicks + 1);
+            Assert.False(Rejected(host.World, capturer, CommandRejectReason.UnknownTown));
+            Assert.True(host.World.GetBattalion(capturer).HasTarget);
+
+            Assert.True(host.World.TryGetTown(remnant.HomeTownId, out TownView home));
+            int node = FirstOwnedNode(host, Remnant, home.TerritoryId);
+            int engineer = Engineer(host.World, Remnant);
+            host.Ai.Commands.Submit(SimCommand.BuildDepot(host.Tick, Remnant, engineer, node));
+            Step(host.World, host.World.CommandDelayTicks + 1);
+            Assert.False(Rejected(host.World, engineer, CommandRejectReason.TerritoryNotOwned));
+            Assert.False(Rejected(host.World, engineer, CommandRejectReason.UnknownNode));
+            List<DepotView> depots = Depots(host.World);
+            Assert.Single(depots);
+            Assert.Equal(node, depots[0].NodeId);
+            Assert.Equal(Remnant, depots[0].OwnerFactionId);
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void ReplayTo_RebuildsEventHistory()
+        {
+            Ensure();
+            byte[] mapBytes = AiSeamsTests.LoadGorgeV1Bytes();
+            int[] factions = { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB };
+            MatchConfig config = MatchConfig.Default(19UL);
+            AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
+            AiMatchHost host = AiMatchHost.Start(
+                config,
+                mapBytes,
+                factions,
+                AiConstants.DifficultyNormal,
+                tables);
+            int dallesId = host.Ai.Map.TheDallesTownId;
+            int capturer = FastCapturer(host.World, Remnant);
+            host.Ai.Commands.Submit(SimCommand.ClaimTown(host.Tick, Remnant, capturer, dallesId));
+            Step(host.World, 4);
+            List<SimEvent> live = new List<SimEvent>();
+            host.World.CopyEventsInRange(0, host.Tick, live);
+            byte[] blob = host.Ai.Save();
+            SimCommand[] log = new SimCommand[host.CommandLog.Count];
+            for (int i = 0; i < log.Length; i++)
+            {
+                log[i] = host.CommandLog[i];
+            }
+
+            int tick = host.Tick;
+            AiMatchHost replay = AiMatchHost.ReplayTo(
+                config,
+                mapBytes,
+                factions,
+                AiConstants.DifficultyNormal,
+                tables,
+                log,
+                blob,
+                tick);
+            List<SimEvent> rebuilt = new List<SimEvent>();
+            replay.World.CopyEventsInRange(0, replay.Tick, rebuilt);
+            Assert.Equal(live.Count, rebuilt.Count);
+            for (int i = 0; i < live.Count; i++)
+            {
+                Assert.Equal(live[i].EventId, rebuilt[i].EventId);
+                Assert.Equal(live[i].Tick, rebuilt[i].Tick);
+                Assert.Equal(live[i].Kind, rebuilt[i].Kind);
+                Assert.Equal(live[i].SubjectId, rebuilt[i].SubjectId);
+                Assert.Equal(live[i].AuxId, rebuilt[i].AuxId);
+                Assert.Equal(live[i].Param0, rebuilt[i].Param0);
+                Assert.Equal(live[i].Param1, rebuilt[i].Param1);
+                Assert.Equal(live[i].Key, rebuilt[i].Key);
+            }
+
+            Assert.Equal(host.World.HashState(), replay.World.HashState());
+            host.Shutdown();
+            replay.Shutdown();
+        }
+
         private static List<SimEvent> RunScript()
         {
             SimWorld world = World();
@@ -626,22 +772,37 @@ namespace Wasteland.Sim.Tests
 
         private static SimWorld RoadWorld()
         {
+            return RoadWorld(false);
+        }
+
+        private static SimWorld RoadWorld(bool fuelEnabled)
+        {
             Ensure();
             SimWorld world = new SimWorld(new MatchConfig(7UL, 0));
             world.BindCatalog(_catalog);
             world.BindRoads(_movement, _roads);
-            BindSeats(world);
+            BindSeats(world, fuelEnabled);
             world.BindHoldings(_scenario, _snapshot);
             return world;
         }
 
         private static void BindSeats(SimWorld world)
         {
-            BindSeat(world, Remnant, _scenario.SeatAt(0));
-            BindSeat(world, Compact, _scenario.SeatAt(1));
+            BindSeats(world, _scenario.MatchRules.FuelEnabled);
+        }
+
+        private static void BindSeats(SimWorld world, bool fuelEnabled)
+        {
+            BindSeat(world, Remnant, _scenario.SeatAt(0), fuelEnabled);
+            BindSeat(world, Compact, _scenario.SeatAt(1), fuelEnabled);
         }
 
         private static void BindSeat(SimWorld world, int factionId, ScenarioSeat seat)
+        {
+            BindSeat(world, factionId, seat, _scenario.MatchRules.FuelEnabled);
+        }
+
+        private static void BindSeat(SimWorld world, int factionId, ScenarioSeat seat, bool fuelEnabled)
         {
             Assert.True(_snapshot.TryGetTown(seat.HomeTownId, out AiTownRecord town));
             world.BindSeat(new SeatSetup(
@@ -656,7 +817,7 @@ namespace Wasteland.Sim.Tests
                 seat.StartingManpower,
                 _catalog.StartingMateriel,
                 _catalog.StartingFuel,
-                _scenario.MatchRules.FuelEnabled,
+                fuelEnabled,
                 _catalog.StartingSeatPopCap,
                 seat.RaisableUnits,
                 seat.AutoResearch,
@@ -731,6 +892,73 @@ namespace Wasteland.Sim.Tests
             {
                 world.SetBattalionStrength(ids[i], 0);
             }
+        }
+
+        private static int FastCapturer(SimWorld world, int factionId)
+        {
+            int best = 0;
+            int bestSpeed = -1;
+            for (int i = 0; i < world.BattalionCount; i++)
+            {
+                SimBattalion battalion = world.Battalions[i];
+                if (battalion.OwnerId != factionId || battalion.UnitIndex < 0)
+                {
+                    continue;
+                }
+
+                if (!_catalog.UnitCanCaptureAt(battalion.UnitIndex) || _catalog.UnitCanBuildAt(battalion.UnitIndex))
+                {
+                    continue;
+                }
+
+                if (battalion.SpeedCmPerSecond > bestSpeed
+                    || (battalion.SpeedCmPerSecond == bestSpeed && (best == 0 || battalion.Id < best)))
+                {
+                    best = battalion.Id;
+                    bestSpeed = battalion.SpeedCmPerSecond;
+                }
+            }
+
+            if (best == 0)
+            {
+                throw new InvalidOperationException("No capturer.");
+            }
+
+            return best;
+        }
+
+        private static int FirstOwnedNode(AiMatchHost host, int factionId, int territoryId)
+        {
+            RoadGraph roads = host.Ai.Map.Roads;
+            for (int i = 0; i < roads.NodeCount; i++)
+            {
+                if (roads.GetNodeTerritoryId(i) != territoryId)
+                {
+                    continue;
+                }
+
+                int nodeId = roads.GetNodeId(i);
+                if (host.World.PreviewDepotPlacement(factionId, nodeId, out _, out _) == CommandRejectReason.None)
+                {
+                    return nodeId;
+                }
+            }
+
+            throw new InvalidOperationException("No legal depot node in owned territory " + territoryId + ".");
+        }
+
+        private static bool Rejected(SimWorld world, int subjectId, CommandRejectReason reason)
+        {
+            for (int i = 0; i < world.Events.Count; i++)
+            {
+                SimEvent ev = world.Events[i];
+                if (ev.Kind == SimEventKind.CommandRejected && ev.SubjectId == subjectId && ev.RejectReason == reason)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static int Engineer(SimWorld world, int factionId)
