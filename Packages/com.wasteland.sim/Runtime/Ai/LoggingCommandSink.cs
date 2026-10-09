@@ -167,6 +167,11 @@ namespace Wasteland.Sim.Ai
             return _inner.TryGetRejection(subjectId, out code, out param0, out param1);
         }
 
+        public bool TryGetRejectionByKey(ulong key, out CommandRejectReason code, out int param0, out int param1)
+        {
+            return _inner.TryGetRejectionByKey(key, out code, out param0, out param1);
+        }
+
         public bool TryGetSeat(int factionId, out SeatView view)
         {
             return _inner.TryGetSeat(factionId, out view);

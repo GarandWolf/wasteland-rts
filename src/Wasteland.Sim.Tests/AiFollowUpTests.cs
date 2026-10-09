@@ -7,6 +7,7 @@ using Wasteland.Sim.Events;
 using Wasteland.Sim.Hashing;
 using Wasteland.Sim.Movement;
 using Wasteland.Sim.Random;
+using Wasteland.Sim.Scenario;
 using Wasteland.Sim.World;
 using Xunit;
 
@@ -400,6 +401,9 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(
                 host.Ai.Owned.GetFaction(compact).LastIssuedCommandId,
                 restored.Ai.Owned.GetFaction(compact).LastIssuedCommandId);
+            Assert.Equal(
+                host.Ai.Owned.GetFaction(compact).LastIssuedSequence,
+                restored.Ai.Owned.GetFaction(compact).LastIssuedSequence);
             Assert.False(restored.Ai.Owned.IsDepotNodeBlacklisted(compact, 10000));
             Assert.True(restored.Ai.Owned.IsDepotNodeBlacklisted(compact, 90001));
 
@@ -422,6 +426,92 @@ namespace Wasteland.Sim.Tests
             Assert.False(restored.Ai.Owned.IsDepotNodeBlacklisted(compact, 10001));
             restored.Shutdown();
             host.Shutdown();
+        }
+
+        [Fact]
+        public void RejectOf_CommandIdEqualToBattalionId_DoesNotMisattribute()
+        {
+            const int factionId = AiConstants.DefaultAiFactionA;
+            const int battalionId = 5;
+            const int delay = 2;
+            SimWorld world = new SimWorld(new MatchConfig(1UL, delay));
+            world.BindCatalog(BalanceCatalog.LoadFromDirectory(BalanceLoad.DirectoryPath()));
+            world.BindSeat(new SeatSetup(
+                factionId,
+                factionId,
+                "homestead_compact",
+                7,
+                0,
+                0,
+                1,
+                -1,
+                1000,
+                1000,
+                400,
+                false,
+                10,
+                new[] { "compact_rifle_battalion" }));
+            world.Submit(SimCommand.SpawnBattalion(0, factionId, battalionId, 1000, 2000, 24000));
+            world.Step();
+            world.Step();
+            world.ProcessQueue();
+            Assert.True(world.TryGetBattalionView(battalionId, out _));
+
+            SimWorldCommandSink inner = new SimWorldCommandSink(world);
+            inner.Submit(SimCommand.ClaimTown(world.Tick, factionId, battalionId, 999002));
+            world.Step();
+            world.Step();
+            world.ProcessQueue();
+            Assert.True(world.TryGetRejection(battalionId, out CommandRejectReason bait, out _, out _));
+            Assert.NotEqual(CommandRejectReason.None, bait);
+
+            AiOwnedState owned = new AiOwnedState(
+                new[]
+                {
+                    new AiFactionState(
+                        factionId,
+                        AiConstants.PersonalitySettler,
+                        AiConstants.DifficultyNormal,
+                        0,
+                        40,
+                        4,
+                        1,
+                        60,
+                        8,
+                        1,
+                        0,
+                        50000,
+                        4,
+                        4,
+                        AiPosture.Attack,
+                        new SimRandom(1UL),
+                        new SimRandom(3UL),
+                        new SimRandom(5UL),
+                        new SimRandom(7UL))
+                },
+                1);
+            ForwardingAiCommandSink forwarding = new ForwardingAiCommandSink(inner, owned);
+            forwarding.NextIssuedId = battalionId;
+            int moveId = forwarding.SubmitMove(factionId, battalionId, 1000, 2000);
+            Assert.Equal(battalionId, moveId);
+            Assert.Equal(AiCommandReject.None, forwarding.RejectOf(moveId));
+
+            world.Step();
+            world.Step();
+            world.ProcessQueue();
+            Assert.Equal(AiCommandReject.None, forwarding.RejectOf(moveId));
+            Assert.True(world.TryGetRejection(battalionId, out CommandRejectReason stillBait, out _, out _));
+            Assert.Equal(bait, stillBait);
+
+            ForwardingAiCommandSink own = new ForwardingAiCommandSink(inner, owned);
+            own.NextIssuedId = battalionId;
+            int claimId = own.SubmitClaimTown(factionId, battalionId, 999003);
+            Assert.Equal(battalionId, claimId);
+            world.Step();
+            world.Step();
+            world.ProcessQueue();
+            Assert.Equal(AiCommandReject.Rejected, own.RejectOf(claimId));
+            Assert.Equal(AiCommandReject.None, forwarding.RejectOf(moveId));
         }
 
         [Fact]
@@ -1721,7 +1811,7 @@ namespace Wasteland.Sim.Tests
             int pendingCount = reader.ReadInt32();
             reader.ReadInt32();
             reader.ReadInt32();
-            for (int i = 0; i < 9; i++)
+            for (int i = 0; i < 10; i++)
             {
                 reader.ReadInt32();
             }

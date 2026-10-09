@@ -156,6 +156,7 @@ namespace Wasteland.Sim.Ai
         public int AttackTargetTownId;
         public int DefendTownId;
         public int LastIssuedCommandId;
+        public int LastIssuedSequence;
         public int LastRejectCode;
         public int RejectBackoffUntilTick;
         public int RejectStreak;
@@ -1142,6 +1143,7 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.AttackTargetTownId);
                 hash.AddInt(faction.DefendTownId);
                 hash.AddInt(faction.LastIssuedCommandId);
+                hash.AddInt(faction.LastIssuedSequence);
                 hash.AddInt(faction.LastRejectCode);
                 hash.AddInt(faction.RejectBackoffUntilTick);
                 hash.AddInt(faction.RejectStreak);
@@ -1274,6 +1276,7 @@ namespace Wasteland.Sim.Ai
                 writer.Write(faction.AttackTargetTownId);
                 writer.Write(faction.DefendTownId);
                 writer.Write(faction.LastIssuedCommandId);
+                writer.Write(faction.LastIssuedSequence);
                 writer.Write(faction.LastRejectCode);
                 writer.Write(faction.RejectBackoffUntilTick);
                 writer.Write(faction.RejectStreak);
@@ -1561,6 +1564,7 @@ namespace Wasteland.Sim.Ai
             loaded.AttackTargetTownId = reader.ReadInt32();
             loaded.DefendTownId = reader.ReadInt32();
             loaded.LastIssuedCommandId = reader.ReadInt32();
+            loaded.LastIssuedSequence = reader.ReadInt32();
             loaded.LastRejectCode = reader.ReadInt32();
             loaded.RejectBackoffUntilTick = reader.ReadInt32();
             loaded.RejectStreak = reader.ReadInt32();
@@ -1713,6 +1717,7 @@ namespace Wasteland.Sim.Ai
             faction.AttackTargetTownId = loaded.AttackTargetTownId;
             faction.DefendTownId = loaded.DefendTownId;
             faction.LastIssuedCommandId = loaded.LastIssuedCommandId;
+            faction.LastIssuedSequence = loaded.LastIssuedSequence;
             faction.LastRejectCode = loaded.LastRejectCode;
             faction.RejectBackoffUntilTick = loaded.RejectBackoffUntilTick;
             faction.RejectStreak = loaded.RejectStreak;
@@ -1820,6 +1825,7 @@ namespace Wasteland.Sim.Ai
             public int AttackTargetTownId;
             public int DefendTownId;
             public int LastIssuedCommandId;
+            public int LastIssuedSequence;
             public int LastRejectCode;
             public int RejectBackoffUntilTick;
             public int RejectStreak;

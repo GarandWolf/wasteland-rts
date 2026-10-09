@@ -86,15 +86,33 @@ namespace Wasteland.Sim.Ai
 
         public AiCommandReject RejectOf(int commandId)
         {
+            for (int i = 0; i < _issued.Count; i++)
+            {
+                if (_issued[i].Id == commandId)
+                {
+                    return RejectOfSequence(_issued[i].FactionId, _issued[i].Sequence);
+                }
+            }
+
+            return AiCommandReject.None;
+        }
+
+        public AiCommandReject RejectOfSequence(int issuerId, int sequence)
+        {
             CommandRejectReason code;
             int param0;
             int param1;
-            if (_inner.TryGetRejection(commandId, out code, out param0, out param1))
+            if (_inner.TryGetRejectionByKey(RejectKey(issuerId, sequence), out code, out param0, out param1))
             {
                 return MapReject(code);
             }
 
             return AiCommandReject.None;
+        }
+
+        private static ulong RejectKey(int issuerId, int sequence)
+        {
+            return ((ulong)(uint)issuerId << 32) | (uint)sequence;
         }
 
         internal static AiCommandReject MapReject(CommandRejectReason code)
@@ -167,7 +185,8 @@ namespace Wasteland.Sim.Ai
                     command.Arg1,
                     command.Arg2,
                     0,
-                    unitId));
+                    unitId,
+                    command.Sequence));
             }
         }
 
@@ -187,7 +206,7 @@ namespace Wasteland.Sim.Ai
                 _nextId++;
             }
 
-            _issued.Add(new AiIssuedCommand(id, _inner.Tick, factionId, kind, arg0, arg1, arg2, arg3, unitId));
+            _issued.Add(new AiIssuedCommand(id, _inner.Tick, factionId, kind, arg0, arg1, arg2, arg3, unitId, _lastSequence));
             if (kind == AiIssuedKind.ClaimTown || kind == AiIssuedKind.BuildDepot || kind == AiIssuedKind.Move)
             {
                 AiPendingIntent intent = default;

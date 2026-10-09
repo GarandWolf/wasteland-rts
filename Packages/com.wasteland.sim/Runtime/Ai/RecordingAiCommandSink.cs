@@ -100,6 +100,11 @@ namespace Wasteland.Sim.Ai
             return AiCommandReject.None;
         }
 
+        public AiCommandReject RejectOfSequence(int issuerId, int sequence)
+        {
+            return RejectOf(sequence);
+        }
+
         public bool RaiseHasStarted(int commandId)
         {
             return false;
@@ -166,7 +171,7 @@ namespace Wasteland.Sim.Ai
             int id = _nextId;
             _nextId++;
             _lastSequence = id;
-            _log.Add(new AiIssuedCommand(id, _tick, factionId, kind, arg0, arg1, arg2, arg3, unitId));
+            _log.Add(new AiIssuedCommand(id, _tick, factionId, kind, arg0, arg1, arg2, arg3, unitId, _lastSequence));
             if (_nextReject != AiCommandReject.None)
             {
                 _rejects[id] = _nextReject;

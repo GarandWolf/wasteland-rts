@@ -33,6 +33,12 @@ namespace Wasteland.Sim.Ai
 
         bool TryGetRejection(int subjectId, out CommandRejectReason code, out int param0, out int param1);
 
+        /// <summary>
+        /// Latest <see cref="SimEventKind.CommandRejected"/> whose
+        /// <see cref="SimEvent.Key"/> is <c>(issuer &lt;&lt; 32) | sequence</c>.
+        /// </summary>
+        bool TryGetRejectionByKey(ulong key, out CommandRejectReason code, out int param0, out int param1);
+
         bool HasBattalionRaiseStarted(int battalionId);
     }
 

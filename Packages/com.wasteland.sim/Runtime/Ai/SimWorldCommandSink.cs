@@ -78,6 +78,27 @@ namespace Wasteland.Sim.Ai
             return _world.TryGetRejection(subjectId, out code, out param0, out param1);
         }
 
+        public bool TryGetRejectionByKey(ulong key, out CommandRejectReason code, out int param0, out int param1)
+        {
+            IReadOnlyList<SimEvent> events = _world.Events;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                SimEvent ev = events[i];
+                if (ev.Kind == SimEventKind.CommandRejected && ev.Key == key)
+                {
+                    code = ev.RejectReason;
+                    param0 = ev.Param0;
+                    param1 = ev.Param1;
+                    return true;
+                }
+            }
+
+            code = CommandRejectReason.None;
+            param0 = 0;
+            param1 = 0;
+            return false;
+        }
+
         public bool HasBattalionRaiseStarted(int battalionId)
         {
             IReadOnlyList<SimEvent> events = _world.Events;

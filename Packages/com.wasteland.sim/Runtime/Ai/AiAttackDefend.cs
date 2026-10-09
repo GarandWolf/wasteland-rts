@@ -1622,6 +1622,7 @@ namespace Wasteland.Sim.Ai
         private void Issue(int tick, AiFactionState faction, int commandId)
         {
             faction.LastIssuedCommandId = commandId;
+            faction.LastIssuedSequence = _commands.LastSequence;
             AiCommandReject reject = _commands.RejectOf(commandId);
             if (reject == AiCommandReject.None)
             {
@@ -1670,7 +1671,9 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            AiCommandReject reject = _commands.RejectOf(faction.LastIssuedCommandId);
+            AiCommandReject reject = faction.LastIssuedSequence != 0
+                ? _commands.RejectOfSequence(faction.FactionId, faction.LastIssuedSequence)
+                : _commands.RejectOf(faction.LastIssuedCommandId);
             if (reject == AiCommandReject.None)
             {
                 return;
