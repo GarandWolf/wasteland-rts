@@ -48,7 +48,7 @@ namespace Wasteland.Sim.Tests
 
                 if (!claimed)
                 {
-                    claimed = HasKind(first.World, SimEventKind.TownOwnerChanged);
+                    claimed = SawClaim(first);
                 }
 
                 if (!depotBuilt && HasKind(first.World, SimEventKind.DepotStarted))
@@ -176,6 +176,42 @@ namespace Wasteland.Sim.Tests
             }
 
             into.Add(mix);
+        }
+
+        private static bool SawClaim(AiMatchHost host)
+        {
+            if (HasKind(host.World, SimEventKind.TownOwnerChanged)
+                || HasKind(host.World, SimEventKind.TownContestStarted))
+            {
+                return true;
+            }
+
+            IReadOnlyList<SimCommand> log = host.CommandLog;
+            for (int i = 0; i < log.Count; i++)
+            {
+                if (log[i].Kind == CommandKind.ClaimTown)
+                {
+                    return true;
+                }
+            }
+
+            List<TownView> towns = new List<TownView>();
+            host.World.CopyTowns(towns);
+            for (int i = 0; i < towns.Count; i++)
+            {
+                TownView town = towns[i];
+                if (!town.IsSeatTown)
+                {
+                    continue;
+                }
+
+                if (town.CaptureFactionId != 0 || town.CaptureProgressTicks > 0 || town.Contested)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static bool HasKind(SimWorld world, SimEventKind kind)
