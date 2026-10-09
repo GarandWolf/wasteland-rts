@@ -521,6 +521,8 @@ namespace Wasteland.Sim.Tests
                 }
             }
 
+            EnforceClaimTownCap(host, log, events, delay);
+
             int maxMoves = 0;
             int maxMoveBn = 0;
             for (int i = 0; i < moves.Count; i++)
@@ -581,6 +583,40 @@ namespace Wasteland.Sim.Tests
             }
 
             Console.WriteLine();
+            for (int i = 0; i < events.Count; i++)
+            {
+                SimEvent ev = events[i];
+                if (ev.Kind != SimEventKind.TownOwnerChanged)
+                {
+                    continue;
+                }
+
+                Console.WriteLine(
+                    "TownOwnerChanged tick=" + ev.Tick
+                    + " town=" + ev.SubjectId
+                    + " name=" + TownNameOf(host, ev.SubjectId)
+                    + " old=" + ev.Param0
+                    + " new=" + ev.AuxId);
+            }
+
+            for (int i = 0; i < log.Count; i++)
+            {
+                SimCommand command = log[i];
+                if (command.Kind != CommandKind.ClaimTown)
+                {
+                    continue;
+                }
+
+                Console.WriteLine(
+                    "ClaimTown tick=" + command.IssuedTick
+                    + " seat=" + command.IssuerId
+                    + " battalion=" + command.BattalionId
+                    + " town=" + command.Arg0
+                    + " name=" + TownNameOf(host, command.Arg0)
+                    + " "
+                    + (ClaimWasRejected(events, command, delay) ? "rejected" : "accepted"));
+            }
+
             SnapshotCompactStops(host, compactId, dalles.XCm, dalles.YCm, hoodX, hoodY);
             host.Shutdown();
         }
@@ -647,6 +683,181 @@ namespace Wasteland.Sim.Tests
                     + " distDalles=" + DistCm(battalion.PositionXCm, battalion.PositionYCm, dallesX, dallesY)
                     + " distHood=" + DistCm(battalion.PositionXCm, battalion.PositionYCm, hoodX, hoodY));
             }
+        }
+
+        private static void EnforceClaimTownCap(
+            AiMatchHost host,
+            IReadOnlyList<SimCommand> log,
+            IReadOnlyList<SimEvent> events,
+            int delay)
+        {
+            List<ClaimCapRow> rows = new List<ClaimCapRow>();
+            int commandIndex = 0;
+            int eventIndex = 0;
+            while (commandIndex < log.Count || eventIndex < events.Count)
+            {
+                int commandTick = commandIndex < log.Count ? log[commandIndex].IssuedTick : int.MaxValue;
+                int eventTick = eventIndex < events.Count ? events[eventIndex].Tick : int.MaxValue;
+                bool takeCommand = commandTick < eventTick
+                    || (commandTick == eventTick && commandIndex < log.Count);
+                if (takeCommand)
+                {
+                    SimCommand command = log[commandIndex++];
+                    if (command.Kind != CommandKind.ClaimTown
+                        || ClaimWasRejected(events, command, delay))
+                    {
+                        continue;
+                    }
+
+                    int row = IndexOfClaimCap(rows, command.IssuerId, command.Arg0);
+                    if (row < 0)
+                    {
+                        ClaimCapRow next = default;
+                        next.SeatId = command.IssuerId;
+                        next.TownId = command.Arg0;
+                        next.Count = 1;
+                        rows.Add(next);
+                    }
+                    else
+                    {
+                        ClaimCapRow have = rows[row];
+                        have.Count++;
+                        rows[row] = have;
+                    }
+
+                    Assert.True(
+                        rows[row < 0 ? rows.Count - 1 : row].Count
+                        <= AiConstants.MaxClaimTownsPerSeatTown,
+                        "seat " + command.IssuerId
+                        + " town " + command.Arg0
+                        + " accepted "
+                        + (row < 0 ? rows[rows.Count - 1].Count : rows[row].Count)
+                        + " ClaimTowns in one ownership period.");
+                    continue;
+                }
+
+                SimEvent ev = events[eventIndex++];
+                if (ev.Kind != SimEventKind.TownOwnerChanged)
+                {
+                    continue;
+                }
+
+                for (int i = 0; i < rows.Count; i++)
+                {
+                    if (rows[i].TownId == ev.SubjectId)
+                    {
+                        ClaimCapRow have = rows[i];
+                        have.Count = 0;
+                        rows[i] = have;
+                    }
+                }
+            }
+        }
+
+        private static int IndexOfClaimCap(List<ClaimCapRow> rows, int seatId, int townId)
+        {
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (rows[i].SeatId == seatId && rows[i].TownId == townId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static bool ClaimWasRejected(
+            IReadOnlyList<SimEvent> events,
+            SimCommand command,
+            int delay)
+        {
+            for (int i = 0; i < events.Count; i++)
+            {
+                SimEvent ev = events[i];
+                if (ev.Kind != SimEventKind.CommandRejected
+                    || ev.SubjectId != command.BattalionId)
+                {
+                    continue;
+                }
+
+                int issuer = (int)(ev.Key >> 32);
+                if (issuer != command.IssuerId)
+                {
+                    continue;
+                }
+
+                int issuedTick = ev.Tick - delay;
+                int delta = issuedTick - command.IssuedTick;
+                if (delta < 0)
+                {
+                    delta = -delta;
+                }
+
+                if (delta <= 2 && KindFromRejectReason(ev.RejectReason) == CommandKind.ClaimTown)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static string TownNameOf(AiMatchHost host, int townId)
+        {
+            if (townId == host.Ai.Map.TheDallesTownId)
+            {
+                return AiConstants.TheDallesTownName;
+            }
+
+            if (townId == host.Ai.Map.GoldendaleTownId)
+            {
+                return AiConstants.GoldendaleTownName;
+            }
+
+            if (townId == host.Ai.Map.HoodRiverTownId)
+            {
+                return AiConstants.HoodRiverTownName;
+            }
+
+            if (townId == host.Ai.Map.WhiteSalmonTownId)
+            {
+                return AiConstants.WhiteSalmonTownName;
+            }
+
+            if (townId == host.Ai.Map.KlickitatTownId)
+            {
+                return AiConstants.KlickitatTownName;
+            }
+
+            if (townId == 5)
+            {
+                return "Condon";
+            }
+
+            if (townId == 13)
+            {
+                return "Wasco";
+            }
+
+            if (townId == 20)
+            {
+                return "Cascade Locks";
+            }
+
+            if (townId == 29)
+            {
+                return "Carson";
+            }
+
+            return "town-" + townId;
+        }
+
+        private struct ClaimCapRow
+        {
+            public int SeatId;
+            public int TownId;
+            public int Count;
         }
 
         private static void BindDepotNode(

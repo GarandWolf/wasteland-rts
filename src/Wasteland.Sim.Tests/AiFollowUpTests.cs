@@ -509,12 +509,89 @@ namespace Wasteland.Sim.Tests
             host.Run(host.World.CommandDelayTicks + 2);
             Assert.True(TryBattalion(host, engineer, out SimBattalion marching));
             Assert.True(marching.HasTarget);
+            Assert.True(TryLastWaypoint(marching, out destX, out destY));
+            Assert.True(AiAttackDefend.IsMarchingTo(marching, destX, destY));
             int moves = CountMoves(host, engineer);
             AiFactionState faction = host.Ai.Owned.GetFaction(remnant);
             Assert.True(host.Ai.Issue(faction, CommandKind.Move, engineer, destX, destY, 0));
             host.Run(faction.ReactionExtraTicks + 2);
             Assert.Equal(moves, CountMoves(host, engineer));
             host.Shutdown();
+        }
+
+        [Fact]
+        public void RedirectMove_ReachesLogWhenBattalionIsMarchingElsewhere()
+        {
+            AiMatchHost host = StartHost();
+            int remnant = AiConstants.DefaultAiFactionA;
+            const int battalionId = 3;
+            Assert.True(TryBattalion(host, battalionId, out SimBattalion start));
+            Assert.Equal(remnant, start.OwnerId);
+            int dallesIndex = host.Ai.Map.IndexOfTown(host.Ai.Map.TheDallesTownId);
+            AiTownRecord dalles = host.Ai.Map.TownAt(dallesIndex);
+            host.World.Submit(SimCommand.Move(host.Tick, remnant, battalionId, dalles.XCm, dalles.YCm));
+            while (host.Tick < 200)
+            {
+                QuietAi(host);
+                host.Step();
+            }
+
+            QuietAi(host);
+            Assert.Equal(200, host.Tick);
+            Assert.True(TryBattalion(host, battalionId, out SimBattalion marching));
+            Assert.True(marching.HasTarget);
+            Assert.True(marching.PathCount > 1);
+            Assert.True(TryLastWaypoint(marching, out int lastX, out int lastY));
+            int redirectX = lastX + 400000;
+            int redirectY = lastY + 400000;
+            Assert.False(AiAttackDefend.IsMarchingTo(marching, redirectX, redirectY));
+            int movesBefore = CountMoves(host, battalionId);
+            AiFactionState faction = host.Ai.Owned.GetFaction(remnant);
+            Assert.True(host.Ai.Issue(faction, CommandKind.Move, battalionId, redirectX, redirectY, 0));
+            host.Run(faction.ReactionExtraTicks + host.World.CommandDelayTicks + 2);
+            Assert.True(CountMoves(host, battalionId) > movesBefore);
+            Assert.True(HasMoveTo(host, battalionId, redirectX, redirectY, 200));
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void ClaimTownCounts_SurviveSaveLoadAndMatchUninterruptedReplay()
+        {
+            MatchConfig match = MatchConfig.Default(AiVsAiGorgeTests.MatchSeed);
+            byte[] map = AiSeamsTests.LoadGorgeV1Bytes();
+            int[] factions = { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB };
+            AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
+            AiMatchHost original = AiMatchHost.Start(
+                match,
+                map,
+                factions,
+                AiConstants.DifficultyNormal,
+                balance);
+            int mid = AiConstants.SaveLoadMidRunTick;
+            original.Run(mid);
+            Assert.True(AnyAcceptedClaimTown(original), "Need a live claim-town count at save.");
+            ulong atSave = original.HashWorld();
+            byte[] blob = original.Ai.Save();
+            SimCommand[] savedLog = CopyCommands(original.CommandLog);
+            AiMatchHost restored = AiMatchHost.ReplayTo(
+                match,
+                map,
+                factions,
+                AiConstants.DifficultyNormal,
+                balance,
+                savedLog,
+                blob,
+                mid);
+            Assert.Equal(original.Tick, restored.Tick);
+            Assert.Equal(atSave, restored.HashWorld());
+            Assert.True(AnyAcceptedClaimTown(restored));
+            int remain = AiConstants.M1DeterminismTicks - mid;
+            original.Run(remain);
+            restored.Run(remain);
+            Assert.Equal(original.HashWorld(), restored.HashWorld());
+            AssertLogsEqual(original.CommandLog, restored.CommandLog);
+            original.Shutdown();
+            restored.Shutdown();
         }
 
         [Fact]
@@ -746,6 +823,94 @@ namespace Wasteland.Sim.Tests
             }
 
             return count;
+        }
+
+        private static bool TryLastWaypoint(SimBattalion battalion, out int xCm, out int yCm)
+        {
+            xCm = 0;
+            yCm = 0;
+            if (battalion.PathCount > 0 && battalion.PathXCm != null && battalion.PathYCm != null)
+            {
+                int last = battalion.PathCount - 1;
+                if (last < battalion.PathXCm.Length && last < battalion.PathYCm.Length)
+                {
+                    xCm = battalion.PathXCm[last];
+                    yCm = battalion.PathYCm[last];
+                    return true;
+                }
+            }
+
+            if (battalion.HasTarget)
+            {
+                xCm = battalion.TargetXCm;
+                yCm = battalion.TargetYCm;
+                return true;
+            }
+
+            return false;
+        }
+
+        private static bool HasMoveTo(
+            AiMatchHost host,
+            int battalionId,
+            int xCm,
+            int yCm,
+            int issuedOnOrAfter)
+        {
+            IReadOnlyList<SimCommand> log = host.CommandLog;
+            for (int i = 0; i < log.Count; i++)
+            {
+                SimCommand command = log[i];
+                if (command.Kind == CommandKind.Move
+                    && command.BattalionId == battalionId
+                    && command.Arg0 == xCm
+                    && command.Arg1 == yCm
+                    && command.IssuedTick >= issuedOnOrAfter)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool AnyAcceptedClaimTown(AiMatchHost host)
+        {
+            for (int i = 0; i < host.Ai.Owned.ClaimTownCount; i++)
+            {
+                if (host.Ai.Owned.ClaimTownAt(i).Count > 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static SimCommand[] CopyCommands(IReadOnlyList<SimCommand> log)
+        {
+            SimCommand[] copy = new SimCommand[log.Count];
+            for (int i = 0; i < log.Count; i++)
+            {
+                copy[i] = log[i];
+            }
+
+            return copy;
+        }
+
+        private static void AssertLogsEqual(IReadOnlyList<SimCommand> left, IReadOnlyList<SimCommand> right)
+        {
+            Assert.Equal(left.Count, right.Count);
+            for (int i = 0; i < left.Count; i++)
+            {
+                Assert.Equal(left[i].Kind, right[i].Kind);
+                Assert.Equal(left[i].IssuerId, right[i].IssuerId);
+                Assert.Equal(left[i].BattalionId, right[i].BattalionId);
+                Assert.Equal(left[i].Arg0, right[i].Arg0);
+                Assert.Equal(left[i].Arg1, right[i].Arg1);
+                Assert.Equal(left[i].Arg2, right[i].Arg2);
+                Assert.Equal(left[i].IssuedTick, right[i].IssuedTick);
+            }
         }
 
         private static AiOrderBackoffEntry BackoffOf(
