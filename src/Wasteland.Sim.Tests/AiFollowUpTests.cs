@@ -502,20 +502,22 @@ namespace Wasteland.Sim.Tests
             int remnant = AiConstants.DefaultAiFactionA;
             int engineer = RemnantEngineer(host);
             Assert.True(engineer != 0);
-            int dallesIndex = host.Ai.Map.IndexOfTown(host.Ai.Map.TheDallesTownId);
-            AiTownRecord dalles = host.Ai.Map.TownAt(dallesIndex);
-            host.World.ForceNextRoadNoPath = true;
-            host.Ai.AiCommands.SubmitMove(remnant, engineer, dalles.XCm, dalles.YCm);
-            int destNode = MoveIntentTarget(host, remnant, engineer);
-            Assert.True(destNode != 0);
+            Assert.True(TryBattalion(host, engineer, out SimBattalion before));
+            int destNode = ResolveUnreachableRoadTarget(
+                host,
+                before.PositionXCm,
+                before.PositionYCm,
+                out int destXCm,
+                out int destYCm);
+            host.Ai.AiCommands.SubmitMove(remnant, engineer, destXCm, destYCm);
+            Assert.Equal(destNode, MoveIntentTarget(host, remnant, engineer));
             Assert.Equal(0, host.Ai.Owned.BackoffCount);
             int firstRejectTick = StepUntilBackoff(host, remnant, engineer, destNode, 1);
             AiOrderBackoffEntry first = BackoffOf(host.Ai.Owned, remnant, engineer, CommandKind.Move, destNode);
             Assert.Equal(1, first.Streak);
             Assert.Equal(firstRejectTick + AiAttackDefend.RejectBackoffStartTicks, first.UntilTick);
 
-            host.World.ForceNextRoadNoPath = true;
-            host.Ai.AiCommands.SubmitMove(remnant, engineer, dalles.XCm, dalles.YCm);
+            host.Ai.AiCommands.SubmitMove(remnant, engineer, destXCm, destYCm);
             Assert.Equal(1, BackoffOf(host.Ai.Owned, remnant, engineer, CommandKind.Move, destNode).Streak);
             int secondRejectTick = StepUntilBackoff(host, remnant, engineer, destNode, 2);
             AiOrderBackoffEntry doubled = BackoffOf(host.Ai.Owned, remnant, engineer, CommandKind.Move, destNode);
@@ -851,6 +853,128 @@ namespace Wasteland.Sim.Tests
 
             battalion = default;
             return false;
+        }
+
+        private static int ResolveUnreachableRoadTarget(
+            AiMatchHost host,
+            int startXCm,
+            int startYCm,
+            out int destXCm,
+            out int destYCm)
+        {
+            RoadGraph roads = host.Ai.Map.Roads;
+            int destNode = FirstUnreachableRoadNode(roads, NearestRoadNodeId(roads, startXCm, startYCm));
+            if (destNode == 0)
+            {
+                roads = BindDisconnectedRoadFixture(host, startXCm, startYCm);
+                destNode = FirstUnreachableRoadNode(roads, NearestRoadNodeId(roads, startXCm, startYCm));
+            }
+
+            Assert.True(destNode != 0);
+            Assert.True(roads.TryGetNodeIndex(destNode, out int destIndex));
+            destXCm = roads.GetNodeXCm(destIndex);
+            destYCm = roads.GetNodeYCm(destIndex);
+            return destNode;
+        }
+
+        private static RoadGraph BindDisconnectedRoadFixture(AiMatchHost host, int startXCm, int startYCm)
+        {
+            byte[] blob = new RoadGraphBuilder()
+                .AddNode(1, startXCm, startYCm)
+                .AddNode(2, startXCm + 200000, startYCm)
+                .ToBlob();
+            byte[] terrain = new TerrainGridBuilder(2, 2, 10000).Fill(0, LandCover.Field).ToBlob();
+            MovementService movement = MovementService.Create(
+                blob,
+                terrain,
+                MovementTables.Default(),
+                MovementServiceConfig.Default);
+            RoadGraph roads = Wrmb.ReadRoadGraph(blob);
+            host.World.BindRoads(movement, roads);
+            LoggingCommandSink logging = (LoggingCommandSink)host.Ai.Commands;
+            logging.BindRoads(roads);
+            return roads;
+        }
+
+        private static int NearestRoadNodeId(RoadGraph roads, int xCm, int yCm)
+        {
+            if (roads.NodeCount < 1)
+            {
+                return 0;
+            }
+
+            int bestIndex = 0;
+            int bestId = roads.GetNodeId(0);
+            long bestDist = long.MaxValue;
+            for (int i = 0; i < roads.NodeCount; i++)
+            {
+                long dx = (long)roads.GetNodeXCm(i) - xCm;
+                long dy = (long)roads.GetNodeYCm(i) - yCm;
+                long dist = (dx * dx) + (dy * dy);
+                int id = roads.GetNodeId(i);
+                if (dist < bestDist || (dist == bestDist && id < bestId))
+                {
+                    bestDist = dist;
+                    bestId = id;
+                    bestIndex = i;
+                }
+            }
+
+            return roads.GetNodeId(bestIndex);
+        }
+
+        private static int FirstUnreachableRoadNode(RoadGraph roads, int startNodeId)
+        {
+            if (startNodeId == 0 || !roads.TryGetNodeIndex(startNodeId, out int startIndex))
+            {
+                return 0;
+            }
+
+            bool[] reached = new bool[roads.NodeCount];
+            int[] queue = new int[roads.NodeCount];
+            int head = 0;
+            int tail = 0;
+            reached[startIndex] = true;
+            queue[tail++] = startIndex;
+            while (head < tail)
+            {
+                int index = queue[head++];
+                int adjStart = roads.AdjOffset[index];
+                int adjEnd = roads.AdjOffset[index + 1];
+                for (int edge = adjStart; edge < adjEnd; edge++)
+                {
+                    if (roads.IsCut(roads.AdjEdgeIndex[edge]))
+                    {
+                        continue;
+                    }
+
+                    int neighbor = roads.AdjNeighborIndex[edge];
+                    if (reached[neighbor])
+                    {
+                        continue;
+                    }
+
+                    reached[neighbor] = true;
+                    queue[tail++] = neighbor;
+                }
+            }
+
+            int bestId = 0;
+            for (int i = 0; i < roads.NodeCount; i++)
+            {
+                if (reached[i])
+                {
+                    continue;
+                }
+
+                int id = roads.GetNodeId(i);
+                if (bestId == 0 || id < bestId)
+                {
+                    bestId = id;
+                }
+            }
+
+            return bestId;
         }
 
         private static int MoveIntentTarget(AiMatchHost host, int seatId, int battalionId)
