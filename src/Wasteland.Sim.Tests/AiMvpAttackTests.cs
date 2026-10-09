@@ -180,6 +180,47 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void PickAttackTarget_SkipsOwnedNonSeatWhenSeatZonesPresent()
+        {
+            Harness harness = Harness.Line();
+            AiAttackTownInfo[] towns =
+            {
+                new AiAttackTownInfo(10, 1, 1, 0, 0, true, 1UL, 1000),
+                new AiAttackTownInfo(20, 2, 2, 1000, 0, false, 2UL, 0),
+                new AiAttackTownInfo(30, 3, 3, 2000, 0, true, 3UL, 1000)
+            };
+            harness.Towns[10] = Own(1);
+            harness.Towns[20] = Enemy(2, 1);
+            harness.Towns[30] = Enemy(2, 1);
+            int withoutPrize = harness.Planner.PickAttackTarget(
+                harness.Faction,
+                towns,
+                towns.Length,
+                harness.Roads,
+                1,
+                harness.Network,
+                1,
+                100000,
+                0UL,
+                0);
+            Assert.Equal(30, withoutPrize);
+
+            harness.Towns[30] = Unowned();
+            int withPrize = harness.Planner.PickAttackTarget(
+                harness.Faction,
+                towns,
+                towns.Length,
+                harness.Roads,
+                1,
+                harness.Network,
+                1,
+                100000,
+                3UL,
+                300);
+            Assert.Equal(30, withPrize);
+        }
+
+        [Fact]
         public void Attack_IssuesMoveAndClaimWhenRatioMetAndInSupply()
         {
             Harness harness = Harness.Line();

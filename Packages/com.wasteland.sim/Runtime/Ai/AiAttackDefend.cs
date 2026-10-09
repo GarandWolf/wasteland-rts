@@ -271,6 +271,7 @@ namespace Wasteland.Sim.Ai
             int hqDist = AiConstants.UnreachableCm;
             bool hqPrize = false;
             int hqNodeId = 0;
+            bool seatZonesPresent = TownListHasSeatZones(towns, townCount);
             for (int i = 0; i < townCount; i++)
             {
                 AiAttackTownInfo town = towns[i];
@@ -285,6 +286,11 @@ namespace Wasteland.Sim.Ai
                 }
 
                 bool isPrize = prizeTerritoryKey != 0UL && town.TerritoryStableKey == prizeTerritoryKey;
+                if (!IsAttackableTown(town, isPrize, seatZonesPresent))
+                {
+                    continue;
+                }
+
                 if (readback.OwnerFactionId == 0 && !isPrize)
                 {
                     continue;
@@ -454,6 +460,7 @@ namespace Wasteland.Sim.Ai
             int defendY = 0;
             int worstGap = 0;
             bool defendHq = false;
+            bool seatZonesPresent = TownListHasSeatZones(towns, townCount);
             for (int i = 0; i < townCount; i++)
             {
                 AiAttackTownInfo town = towns[i];
@@ -463,6 +470,11 @@ namespace Wasteland.Sim.Ai
                 }
 
                 bool isOwnHq = town.Id == faction.HomeTownId;
+                if (!IsAttackableTown(town, false, seatZonesPresent) && !isOwnHq)
+                {
+                    continue;
+                }
+
                 if (readback.OwnerFactionId != faction.FactionId && !isOwnHq)
                 {
                     continue;
@@ -1128,6 +1140,7 @@ namespace Wasteland.Sim.Ai
                 return false;
             }
 
+            bool seatZonesPresent = TownListHasSeatZones(towns, townCount);
             for (int i = 0; i < townCount; i++)
             {
                 AiAttackTownInfo town = towns[i];
@@ -1137,6 +1150,11 @@ namespace Wasteland.Sim.Ai
                 }
 
                 if (readback.OwnerFactionId != faction.FactionId)
+                {
+                    continue;
+                }
+
+                if (!IsAttackableTown(town, false, seatZonesPresent) && town.Id != faction.HomeTownId)
                 {
                     continue;
                 }
@@ -1220,6 +1238,29 @@ namespace Wasteland.Sim.Ai
             }
 
             return string.Empty;
+        }
+
+        private static bool TownListHasSeatZones(AiAttackTownInfo[] towns, int townCount)
+        {
+            for (int i = 0; i < townCount; i++)
+            {
+                if (towns[i].ZoneRadiusCm > 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsAttackableTown(AiAttackTownInfo town, bool isPrize, bool seatZonesPresent)
+        {
+            if (!seatZonesPresent || isPrize || town.IsHq)
+            {
+                return true;
+            }
+
+            return town.ZoneRadiusCm > 0;
         }
 
         /// <summary>

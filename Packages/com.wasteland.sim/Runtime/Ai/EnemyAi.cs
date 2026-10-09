@@ -1098,8 +1098,12 @@ namespace Wasteland.Sim.Ai
                 }
 
                 bool isSeat = IsSeatTown(town);
+                if (!isSeat)
+                {
+                    continue;
+                }
+
                 if (IsAttackingPrize(faction)
-                    && isSeat
                     && !IsPrizeSeatTown(town.Id)
                     && town.Id != faction.HomeTownId)
                 {
