@@ -2290,11 +2290,6 @@ namespace Wasteland.Sim.Ai
                 return false;
             }
 
-            if (ShouldSkipClaimTown(faction, battalionId, target))
-            {
-                return false;
-            }
-
             if (!AlreadyOnTheWay(faction.FactionId, battalionId, target.XCm, target.YCm))
             {
                 int moveId = _commands.SubmitMove(faction.FactionId, battalionId, target.XCm, target.YCm);
@@ -2303,6 +2298,11 @@ namespace Wasteland.Sim.Ai
                 {
                     return false;
                 }
+            }
+
+            if (ShouldSkipClaimTown(faction, battalionId, target))
+            {
+                return true;
             }
 
             int claimId = _commands.SubmitClaimTown(faction.FactionId, battalionId, target.Id);
