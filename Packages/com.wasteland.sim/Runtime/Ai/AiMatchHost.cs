@@ -244,11 +244,12 @@ namespace Wasteland.Sim.Ai
                 mapName,
                 MvpScenarioId);
             world.BindCatalog(catalog);
-            int[] worldFactions =
+            int[] worldFactions = new int[scenario.SeatCount];
+            for (int i = 0; i < worldFactions.Length; i++)
             {
-                AiConstants.DefaultAiFactionA,
-                AiConstants.DefaultAiFactionB
-            };
+                worldFactions[i] = i + 1;
+            }
+
             ai.Owned.BindMatchSeatIds(worldFactions);
             for (int i = 0; i < worldFactions.Length; i++)
             {

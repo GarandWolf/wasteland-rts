@@ -468,10 +468,20 @@ namespace Wasteland.Sim.Ai
                     File.ReadAllText(economyPath),
                     File.ReadAllText(personalitiesPath));
                 BalanceAiCatalog.RequireClosedRoles(catalog, buildingsJson);
+                int depotManpower;
+                int depotMateriel;
+                int depotFuel;
+                IAiBuildingCatalog buildings = AiBuildingCatalog.TryReadDepotCost(
+                    buildingsJson,
+                    out depotManpower,
+                    out depotMateriel,
+                    out depotFuel)
+                    ? new BalanceAiBuildingCatalog(catalog, depotManpower, depotMateriel, depotFuel)
+                    : new BalanceAiBuildingCatalog(catalog);
                 return tables
                     .WithScenarioCatalog(catalog)
                     .WithUnitCatalog(new BalanceAiUnitCatalog(catalog))
-                    .WithBuildingCatalog(new BalanceAiBuildingCatalog(catalog));
+                    .WithBuildingCatalog(buildings);
             }
 
             BalanceCatalog disk = BalanceCatalog.LoadFromDirectory(balanceDirectory);

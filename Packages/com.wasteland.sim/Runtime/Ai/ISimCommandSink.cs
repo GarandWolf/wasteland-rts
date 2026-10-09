@@ -55,6 +55,8 @@ namespace Wasteland.Sim.Ai
 
         bool TryGetSeat(int factionId, out SeatView view);
 
+        int FuelOf(int factionId);
+
         bool TryGetBattalionView(int battalionId, out BattalionView view);
 
         bool TryCopyProductionQueue(int factionId, List<ProductionQueueItem> into);

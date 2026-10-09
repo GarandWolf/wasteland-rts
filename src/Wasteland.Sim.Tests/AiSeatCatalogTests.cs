@@ -21,6 +21,8 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(-1, view.TierResearchCompleteTick);
             Assert.Equal(0, view.Manpower);
             Assert.Equal(0, view.Materials);
+            Assert.Equal(0, view.Fuel);
+            Assert.False(view.FuelEnabled);
             Assert.Equal(0, view.PopUsed);
             Assert.Equal(0, view.PopCap);
             Assert.False(view.HasSeenEnemyArmourOrMech);

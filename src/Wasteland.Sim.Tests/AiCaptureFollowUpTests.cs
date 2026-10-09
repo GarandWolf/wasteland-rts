@@ -188,14 +188,23 @@ namespace Wasteland.Sim.Tests
         [Fact]
         public void GorgeAi_RealBuildings_DoesNotSpamRejectsOrMoves()
         {
-            AssertOrderSpamGuard(AiConstants.DepotRejectSpamTicks);
+            AssertOrderSpamGuard(
+                AiConstants.DepotRejectSpamTicks,
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB });
         }
 
-        private static void AssertOrderSpamGuard(int ticks)
+        [Fact]
+        public void GorgeAi_RealBuildings_HumanVsAi_DoesNotSpamRejectsOrMoves()
+        {
+            AssertOrderSpamGuard(
+                AiConstants.DepotRejectSpamTicks,
+                new[] { AiConstants.DefaultAiFactionB });
+        }
+
+        private static void AssertOrderSpamGuard(int ticks, int[] factions)
         {
             MatchConfig match = MatchConfig.Default(AiVsAiGorgeTests.MatchSeed);
             byte[] map = AiSeamsTests.LoadGorgeV1Bytes();
-            int[] factions = { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB };
             AiMatchHost host = AiMatchHost.Start(
                 match,
                 map,
@@ -377,9 +386,13 @@ namespace Wasteland.Sim.Tests
                 }
             }
 
-            Assert.True(
-                depotNode != 0,
-                "Remnant never started a depot and never chose a BuildDepot site.");
+            bool remnantIsAi = IndexOfId(factions, remnantId) >= 0;
+            if (remnantIsAi)
+            {
+                Assert.True(
+                    depotNode != 0,
+                    "Remnant never started a depot and never chose a BuildDepot site.");
+            }
 
             int delay = host.World.CommandDelayTicks;
             IReadOnlyList<SimEvent> events = host.World.Events;
@@ -534,12 +547,47 @@ namespace Wasteland.Sim.Tests
                 }
             }
 
-            Console.WriteLine("B2 ticks=" + ticks
+            int[] rejectReasons = new int[32];
+            int rejectTotal = 0;
+            for (int i = 0; i < events.Count; i++)
+            {
+                if (events[i].Kind != SimEventKind.CommandRejected)
+                {
+                    continue;
+                }
+
+                rejectTotal++;
+                int reason = (int)events[i].RejectReason;
+                if (reason >= 0 && reason < rejectReasons.Length)
+                {
+                    rejectReasons[reason]++;
+                }
+            }
+
+            int remnantIntents = remnantIsAi ? host.Ai.Owned.GetFaction(remnantId).IntentCount : 0;
+            int compactIntents = host.Ai.Owned.GetFaction(compactId).IntentCount;
+            int dallesMargin = -1;
+            if (remnantArrive >= 0 && compactArrive >= 0)
+            {
+                dallesMargin = remnantArrive - compactArrive;
+            }
+
+            Console.WriteLine("B4 ticks=" + ticks
+                + " seats=" + factions.Length
                 + " schema=" + AiConstants.StateSchemaVersion
+                + " commands=" + log.Count
+                + " rejects=" + rejectTotal
+                + " blacklist=" + host.Ai.Owned.BlacklistCount
+                + "/" + AiConstants.DepotNodeBlacklistCapacity
+                + " backoff=" + host.Ai.Owned.BackoffCount
+                + "/" + AiConstants.OrderBackoffCapacity
+                + " remnantIntents=" + remnantIntents
+                + " compactIntents=" + compactIntents
                 + " remnantLeave=" + remnantLeave
                 + " compactLeave=" + compactLeave
                 + " remnantArrive=" + remnantArrive
                 + " compactArrive=" + compactArrive
+                + " dallesMargin=" + dallesMargin)
                 + " claimTowns=" + claimTowns
                 + " maxMoves bn=" + maxMoveBn + " n=" + maxMoves
                 + " remnantEngineer=" + remnantEngineerId
@@ -555,6 +603,15 @@ namespace Wasteland.Sim.Tests
                 + " firstWpNode=" + firstWpNode
                 + " firstLegOffRoad=" + (nearestDistCm > 0)
                 + " withinDepot=" + remnantWithinTick);
+            for (int i = 0; i < rejectReasons.Length; i++)
+            {
+                if (rejectReasons[i] == 0)
+                {
+                    continue;
+                }
+
+                Console.WriteLine("rejectReason " + (CommandRejectReason)i + " n=" + rejectReasons[i]);
+            }
             for (int i = 0; i < rejects.Count; i++)
             {
                 Console.WriteLine(

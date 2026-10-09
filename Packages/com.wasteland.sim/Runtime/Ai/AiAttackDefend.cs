@@ -898,6 +898,11 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
+            if (!CanAffordDepot(_seatView, _buildings))
+            {
+                return;
+            }
+
             AiSupplyResult fromNet = _roads.FillFromSources(graph, networkNodeIds, networkCount, faction);
             if (DeferIfExhausted(fromNet))
             {
@@ -1383,6 +1388,39 @@ namespace Wasteland.Sim.Ai
             return false;
         }
 
+        /// <summary>
+        /// Seat stock vs the catalog depot cost. False when the catalog has a
+        /// cost and manpower, materiel, or (when fuel is on) fuel is short.
+        /// True when the catalog has no cost so harness fixtures still place.
+        /// </summary>
+        internal static bool CanAffordDepot(IAiSeatView seatView, IAiBuildingCatalog catalog)
+        {
+            if (seatView == null || catalog == null)
+            {
+                return false;
+            }
+
+            int manpower;
+            int materiel;
+            int fuel;
+            if (!catalog.TryGetBuildCost(AiConstants.BuildingIdSupplyDepot, out manpower, out materiel, out fuel))
+            {
+                return true;
+            }
+
+            if (seatView.Manpower < manpower || seatView.Materials < materiel)
+            {
+                return false;
+            }
+
+            if (seatView.FuelEnabled && seatView.Fuel < fuel)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
         internal static bool CanBuildDepot(AiScenarioSeatView seat, IAiBuildingCatalog catalog)
         {
             if (catalog == null)
@@ -1594,7 +1632,10 @@ namespace Wasteland.Sim.Ai
             }
 
             NoteReject(tick, faction, reject);
-            NoteIssuedReject(tick, faction, commandId);
+            if (reject != AiCommandReject.InsufficientManpower)
+            {
+                NoteIssuedReject(tick, faction, commandId);
+            }
         }
 
         private static void NoteReject(int tick, AiFactionState faction, AiCommandReject reject)
@@ -1787,6 +1828,16 @@ namespace Wasteland.Sim.Ai
             public int Materials
             {
                 get { return _inner.Materials; }
+            }
+
+            public int Fuel
+            {
+                get { return _inner.Fuel; }
+            }
+
+            public bool FuelEnabled
+            {
+                get { return _inner.FuelEnabled; }
             }
 
             public int PopUsed

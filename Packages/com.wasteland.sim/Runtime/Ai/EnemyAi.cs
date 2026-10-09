@@ -679,8 +679,12 @@ namespace Wasteland.Sim.Ai
                     {
                         int issuer = (int)(ev.Key >> 32);
                         int sequence = (int)ev.Key;
-                        NoteOrderRejectFromEvent(ev, issuer, sequence);
-                        BlacklistDepotNodeFromIntent(issuer, sequence, ev.RejectReason);
+                        if (!IsSeatWideStockReject(ev.RejectReason))
+                        {
+                            NoteOrderRejectFromEvent(ev, issuer, sequence);
+                            BlacklistDepotNodeFromIntent(issuer, sequence, ev.RejectReason);
+                        }
+
                         RemoveIntentBySequence(issuer, sequence);
                         continue;
                     }
@@ -717,7 +721,7 @@ namespace Wasteland.Sim.Ai
 
         private void NoteOrderRejectFromEvent(SimEvent ev, int issuer, int sequence)
         {
-            if (!_owned.TryGetFaction(issuer, out _))
+            if (IsSeatWideStockReject(ev.RejectReason) || !_owned.TryGetFaction(issuer, out _))
             {
                 return;
             }
@@ -796,6 +800,13 @@ namespace Wasteland.Sim.Ai
             return CommandKind.Move;
         }
 
+        internal static bool IsSeatWideStockReject(CommandRejectReason reason)
+        {
+            return reason == CommandRejectReason.InsufficientManpower
+                || reason == CommandRejectReason.InsufficientMaterials
+                || reason == CommandRejectReason.InsufficientFuel;
+        }
+
         private static CommandKind InferRejectKind(CommandRejectReason reason)
         {
             if (reason == CommandRejectReason.NotCapturer
@@ -820,10 +831,7 @@ namespace Wasteland.Sim.Ai
 
             if (reason == CommandRejectReason.UnitNotRaisable
                 || reason == CommandRejectReason.TierLocked
-                || reason == CommandRejectReason.PopCapReached
-                || reason == CommandRejectReason.InsufficientManpower
-                || reason == CommandRejectReason.InsufficientMaterials
-                || reason == CommandRejectReason.InsufficientFuel)
+                || reason == CommandRejectReason.PopCapReached)
             {
                 return CommandKind.RaiseBattalion;
             }
@@ -961,6 +969,11 @@ namespace Wasteland.Sim.Ai
             int sequence,
             CommandRejectReason reason)
         {
+            if (IsSeatWideStockReject(reason))
+            {
+                return;
+            }
+
             AiFactionState faction;
             try
             {
@@ -2234,6 +2247,8 @@ namespace Wasteland.Sim.Ai
             {
                 _fixtureSeatView.Manpower = live.Manpower;
                 _fixtureSeatView.Materials = live.Materials;
+                _fixtureSeatView.Fuel = _world.FuelOf(faction.FactionId);
+                _fixtureSeatView.FuelEnabled = _seats.FuelEnabled;
                 _fixtureSeatView.PopUsed = live.PopUsed;
                 _fixtureSeatView.PopCap = live.PopCap;
                 _fixtureSeatView.CurrentTier = live.CurrentTier;

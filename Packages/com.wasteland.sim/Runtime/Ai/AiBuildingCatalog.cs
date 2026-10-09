@@ -12,15 +12,33 @@ namespace Wasteland.Sim.Ai
     {
         public static readonly AiBuildingCatalog Empty = new AiBuildingCatalog(
             Array.Empty<string>(),
-            Array.Empty<string>());
+            Array.Empty<string>(),
+            0,
+            0,
+            0,
+            false);
 
         private readonly string[] _ids;
         private readonly string[] _roles;
+        private readonly int _depotManpower;
+        private readonly int _depotMateriel;
+        private readonly int _depotFuel;
+        private readonly bool _haveDepotCost;
 
-        private AiBuildingCatalog(string[] ids, string[] roles)
+        private AiBuildingCatalog(
+            string[] ids,
+            string[] roles,
+            int depotManpower,
+            int depotMateriel,
+            int depotFuel,
+            bool haveDepotCost)
         {
             _ids = ids;
             _roles = roles;
+            _depotManpower = depotManpower;
+            _depotMateriel = depotMateriel;
+            _depotFuel = depotFuel;
+            _haveDepotCost = haveDepotCost;
         }
 
         public int Count
@@ -62,7 +80,68 @@ namespace Wasteland.Sim.Ai
 
             SortRows(ids, roles);
             RequireUniqueIds(ids);
-            return new AiBuildingCatalog(ids, roles);
+            int depotManpower;
+            int depotMateriel;
+            int depotFuel;
+            bool haveDepotCost = TryReadDepotCost(
+                buildingsJson,
+                out depotManpower,
+                out depotMateriel,
+                out depotFuel);
+            return new AiBuildingCatalog(ids, roles, depotManpower, depotMateriel, depotFuel, haveDepotCost);
+        }
+
+        public bool TryGetBuildCost(string buildingId, out int manpower, out int materiel, out int fuel)
+        {
+            manpower = 0;
+            materiel = 0;
+            fuel = 0;
+            if (!_haveDepotCost || buildingId != AiConstants.BuildingIdSupplyDepot)
+            {
+                return false;
+            }
+
+            manpower = _depotManpower;
+            materiel = _depotMateriel;
+            fuel = _depotFuel;
+            return true;
+        }
+
+        internal static bool TryReadDepotCost(
+            string buildingsJson,
+            out int manpower,
+            out int materiel,
+            out int fuel)
+        {
+            manpower = 0;
+            materiel = 0;
+            fuel = 0;
+            if (buildingsJson == null)
+            {
+                return false;
+            }
+
+            JsonValue root = IntegerJsonParser.Parse(buildingsJson);
+            if (!JsonUtil.TryField(root, "buildings", out JsonValue buildings)
+                || buildings.Kind != JsonKind.Object)
+            {
+                return false;
+            }
+
+            if (!JsonUtil.TryField(buildings, AiConstants.BuildingIdSupplyDepot, out JsonValue row))
+            {
+                return false;
+            }
+
+            if (!JsonUtil.TryField(row, "cost", out JsonValue cost) || cost.Kind != JsonKind.Object)
+            {
+                return false;
+            }
+
+            manpower = JsonUtil.Int32(JsonUtil.Field(cost, "manpower"), "buildings.json $.buildings.supply_depot.cost.manpower");
+            materiel = JsonUtil.Int32(JsonUtil.Field(cost, "materiel"), "buildings.json $.buildings.supply_depot.cost.materiel");
+            fuel = JsonUtil.Int32(JsonUtil.Field(cost, "fuel"), "buildings.json $.buildings.supply_depot.cost.fuel");
+            return true;
         }
 
         public bool TryGetBuildingRole(string buildingId, out string role)

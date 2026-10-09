@@ -179,6 +179,11 @@ namespace Wasteland.Sim.Ai
             return _world.TryGetSeat(factionId, out view);
         }
 
+        public int FuelOf(int factionId)
+        {
+            return _world.FuelOf(factionId);
+        }
+
         public bool TryGetBattalionView(int battalionId, out BattalionView view)
         {
             return _world.TryGetBattalionView(battalionId, out view);
