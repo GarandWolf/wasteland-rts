@@ -587,7 +587,7 @@ namespace Wasteland.Sim.Tests
                 + " compactLeave=" + compactLeave
                 + " remnantArrive=" + remnantArrive
                 + " compactArrive=" + compactArrive
-                + " dallesMargin=" + dallesMargin)
+                + " dallesMargin=" + dallesMargin
                 + " claimTowns=" + claimTowns
                 + " maxMoves bn=" + maxMoveBn + " n=" + maxMoves
                 + " remnantEngineer=" + remnantEngineerId
