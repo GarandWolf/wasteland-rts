@@ -477,6 +477,7 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(siteTick, restored.Faction.DepotSiteTick);
             Assert.Equal(activeTick, restored.Faction.DepotActiveTick);
             Assert.Equal(hashAtSave, HashOf(restored.Faction));
+            restored.Sink.NextIssuedId = restored.Faction.LastIssuedCommandId + 1;
             restored.Sink.RecordSite(restored.Faction.FactionId, depotNode, siteTick, activeTick);
 
             live.Tick(6);

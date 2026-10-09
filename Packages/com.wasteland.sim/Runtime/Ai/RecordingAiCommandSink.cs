@@ -40,6 +40,12 @@ namespace Wasteland.Sim.Ai
             get { return _lastSequence; }
         }
 
+        internal int NextIssuedId
+        {
+            get { return _nextId; }
+            set { _nextId = value < 1 ? 1 : value; }
+        }
+
         public int DepotActiveDelayTicks
         {
             get { return _depotActiveDelayTicks; }

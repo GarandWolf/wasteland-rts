@@ -224,8 +224,8 @@ namespace Wasteland.Sim.Tests
             }
 
             ties.BlacklistDepotNode(2, 7, 3, AiDepotBlacklistKind.Transient, 1, 1);
-            Assert.False(ties.IsDepotNodeBlacklisted(1, 8));
-            Assert.True(ties.IsDepotNodeBlacklisted(2, 8));
+            Assert.False(ties.IsDepotNodeBlacklisted(2, 8));
+            Assert.True(ties.IsDepotNodeBlacklisted(1, 8));
             Assert.True(ties.IsDepotNodeBlacklisted(2, 7));
 
             AiMatchHost host = StartHost();
