@@ -3,7 +3,7 @@
 Owner: Game Designer. Status: draft for the Lead's sim tests. Design only; nothing here changes data or code.
 
 - **Source:** Designer MVP rules sheet (draft Oct 8 2026): §2 Win / lose, §3 and §3a buildings, supply and MVP defaults, §4 scenario keys, §5 timeline.
-- **Data baseline:** main `b9e53fc`, `dataVersion` 8. Scenario `data/balance/scenarios/columbia_gorge_100mi_mvp.json` on map `golden_ci_columbia_gorge_100_v1_marsh` (`mapFileSha256` `76a801a3…107f`).
+- **Data baseline:** main `996c80a` (timings from the #18 headless log, merged as `854daba`); `data/design/mvp_targets.json` `dataVersion` 9. Scenario `data/balance/scenarios/columbia_gorge_100mi_mvp.json` on map `golden_ci_columbia_gorge_100_v1_marsh` (`mapFileSha256` `76a801a3…107f`).
 - **Units:** 20 ticks per second (`rules.json sim.ticksPerSecond`). Distances are cm. 1 road-mile = 160934.4 cm.
 - Every number below comes from the rules sheet, from main's data files, or from the pinned marsh map read with `tools/map/wrmb_reader.py`. Road distances are shortest paths over `REDG.lengthCm`. Rules the sheet left open are settled in **§5 Decisions (2026-10-08)**. Anything still unsettled is in **Open questions** at the end rather than guessed.
 - Assert against the `rules.json` values, not against hardcoded constants.
@@ -145,11 +145,16 @@ The §5 timeline estimates live in `data/design/mvp_targets.json` (ticks, tolera
 | `compact_dalles_capture` (baseline) | 10200 | **9320** | Same shift as its arrival (−880); capture lands on *a* + N (LD1) |
 | `remnant_dalles_capture_commit` (commit) | 9640 | **8440** | Same shift as its arrival (−1200) |
 | `remnant_tier2` | 3020 | **3000** | `autoResearch` tier2 starts at 1200, 1800 ticks; measured 3000 |
-| `compact_at_1` | 5700 | **1948** | Signed-off Compact raise order L, L, AT (648 / 1248 / 1948). **Advisory**: reported, never fails |
+| `compact_at_1` | 5700 | **1948** | Tick the Compact AI **issues** the AT raise order (raise start, not completion) in the signed-off order L, L, AT (ordered at 648 / 1248 / 1948). **Advisory**: reported, never fails |
+| `compact_militia` | 3900 | 3900 | Unchanged tick, now **advisory**: the starting militia is logged at tick 0 and the AI raises none, so 3900 never matches a real run until the raise log tells raised from starting units |
 
 **Compact first (design requirement).** The Compact must reach The Dalles first, by a few hundred ticks (measured 293). The `orderChecks` entry `compact_first_at_dalles` fails the check if the Compact is not strictly first (or either arrival is missing) and warns, without failing, if the margin is under 200 ticks. The 300-tick tolerances on the two arrivals overlap, so this check is what enforces the order.
 
 Every other target is still a designer-sim estimate and has not been re-measured.
+
+**Pass 2 (`dataVersion` 9).** Wording and advisory flags only; no target tick or tolerance changed. `compact_at_1` now says 1948 is the raise order, not completion. `compact_militia` is advisory (see Open question 2).
+
+**Still stale.** These will be re-based on a real run once ClaimTown/BuildDepot, combat and capture land in the sim: the Remnant armour/mech targets (`remnant_armour_1`–`3`, `remnant_mech_1`–`2`, waiting on Tier II units being raised in the sim), `remnant_forward_depot` 12780, `remnant_hq_arrive` 19680, `remnant_hq_win` 25020, the 50040-tick horizon, and the capture targets (`compact_dalles_capture`, `remnant_dalles_capture_commit`, currently shifted from their arrivals rather than measured).
 
 ## 5. Decisions (2026-10-08)
 
@@ -167,4 +172,4 @@ Every other target is still a designer-sim estimate and has not been re-measured
 ## Open questions
 
 1. **`_test` scenario loader defaults (later data PR).** Sheet §4 says absent `fuelEnabled`, `simultaneousHqLoss`, `raisableUnits`, `buildableBuildings` and `autoResearch` keep today's behaviour (defaults `true`, `"draw"`, every unit, every building, `[]`). Main's `ScenarioLoader` requires all five, so `columbia_gorge_100mi_test.json`, which has none of them, would not load. Nothing on main loads the test scenario today.
-2. **`compact_militia` target.** §5 gives "Compact militia / AT: 3:15 / 4:45" without saying which militia. In the designer sim (old Settler build order, rifles ×4 first) 3:15 is the second raised militia; the first is at 2:21. The real AI's build order differs from the designer sim (§6.5), so the Compact production targets are expected to move and are not marked `core`. On #18 the Compact starts with militia on the map (logged at tick 0) and does not raise militia, so `compact_militia` (3900) drifts on real runs; its meaning is unchanged here until this question is answered. `compact_at_1` is now advisory at 1948 (§4).
+2. **`compact_militia` target.** §5 gives "Compact militia / AT: 3:15 / 4:45" without saying which militia. In the designer sim (old Settler build order, rifles ×4 first) 3:15 is the second raised militia; the first is at 2:21. The real AI's build order differs from the designer sim (§6.5), so the Compact production targets are expected to move and are not marked `core`. On #18 the Compact starts with militia on the map (logged at tick 0) and does not raise militia, so `compact_militia` (3900) drifts on real runs (−3900). It is **advisory** from `dataVersion` 9 (reported, never fails) until the raise log distinguishes raised from starting units; its meaning is unchanged until this question is answered. `compact_at_1` is now advisory at 1948 (§4).

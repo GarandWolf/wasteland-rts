@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
-  "dataVersion": 8,
+  "dataVersion": 9,
   "id": "mvp_timing_targets",
-  "source": "Designer MVP rules sheet (Oct 8 2026), section 5 'Expected timeline' (designer-sim estimates, not real-sim results) and section 7 step 2 (15 s tolerance). Scenario data/balance/scenarios/columbia_gorge_100mi_mvp.json on main b9e53fc, Normal difficulty. Retargeted after PR #18 (head 5db79ae): the Dalles arrivals and captures, remnant_tier2 and compact_at_1 now follow the real sim (straight node-to-node road stepping at wheeled 1200 cm/tick, arrival = first battalion inside the 1.5 mi capture disk). The other targets are still designer-sim estimates.",
+  "source": "Designer MVP rules sheet (Oct 8 2026), section 5 'Expected timeline' (designer-sim estimates, not real-sim results) and section 7 step 2 (15 s tolerance). Scenario data/balance/scenarios/columbia_gorge_100mi_mvp.json, Normal difficulty. Baseline: the #18 headless log (merged as 854daba), main 996c80a. Retargeted after PR #18 (head 5db79ae): the Dalles arrivals and captures, remnant_tier2 and compact_at_1 now follow the real sim (straight node-to-node road stepping at wheeled 1200 cm/tick, arrival = first battalion inside the 1.5 mi capture disk). Pass 2 (dataVersion 9): wording only, compact_militia made advisory; no tick or tolerance changed. The other targets are still designer-sim estimates.",
   "ticksPerSecond": 20,
   "defaultToleranceTicks": 300,
   "sides": {
@@ -145,7 +145,7 @@
     {
       "id": "compact_militia",
       "side": "compact",
-      "description": "Compact militia completion from the rules sheet 5 row 'Compact militia / AT' (MVP estimate 3:15). See the open question in docs/design/mvp-acceptance.md.",
+      "description": "Compact militia completion from the rules sheet 5 row 'Compact militia / AT' (MVP estimate 3:15). Stale: on #18 the Compact's starting militia is logged at tick 0 and the AI does not raise militia, so 3900 never matches a real run. Advisory until the raise log distinguishes raised from starting units: reported but never fails the check. See the open question in docs/design/mvp-acceptance.md.",
       "tick": 3900,
       "clock": "3:15",
       "toleranceTicks": 300,
@@ -153,12 +153,13 @@
         "baseline",
         "remnant_commit"
       ],
-      "core": false
+      "core": false,
+      "advisory": true
     },
     {
       "id": "compact_at_1",
       "side": "compact",
-      "description": "First raised compact_at_battalion completes. Reference value 1948 is the signed-off Compact raise order (L, L, AT at 648 / 1248 / 1948) on PR #18 (was 5700, the rules sheet 5 estimate 4:45). Advisory: reported but never fails the check.",
+      "description": "Compact AI issues the raise order for its first compact_at_battalion (raise start, not completion). Reference value 1948 is the AT order tick in the signed-off Compact raise order (L, L, AT ordered at 648 / 1248 / 1948) on PR #18 (was 5700, the rules sheet 5 estimate 4:45 for completion). Advisory: reported but never fails the check.",
       "tick": 1948,
       "clock": "1:37",
       "toleranceTicks": 300,
