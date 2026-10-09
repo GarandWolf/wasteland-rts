@@ -551,7 +551,7 @@ namespace Wasteland.Sim.Tests
                 + " nearestDistCm=" + nearestDistCm
                 + " firstWp=" + firstWpX + "," + firstWpY
                 + " firstWpNode=" + firstWpNode
-                + " firstLegOffRoad=" + (haveSpawn && (firstWpX != spawnX || firstWpY != spawnY))
+                + " firstLegOffRoad=" + (nearestDistCm > 0)
                 + " withinDepot=" + remnantWithinTick);
             for (int i = 0; i < rejects.Count; i++)
             {
