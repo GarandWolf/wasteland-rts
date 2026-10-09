@@ -35,6 +35,11 @@ namespace Wasteland.Sim.Ai
             get { return _inner.CommandDelayTicks; }
         }
 
+        public int LastSequence
+        {
+            get { return _inner.LastSequence; }
+        }
+
         public int BattalionCount
         {
             get { return _inner.BattalionCount; }
@@ -85,6 +90,46 @@ namespace Wasteland.Sim.Ai
         public bool TryCopyProductionQueue(int factionId, List<ProductionQueueItem> into)
         {
             return _inner.TryCopyProductionQueue(factionId, into);
+        }
+
+        public int TownCount
+        {
+            get { return _inner.TownCount; }
+        }
+
+        public bool TryGetTown(int townId, out TownView view)
+        {
+            return _inner.TryGetTown(townId, out view);
+        }
+
+        public void CopyTowns(List<TownView> into)
+        {
+            _inner.CopyTowns(into);
+        }
+
+        public bool TryGetTerritory(ulong key, out TerritoryView view)
+        {
+            return _inner.TryGetTerritory(key, out view);
+        }
+
+        public void CopyDepots(List<DepotView> into)
+        {
+            _inner.CopyDepots(into);
+        }
+
+        public void CopyEventsOfTick(int tick, List<SimEvent> into)
+        {
+            _inner.CopyEventsOfTick(tick, into);
+        }
+
+        public void CopyEventsInRange(int fromTick, int toTick, List<SimEvent> into)
+        {
+            _inner.CopyEventsInRange(fromTick, toTick, into);
+        }
+
+        public CommandRejectReason PreviewDepotPlacement(int factionId, int nodeId, out int param0, out int param1)
+        {
+            return _inner.PreviewDepotPlacement(factionId, nodeId, out param0, out param1);
         }
 
         private SimCommand RecordRaise(SimCommand stamped)

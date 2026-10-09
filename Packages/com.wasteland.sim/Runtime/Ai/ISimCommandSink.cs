@@ -19,6 +19,12 @@ namespace Wasteland.Sim.Ai
 
         SimCommand Submit(SimCommand command);
 
+        /// <summary>
+        /// Sequence assigned by the last <see cref="Submit"/> that entered the world queue.
+        /// Pairs with <see cref="SimEvent.Key"/> on <see cref="SimEventKind.CommandRejected"/>.
+        /// </summary>
+        int LastSequence { get; }
+
         int AllocateBattalionId();
 
         SimCommand SubmitRaiseBattalion(int factionId, string unitId, int rallyXCm, int rallyYCm);
@@ -52,6 +58,29 @@ namespace Wasteland.Sim.Ai
         bool TryGetBattalionView(int battalionId, out BattalionView view);
 
         bool TryCopyProductionQueue(int factionId, List<ProductionQueueItem> into);
+
+        int TownCount { get; }
+
+        bool TryGetTown(int townId, out TownView view);
+
+        void CopyTowns(List<TownView> into);
+
+        bool TryGetTerritory(ulong key, out TerritoryView view);
+
+        void CopyDepots(List<DepotView> into);
+
+        /// <summary>
+        /// Events on one tick from the retained history. The AI reads tick t-1 at the start of tick t.
+        /// </summary>
+        void CopyEventsOfTick(int tick, List<SimEvent> into);
+
+        /// <summary>
+        /// Events in <c>[fromTick, toTick]</c> from the last 64 ticks, ordered by event id.
+        /// Derived state: not hashed and not saved. Replay rebuilds it by stepping.
+        /// </summary>
+        void CopyEventsInRange(int fromTick, int toTick, List<SimEvent> into);
+
+        CommandRejectReason PreviewDepotPlacement(int factionId, int nodeId, out int param0, out int param1);
     }
 
     /// <summary>

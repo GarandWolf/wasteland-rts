@@ -7,16 +7,22 @@ using Wasteland.Sim.World;
 namespace Wasteland.Sim.Ai
 {
     /// <summary>
-    /// Adapter: spawn/move go through <see cref="SimWorld.Submit"/>. Build is
-    /// accepted here so SimWorld does not stub buildings.
+    /// Adapter: spawn, move, claim, and depot commands go through <see cref="SimWorld.Submit"/>.
+    /// <see cref="CommandKind.Build"/> stays reserved and is not forwarded.
     /// </summary>
     public sealed class SimWorldCommandSink : ISimCommandSink, ISimWorldView, ICaptureOccupancyView
     {
         private readonly SimWorld _world;
+        private int _lastSequence;
 
         public SimWorldCommandSink(SimWorld world)
         {
             _world = world ?? throw new ArgumentNullException(nameof(world));
+        }
+
+        public int LastSequence
+        {
+            get { return _lastSequence; }
         }
 
         public int Tick
@@ -46,7 +52,9 @@ namespace Wasteland.Sim.Ai
                 return command;
             }
 
-            return _world.Submit(command);
+            SimCommand stamped = _world.Submit(command);
+            _lastSequence = stamped.Sequence;
+            return stamped;
         }
 
         public int AllocateBattalionId()
@@ -86,6 +94,46 @@ namespace Wasteland.Sim.Ai
         public bool TryCopyProductionQueue(int factionId, List<ProductionQueueItem> into)
         {
             return _world.TryCopyProductionQueue(factionId, into);
+        }
+
+        public int TownCount
+        {
+            get { return _world.TownCount; }
+        }
+
+        public bool TryGetTown(int townId, out TownView view)
+        {
+            return _world.TryGetTown(townId, out view);
+        }
+
+        public void CopyTowns(List<TownView> into)
+        {
+            _world.CopyTowns(into);
+        }
+
+        public bool TryGetTerritory(ulong key, out TerritoryView view)
+        {
+            return _world.TryGetTerritory(key, out view);
+        }
+
+        public void CopyDepots(List<DepotView> into)
+        {
+            _world.CopyDepots(into);
+        }
+
+        public void CopyEventsOfTick(int tick, List<SimEvent> into)
+        {
+            _world.CopyEventsOfTick(tick, into);
+        }
+
+        public void CopyEventsInRange(int fromTick, int toTick, List<SimEvent> into)
+        {
+            _world.CopyEventsInRange(fromTick, toTick, into);
+        }
+
+        public CommandRejectReason PreviewDepotPlacement(int factionId, int nodeId, out int param0, out int param1)
+        {
+            return _world.PreviewDepotPlacement(factionId, nodeId, out param0, out param1);
         }
 
         public bool TryGetSeat(int factionId, out SeatView view)

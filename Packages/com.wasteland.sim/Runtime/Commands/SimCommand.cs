@@ -79,12 +79,24 @@ namespace Wasteland.Sim.Commands
         }
 
         /// <summary>
-        /// Building intent. The AI command sink accepts this in M1. SimWorld
-        /// rejects it until the sim owns buildings.
+        /// Reserved building intent. SimWorld rejects <see cref="CommandKind.Build"/>.
+        /// Depots use <see cref="BuildDepot"/>.
         /// </summary>
         public static SimCommand Build(int issuedTick, int issuerId, int xCm, int yCm, int buildingTag)
         {
             return new SimCommand(issuedTick, issuerId, 0, CommandKind.Build, xCm, yCm, buildingTag);
+        }
+
+        /// <summary>Road-move a capturer toward a town. Capture is resolved by the world.</summary>
+        public static SimCommand ClaimTown(int issuedTick, int issuerId, int battalionId, int townId)
+        {
+            return new SimCommand(issuedTick, issuerId, battalionId, CommandKind.ClaimTown, townId, 0, 0);
+        }
+
+        /// <summary>Reserve a supply depot at a road node. Arg1 and Arg2 stay 0.</summary>
+        public static SimCommand BuildDepot(int issuedTick, int issuerId, int builderBattalionId, int nodeId)
+        {
+            return new SimCommand(issuedTick, issuerId, builderBattalionId, CommandKind.BuildDepot, nodeId, 0, 0);
         }
 
         public SimCommand WithIssuedTick(int issuedTick)

@@ -40,6 +40,11 @@ namespace Wasteland.Sim.Scenario
         private readonly string[] _holdingTiers;
         private readonly string[] _resourceSites;
         private readonly int[] _speedCmPerTick;
+        private readonly bool[] _unitCanCapture;
+        private readonly bool[] _unitCanContest;
+        private readonly bool[] _unitCanBuild;
+        private readonly int[] _buildingFortification;
+        private readonly CaptureBalance _capture;
 
         private BalanceCatalog(
             int dataVersion,
@@ -75,7 +80,12 @@ namespace Wasteland.Sim.Scenario
             string[] personalityFactions,
             string[] holdingTiers,
             string[] resourceSites,
-            int[] speedCmPerTick)
+            int[] speedCmPerTick,
+            bool[] unitCanCapture,
+            bool[] unitCanContest,
+            bool[] unitCanBuild,
+            int[] buildingFortification,
+            CaptureBalance capture)
         {
             DataVersion = dataVersion;
             StartingManpower = startingManpower;
@@ -111,6 +121,17 @@ namespace Wasteland.Sim.Scenario
             _holdingTiers = holdingTiers;
             _resourceSites = resourceSites;
             _speedCmPerTick = speedCmPerTick;
+            _unitCanCapture = unitCanCapture;
+            _unitCanContest = unitCanContest;
+            _unitCanBuild = unitCanBuild;
+            _buildingFortification = buildingFortification;
+            _capture = capture;
+        }
+
+        /// <summary>Capture, depot, and holding-tier numbers from the balance files.</summary>
+        public CaptureBalance Capture
+        {
+            get { return _capture; }
         }
 
         public int DataVersion { get; }
@@ -132,11 +153,9 @@ namespace Wasteland.Sim.Scenario
 
         /// <summary>
         /// Starting seat pop cap: min(<c>popCap.base</c> + <c>popCap.hqBonus</c>, <c>popCap.hardCap</c>).
-        /// Holding bonuses are not included. <c>data/balance/balance-notes.md</c> ~265 defines the
-        /// full cap as <c>popCap.hqBonus</c> plus owned <c>holdingTiers[].popCapBonus</c>, limited
-        /// by <c>hardCap</c>. That recompute on owner change (scenario
-        /// <c>derived.territories[].places</c>) and <c>buildings.json</c> <c>hq.popCapBonus</c>
-        /// (a duplicate of <c>hqBonus</c>) land in the capture PR and are not applied here.
+        /// Holding bonuses are not included. The seat cap that adds owned
+        /// <c>holdingTiers[].popCapBonus</c> is recomputed by <c>SimWorld.BindHoldings</c>.
+        /// <c>buildings.json</c> <c>hq.popCapBonus</c> is not read.
         /// </summary>
         public int StartingSeatPopCap
         {
@@ -253,6 +272,9 @@ namespace Wasteland.Sim.Scenario
             byte[] unitMoveClass;
             int[] unitBuildTicks;
             string[] unitProducedAt;
+            bool[] unitCanCapture;
+            bool[] unitCanContest;
+            bool[] unitCanBuild;
             ReadUnits(
                 unitsRoot,
                 out unitIds,
@@ -266,11 +288,16 @@ namespace Wasteland.Sim.Scenario
                 out unitPop,
                 out unitMoveClass,
                 out unitBuildTicks,
-                out unitProducedAt);
+                out unitProducedAt,
+                out unitCanCapture,
+                out unitCanContest,
+                out unitCanBuild);
             string[] buildingIds;
             string[][] buildingFactions;
             string[] buildingRoles;
-            ReadBuildings(buildingsRoot, out buildingIds, out buildingFactions, out buildingRoles);
+            int[] buildingFortification;
+            ReadBuildings(buildingsRoot, out buildingIds, out buildingFactions, out buildingRoles, out buildingFortification);
+            CaptureBalance capture = CaptureBalance.Read(rulesRoot, economyRoot, buildingsRoot);
             int[] unitProducedAtIndex = ResolveProducedAt(unitIds, unitProducedAt, buildingIds);
             string[] techIds;
             int[] techResearchTicks;
@@ -325,7 +352,12 @@ namespace Wasteland.Sim.Scenario
                 personalityFactions,
                 holdingTiers,
                 resourceSites,
-                speedCmPerTick);
+                speedCmPerTick,
+                unitCanCapture,
+                unitCanContest,
+                unitCanBuild,
+                buildingFortification,
+                capture);
 
             for (int i = 0; i < unitIds.Length; i++)
             {
@@ -498,6 +530,32 @@ namespace Wasteland.Sim.Scenario
         internal MovementClass UnitMoveClassAt(int index)
         {
             return (MovementClass)_unitMoveClass[index];
+        }
+
+        internal bool UnitCanCaptureAt(int index)
+        {
+            return _unitCanCapture[index];
+        }
+
+        internal bool UnitCanContestAt(int index)
+        {
+            return _unitCanContest[index];
+        }
+
+        internal bool UnitCanBuildAt(int index)
+        {
+            return _unitCanBuild[index];
+        }
+
+        internal int BuildingFortification(string buildingId)
+        {
+            int index = IndexOf(_buildingIds, buildingId);
+            if (index < 0)
+            {
+                return -1;
+            }
+
+            return _buildingFortification[index];
         }
 
         internal int SpeedCmPerSecond(MovementClass clas)
@@ -825,7 +883,10 @@ namespace Wasteland.Sim.Scenario
             out int[] pop,
             out byte[] moveClass,
             out int[] buildTicks,
-            out string[] producedAt)
+            out string[] producedAt,
+            out bool[] canCapture,
+            out bool[] canContest,
+            out bool[] canBuild)
         {
             JsonValue units = Child(root, "units", "units.json $.units");
             if (units.Kind != JsonKind.Object || units.ObjectValue.Count < 1)
@@ -846,6 +907,9 @@ namespace Wasteland.Sim.Scenario
             moveClass = new byte[count];
             buildTicks = new int[count];
             producedAt = new string[count];
+            canCapture = new bool[count];
+            canContest = new bool[count];
+            canBuild = new bool[count];
             for (int i = 0; i < count; i++)
             {
                 string id = units.ObjectValue[i].Name;
@@ -871,9 +935,12 @@ namespace Wasteland.Sim.Scenario
                 buildTicks[i] = IntAt(Child(row, "buildTicks", path + ".buildTicks"), path + ".buildTicks", 0);
                 producedAt[i] = TextAt(Child(row, "producedAt", path + ".producedAt"), path + ".producedAt");
                 ScenarioText.RequireSnake(producedAt[i], path + ".producedAt");
+                canCapture[i] = BoolAt(Child(row, "canCapture", path + ".canCapture"), path + ".canCapture");
+                canContest[i] = BoolAt(Child(row, "canContest", path + ".canContest"), path + ".canContest");
+                canBuild[i] = BoolAt(Child(row, "canBuild", path + ".canBuild"), path + ".canBuild");
             }
 
-            SortUnits(ids, factions, tiers, roles, targetClasses, manpower, materiel, fuel, pop, moveClass, buildTicks, producedAt);
+            SortUnits(ids, factions, tiers, roles, targetClasses, manpower, materiel, fuel, pop, moveClass, buildTicks, producedAt, canCapture, canContest, canBuild);
             ScenarioSort.RequireUnique(ids, "units.json $.units");
         }
 
@@ -915,7 +982,7 @@ namespace Wasteland.Sim.Scenario
             throw ScenarioErrors.At(path, "unknown movement class '" + text + "'.");
         }
 
-        private static void ReadBuildings(JsonValue root, out string[] ids, out string[][] factions, out string[] roles)
+        private static void ReadBuildings(JsonValue root, out string[] ids, out string[][] factions, out string[] roles, out int[] fortification)
         {
             JsonValue buildings = Child(root, "buildings", "buildings.json $.buildings");
             if (buildings.Kind != JsonKind.Object || buildings.ObjectValue.Count < 1)
@@ -927,6 +994,7 @@ namespace Wasteland.Sim.Scenario
             ids = new string[count];
             factions = new string[count][];
             roles = new string[count];
+            fortification = new int[count];
             for (int i = 0; i < count; i++)
             {
                 string id = buildings.ObjectValue[i].Name;
@@ -953,9 +1021,10 @@ namespace Wasteland.Sim.Scenario
                 factions[i] = allowed;
                 roles[i] = TextAt(Child(row, "role", path + ".role"), path + ".role");
                 ScenarioText.RequireSnake(roles[i], path + ".role");
+                fortification[i] = IntAt(Child(row, "fortificationLevel", path + ".fortificationLevel"), path + ".fortificationLevel", 0);
             }
 
-            SortBuildings(ids, factions, roles);
+            SortBuildings(ids, factions, roles, fortification);
             ScenarioSort.RequireUnique(ids, "buildings.json $.buildings");
         }
 
@@ -1151,7 +1220,10 @@ namespace Wasteland.Sim.Scenario
             int[] pop,
             byte[] moveClass,
             int[] buildTicks,
-            string[] producedAt)
+            string[] producedAt,
+            bool[] canCapture,
+            bool[] canContest,
+            bool[] canBuild)
         {
             int[] order = OrderOf(ids);
             string[] sortedIds = new string[ids.Length];
@@ -1166,6 +1238,9 @@ namespace Wasteland.Sim.Scenario
             byte[] sortedMove = new byte[ids.Length];
             int[] sortedBuild = new int[ids.Length];
             string[] sortedProduced = new string[ids.Length];
+            bool[] sortedCapture = new bool[ids.Length];
+            bool[] sortedContest = new bool[ids.Length];
+            bool[] sortedBuildable = new bool[ids.Length];
             for (int i = 0; i < order.Length; i++)
             {
                 int from = order[i];
@@ -1181,6 +1256,9 @@ namespace Wasteland.Sim.Scenario
                 sortedMove[i] = moveClass[from];
                 sortedBuild[i] = buildTicks[from];
                 sortedProduced[i] = producedAt[from];
+                sortedCapture[i] = canCapture[from];
+                sortedContest[i] = canContest[from];
+                sortedBuildable[i] = canBuild[from];
             }
 
             for (int i = 0; i < ids.Length; i++)
@@ -1197,6 +1275,9 @@ namespace Wasteland.Sim.Scenario
                 moveClass[i] = sortedMove[i];
                 buildTicks[i] = sortedBuild[i];
                 producedAt[i] = sortedProduced[i];
+                canCapture[i] = sortedCapture[i];
+                canContest[i] = sortedContest[i];
+                canBuild[i] = sortedBuildable[i];
             }
         }
 
@@ -1219,17 +1300,19 @@ namespace Wasteland.Sim.Scenario
             return index;
         }
 
-        private static void SortBuildings(string[] ids, string[][] factions, string[] roles)
+        private static void SortBuildings(string[] ids, string[][] factions, string[] roles, int[] fortification)
         {
             int[] order = OrderOf(ids);
             string[] sortedIds = new string[ids.Length];
             string[][] sortedFactions = new string[ids.Length][];
             string[] sortedRoles = new string[ids.Length];
+            int[] sortedFort = new int[ids.Length];
             for (int i = 0; i < order.Length; i++)
             {
                 sortedIds[i] = ids[order[i]];
                 sortedFactions[i] = factions[order[i]];
                 sortedRoles[i] = roles[order[i]];
+                sortedFort[i] = fortification[order[i]];
             }
 
             for (int i = 0; i < ids.Length; i++)
@@ -1237,6 +1320,7 @@ namespace Wasteland.Sim.Scenario
                 ids[i] = sortedIds[i];
                 factions[i] = sortedFactions[i];
                 roles[i] = sortedRoles[i];
+                fortification[i] = sortedFort[i];
             }
         }
 
@@ -1344,6 +1428,16 @@ namespace Wasteland.Sim.Scenario
             }
 
             return value.StringValue;
+        }
+
+        private static bool BoolAt(JsonValue value, string path)
+        {
+            if (value.Kind != JsonKind.Bool)
+            {
+                throw ScenarioErrors.At(path, "expected a boolean.");
+            }
+
+            return value.BoolValue;
         }
     }
 }

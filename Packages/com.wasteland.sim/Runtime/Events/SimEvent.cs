@@ -16,8 +16,15 @@ namespace Wasteland.Sim.Events
         public readonly int Param0;
         public readonly int Param1;
 
+        /// <summary>
+        /// Territory key when the event names a place. On
+        /// <see cref="SimEventKind.CommandRejected"/> the high 32 bits are the
+        /// issuer id and the low 32 bits are the submit sequence. Zero when unused.
+        /// </summary>
+        public readonly ulong Key;
+
         public SimEvent(int eventId, int tick, SimEventKind kind, int subjectId, int auxId)
-            : this(eventId, tick, kind, subjectId, auxId, 0, 0)
+            : this(eventId, tick, kind, subjectId, auxId, 0, 0, 0UL)
         {
         }
 
@@ -29,6 +36,19 @@ namespace Wasteland.Sim.Events
             int auxId,
             int param0,
             int param1)
+            : this(eventId, tick, kind, subjectId, auxId, param0, param1, 0UL)
+        {
+        }
+
+        public SimEvent(
+            int eventId,
+            int tick,
+            SimEventKind kind,
+            int subjectId,
+            int auxId,
+            int param0,
+            int param1,
+            ulong key)
         {
             EventId = eventId;
             Tick = tick;
@@ -37,6 +57,7 @@ namespace Wasteland.Sim.Events
             AuxId = auxId;
             Param0 = param0;
             Param1 = param1;
+            Key = key;
         }
 
         public CommandRejectReason RejectReason
