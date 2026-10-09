@@ -73,6 +73,8 @@ namespace Wasteland.Sim.Tests
             Assert.True(claimed, "Gorge AI never claimed a town.");
             Assert.True(depotBuilt, "Gorge AI never reserved a depot.");
             Assert.True(depotLost, "Gorge AI never lost a depot (refund or destroy).");
+            AssertAiActed(first, factions);
+            AssertAiActed(second, factions);
             Assert.Equal(firstHashes, secondHashes);
             Assert.Equal(firstEventKinds, secondEventKinds);
 
@@ -100,6 +102,8 @@ namespace Wasteland.Sim.Tests
             original.Run(remain);
             restored.Run(remain);
             Assert.Equal(original.HashWorld(), restored.HashWorld());
+            AssertAiActed(original, factions);
+            AssertAiActed(restored, factions);
             restored.Shutdown();
             original.Shutdown();
         }
@@ -143,6 +147,94 @@ namespace Wasteland.Sim.Tests
 
             Assert.False(stillPending);
             host.Shutdown();
+        }
+
+        private static void AssertAiActed(AiMatchHost host, int[] factions)
+        {
+            IReadOnlyList<SimCommand> log = host.CommandLog;
+            Assert.True(log.Count > 0, "AI command log is empty.");
+            bool claimed = false;
+            bool built = false;
+            int seatCount = factions.Length;
+            int[] raises = new int[seatCount];
+            int[] moves = new int[seatCount];
+            int[] seatIds = new int[seatCount];
+            for (int s = 0; s < seatCount; s++)
+            {
+                seatIds[s] = factions[s];
+            }
+
+            SortIds(seatIds);
+            for (int i = 0; i < log.Count; i++)
+            {
+                SimCommand command = log[i];
+                if (command.Kind == CommandKind.ClaimTown)
+                {
+                    claimed = true;
+                }
+
+                if (command.Kind == CommandKind.BuildDepot)
+                {
+                    built = true;
+                }
+
+                int seat = IndexOfId(seatIds, command.IssuerId);
+                if (seat < 0)
+                {
+                    continue;
+                }
+
+                if (command.Kind == CommandKind.RaiseBattalion)
+                {
+                    raises[seat]++;
+                }
+
+                if (command.Kind == CommandKind.Move)
+                {
+                    moves[seat]++;
+                }
+            }
+
+            Assert.True(claimed, "AI never issued ClaimTown.");
+            Assert.True(built, "AI never issued BuildDepot.");
+            for (int s = 0; s < seatCount; s++)
+            {
+                Assert.True(
+                    raises[s] > 0,
+                    "AI seat " + seatIds[s] + " never issued RaiseBattalion.");
+                Assert.True(
+                    moves[s] > 0,
+                    "AI seat " + seatIds[s] + " never issued Move.");
+            }
+        }
+
+        private static int IndexOfId(int[] ids, int value)
+        {
+            for (int i = 0; i < ids.Length; i++)
+            {
+                if (ids[i] == value)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private static void SortIds(int[] ids)
+        {
+            for (int i = 1; i < ids.Length; i++)
+            {
+                int row = ids[i];
+                int j = i - 1;
+                while (j >= 0 && ids[j] > row)
+                {
+                    ids[j + 1] = ids[j];
+                    j--;
+                }
+
+                ids[j + 1] = row;
+            }
         }
 
         private static bool HasReservedBuilder(AiMatchHost host)
