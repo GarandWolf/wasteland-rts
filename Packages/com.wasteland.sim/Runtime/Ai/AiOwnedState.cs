@@ -70,8 +70,9 @@ namespace Wasteland.Sim.Ai
     }
 
     /// <summary>
-    /// One skipped depot node for one seat. Saved and hashed as a fixed-size
-    /// array sorted by node, then seat.
+    /// One skipped depot node on the shared 128-slot blacklist, keyed by
+    /// (node, seat). Saved and hashed as a fixed-size array sorted by node,
+    /// then seat. Seats do not own separate lists.
     /// </summary>
     public struct AiDepotBlacklistEntry
     {
@@ -411,6 +412,7 @@ namespace Wasteland.Sim.Ai
     {
         private readonly AiFactionState[] _factions;
         private readonly int[] _townOwnerIds;
+        // Shared 128-slot list for every seat, keyed by (node, seat).
         private readonly AiDepotBlacklistEntry[] _blacklist;
         private readonly AiOrderBackoffEntry[] _backoff;
 

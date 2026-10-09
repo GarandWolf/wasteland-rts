@@ -668,7 +668,7 @@ namespace Wasteland.Sim.Ai
                         int issuer = (int)(ev.Key >> 32);
                         int sequence = (int)ev.Key;
                         NoteOrderRejectFromEvent(ev, issuer, sequence);
-                        BlacklistDepotNodeFromIntent(issuer, sequence, ev.RejectReason, ev.Param1);
+                        BlacklistDepotNodeFromIntent(issuer, sequence, ev.RejectReason);
                         RemoveIntentBySequence(issuer, sequence);
                         continue;
                     }
@@ -918,8 +918,7 @@ namespace Wasteland.Sim.Ai
         private void BlacklistDepotNodeFromIntent(
             int factionId,
             int sequence,
-            CommandRejectReason reason,
-            int rejectParam1)
+            CommandRejectReason reason)
         {
             AiFactionState faction;
             try
@@ -936,15 +935,17 @@ namespace Wasteland.Sim.Ai
                 AiPendingIntent intent = faction.Intents[i];
                 if (intent.Sequence == sequence && intent.Kind == AiIssuedKind.BuildDepot)
                 {
-                    AiDepotBlacklistKind kind = reason == CommandRejectReason.NoPath
-                        ? AiDepotBlacklistKind.Transient
-                        : AiDepotBlacklistKind.Placement;
-                    int territoryId = rejectParam1;
-                    if (territoryId == 0)
+                    // TerritoryNotOwned Param1 is a territory id; DepotTooClose
+                    // Param1 is the other depot's node. Always read the rejected
+                    // node's territory. DepotTooClose expires: the blocker can die.
+                    AiDepotBlacklistKind kind = AiDepotBlacklistKind.Placement;
+                    if (reason == CommandRejectReason.NoPath
+                        || reason == CommandRejectReason.DepotTooClose)
                     {
-                        territoryId = _world.GetNodeTerritoryId(intent.TargetId);
+                        kind = AiDepotBlacklistKind.Transient;
                     }
 
+                    int territoryId = _world.GetNodeTerritoryId(intent.TargetId);
                     BlacklistDepotNode(factionId, intent.TargetId, kind, territoryId);
                     return;
                 }

@@ -9,6 +9,10 @@ namespace Wasteland.Sim.Ai
         public const int StateSchemaVersion = 11;
         public const int PendingCommandCapacity = 128;
         public const int PendingIntentCapacity = 32;
+        /// <summary>
+        /// Shared 128-slot depot-node blacklist for every seat, keyed by
+        /// (node, seat). Seats do not own separate lists.
+        /// </summary>
         public const int DepotNodeBlacklistCapacity = 128;
         public const int OrderBackoffCapacity = 128;
 
@@ -21,8 +25,10 @@ namespace Wasteland.Sim.Ai
         public const int ClaimTownNoProgressTicks = 1200;
 
         /// <summary>
-        /// NoPath and builder-death blacklist entries drop after this many ticks
-        /// (120 s at 20 Hz). Placement rejects stay until the territory owner changes.
+        /// NoPath, DepotTooClose, and builder-death blacklist entries drop after
+        /// this many ticks (120 s at 20 Hz). DepotTooClose expires because the
+        /// blocking depot can be destroyed. Placement rejects stay until the
+        /// territory owner changes.
         /// </summary>
         public const int BlacklistTransientExpiryTicks = 2400;
 

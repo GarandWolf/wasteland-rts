@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Commands;
+using Wasteland.Sim.Events;
 using Wasteland.Sim.Hashing;
 using Wasteland.Sim.Movement;
 using Wasteland.Sim.Random;
@@ -261,6 +262,50 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void DepotBlacklist_TerritoryFromRejectedNode_AndDepotTooCloseExpires()
+        {
+            AiMatchHost host = StartHost();
+            int remnant = AiConstants.DefaultAiFactionA;
+            QuietAi(host);
+            int engineer = RemnantEngineer(host);
+            Assert.True(engineer != 0);
+
+            int unowned = FirstPreviewNode(host, remnant, CommandRejectReason.TerritoryNotOwned);
+            Assert.True(unowned != 0);
+            SimEvent unownedReject = RejectBuildDepot(host, remnant, engineer, unowned);
+            Assert.Equal(CommandRejectReason.TerritoryNotOwned, unownedReject.RejectReason);
+            Assert.Equal(unowned, unownedReject.Param0);
+            int unownedTerritory = host.Ai.Commands.GetNodeTerritoryId(unowned);
+            Assert.Equal(unownedTerritory, BlacklistTerritory(host, remnant, unowned));
+            Assert.Equal(AiDepotBlacklistKind.Placement, BlacklistKind(host, remnant, unowned));
+
+            int legal = FirstPreviewNode(host, remnant, CommandRejectReason.None);
+            Assert.True(legal != 0);
+            host.World.Submit(SimCommand.BuildDepot(host.Tick, remnant, engineer, legal));
+            host.Run(host.World.CommandDelayTicks + 2);
+            Assert.Equal(
+                CommandRejectReason.NodeHasDepot,
+                host.World.PreviewDepotPlacement(remnant, legal, out _, out _));
+
+            int tooClose = FirstPreviewNode(host, remnant, CommandRejectReason.DepotTooClose);
+            Assert.True(tooClose != 0);
+            SimEvent closeReject = RejectBuildDepot(host, remnant, engineer, tooClose);
+            Assert.Equal(CommandRejectReason.DepotTooClose, closeReject.RejectReason);
+            Assert.Equal(tooClose, closeReject.Param0);
+            int closeTerritory = host.Ai.Commands.GetNodeTerritoryId(tooClose);
+            Assert.NotEqual(0, closeTerritory);
+            Assert.NotEqual(closeReject.Param1, closeTerritory);
+            Assert.Equal(closeTerritory, BlacklistTerritory(host, remnant, tooClose));
+            Assert.Equal(AiDepotBlacklistKind.Transient, BlacklistKind(host, remnant, tooClose));
+            Assert.True(host.Ai.Owned.IsDepotNodeBlacklisted(remnant, tooClose));
+
+            host.Run(AiConstants.BlacklistTransientExpiryTicks + 1);
+            Assert.False(host.Ai.Owned.IsDepotNodeBlacklisted(remnant, tooClose));
+            Assert.True(host.Ai.Owned.IsDepotNodeBlacklisted(remnant, unowned));
+            host.Shutdown();
+        }
+
+        [Fact]
         public void HashInto_IncludesDroppedFromLog()
         {
             AiMatchHost host = StartHost();
@@ -331,6 +376,103 @@ namespace Wasteland.Sim.Tests
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
                 AiBalanceTablesTests.LoadBalance());
+        }
+
+        private static void QuietAi(AiMatchHost host)
+        {
+            for (int i = 0; i < host.Ai.Owned.FactionCount; i++)
+            {
+                AiFactionState faction = host.Ai.Owned.FactionAt(i);
+                faction.OrderCount = 0;
+                faction.PendingCount = 0;
+                faction.RejectBackoffUntilTick = int.MaxValue;
+            }
+        }
+
+        private static int RemnantEngineer(AiMatchHost host)
+        {
+            int remnant = AiConstants.DefaultAiFactionA;
+            for (int i = 0; i < host.World.BattalionCount; i++)
+            {
+                SimBattalion battalion = host.World.Battalions[i];
+                if (battalion.OwnerId != remnant)
+                {
+                    continue;
+                }
+
+                if (host.World.TryGetBattalionView(battalion.Id, out BattalionView view)
+                    && view.UnitId == "remnant_engineers")
+                {
+                    return battalion.Id;
+                }
+            }
+
+            return 0;
+        }
+
+        private static int FirstPreviewNode(AiMatchHost host, int seat, CommandRejectReason reason)
+        {
+            RoadGraph roads = host.Ai.Map.Roads;
+            for (int i = 0; i < roads.NodeCount; i++)
+            {
+                int nodeId = roads.GetNodeId(i);
+                if (host.World.PreviewDepotPlacement(seat, nodeId, out _, out _) == reason)
+                {
+                    return nodeId;
+                }
+            }
+
+            return 0;
+        }
+
+        private static SimEvent RejectBuildDepot(AiMatchHost host, int seat, int engineer, int node)
+        {
+            SimCommand stamped = host.World.Submit(
+                SimCommand.BuildDepot(host.Tick, seat, engineer, node));
+            host.Ai.Owned.EnqueueIntent(seat, new AiPendingIntent
+            {
+                Sequence = stamped.Sequence,
+                Kind = AiIssuedKind.BuildDepot,
+                BattalionId = engineer,
+                TargetId = node,
+                IssuedTick = host.Tick
+            });
+            int mark = host.World.Events.Count;
+            host.Run(host.World.CommandDelayTicks + 2);
+            for (int i = mark; i < host.World.Events.Count; i++)
+            {
+                SimEvent ev = host.World.Events[i];
+                if (ev.Kind == SimEventKind.CommandRejected && ev.Param0 == node)
+                {
+                    return ev;
+                }
+            }
+
+            throw new InvalidOperationException("No CommandRejected for node " + node + ".");
+        }
+
+        private static int BlacklistTerritory(AiMatchHost host, int seat, int node)
+        {
+            return BlacklistEntry(host, seat, node).TerritoryId;
+        }
+
+        private static AiDepotBlacklistKind BlacklistKind(AiMatchHost host, int seat, int node)
+        {
+            return BlacklistEntry(host, seat, node).Kind;
+        }
+
+        private static AiDepotBlacklistEntry BlacklistEntry(AiMatchHost host, int seat, int node)
+        {
+            for (int i = 0; i < host.Ai.Owned.BlacklistCount; i++)
+            {
+                AiDepotBlacklistEntry entry = host.Ai.Owned.DepotBlacklist[i];
+                if (entry.NodeId == node && entry.SeatId == seat)
+                {
+                    return entry;
+                }
+            }
+
+            throw new InvalidOperationException("Node " + node + " is not on the shared blacklist for seat " + seat + ".");
         }
 
         private static AiFactionState TestFactionB()

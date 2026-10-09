@@ -481,6 +481,8 @@ namespace Wasteland.Sim.Tests
                     + " issued " + depots[i].Count + " BuildDepot commands.");
             }
 
+            Assert.Equal(0, host.Ai.DroppedFromLog);
+
             int claimTowns = 0;
             for (int i = 0; i < log.Count; i++)
             {
