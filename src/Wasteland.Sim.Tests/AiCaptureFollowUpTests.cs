@@ -204,15 +204,11 @@ namespace Wasteland.Sim.Tests
                 BalanceLoad.Tables());
             int remnantId = AiConstants.DefaultAiFactionA;
             int compactId = AiConstants.DefaultAiFactionB;
-            int depotNode = 524;
+            int depotNode = 0;
+            int chosenSite = 0;
             int depotX = 0;
             int depotY = 0;
-            bool haveDepotNode = host.Ai.Map.Roads.TryGetNodeIndex(depotNode, out int depotIndex);
-            if (haveDepotNode)
-            {
-                depotX = host.Ai.Map.Roads.GetNodeXCm(depotIndex);
-                depotY = host.Ai.Map.Roads.GetNodeYCm(depotIndex);
-            }
+            bool haveDepotNode = false;
 
             int dallesIndex = host.Ai.Map.IndexOfTown(host.Ai.Map.TheDallesTownId);
             AiTownRecord dalles = host.Ai.Map.TownAt(dallesIndex);
@@ -246,6 +242,20 @@ namespace Wasteland.Sim.Tests
             int remnantPathCm = -1;
             int remnantWithinTick = -1;
             int remnantPathCount = -1;
+            int spawnX = 0;
+            int spawnY = 0;
+            int nearestNode = 0;
+            int nearestDistCm = -1;
+            int firstWpX = 0;
+            int firstWpY = 0;
+            int firstWpNode = 0;
+            bool remnantDepotStarted = false;
+            bool haveSpawn = TryRemnantEngineerSpawn(host, remnantId, out spawnX, out spawnY);
+            if (haveSpawn)
+            {
+                nearestNode = NearestRoadNode(host, spawnX, spawnY, out nearestDistCm);
+            }
+
             List<int> compactRaises = new List<int>();
             int eventCursor = 0;
             int logCursor = 0;
@@ -265,10 +275,14 @@ namespace Wasteland.Sim.Tests
                     SimCommand command = liveLog[i];
                     if (command.Kind == CommandKind.BuildDepot
                         && command.IssuerId == remnantId
-                        && command.Arg0 == depotNode
                         && remnantEngineerId == 0)
                     {
                         remnantEngineerId = command.BattalionId;
+                        chosenSite = command.Arg0;
+                        if (!remnantDepotStarted)
+                        {
+                            BindDepotNode(host, chosenSite, ref depotNode, ref depotX, ref depotY, ref haveDepotNode);
+                        }
                     }
 
                     if (command.Kind == CommandKind.Move
@@ -282,6 +296,33 @@ namespace Wasteland.Sim.Tests
 
                 logCursor = liveLog.Count;
 
+                IReadOnlyList<SimEvent> liveEvents = host.World.Events;
+                for (int i = eventCursor; i < liveEvents.Count; i++)
+                {
+                    SimEvent ev = liveEvents[i];
+                    if (ev.Kind == SimEventKind.DepotStarted
+                        && ev.AuxId == remnantId
+                        && !remnantDepotStarted)
+                    {
+                        remnantDepotStarted = true;
+                        BindDepotNode(host, ev.Param0, ref depotNode, ref depotX, ref depotY, ref haveDepotNode);
+                    }
+
+                    if (ev.Kind != SimEventKind.BattalionSpawned)
+                    {
+                        continue;
+                    }
+
+                    if (host.World.TryGetBattalionView(ev.SubjectId, out BattalionView spawned)
+                        && spawned.OwnerId == compactId
+                        && ev.Tick > 0)
+                    {
+                        compactRaises.Add(ev.Tick);
+                    }
+                }
+
+                eventCursor = liveEvents.Count;
+
                 if (remnantEngineerId != 0
                     && TryBattalion(host, remnantEngineerId, out SimBattalion engineer))
                 {
@@ -290,10 +331,13 @@ namespace Wasteland.Sim.Tests
                         remnantSpeed = engineer.SpeedCmPerSecond;
                     }
 
-                    if (remnantPathCm < 0 && engineer.PathCount > 1)
+                    if (remnantPathCm < 0 && engineer.PathCount > 1 && engineer.PathXCm != null && engineer.PathYCm != null)
                     {
                         remnantPathCount = engineer.PathCount;
                         remnantPathCm = PathLengthCm(engineer);
+                        firstWpX = engineer.PathXCm[0];
+                        firstWpY = engineer.PathYCm[0];
+                        firstWpNode = NearestRoadNode(host, firstWpX, firstWpY, out _);
                     }
 
                     if (haveDepotNode && remnantWithinTick < 0)
@@ -331,26 +375,11 @@ namespace Wasteland.Sim.Tests
                     remnantArrived = true;
                     remnantArrive = tick;
                 }
-
-                IReadOnlyList<SimEvent> liveEvents = host.World.Events;
-                for (int i = eventCursor; i < liveEvents.Count; i++)
-                {
-                    SimEvent ev = liveEvents[i];
-                    if (ev.Kind != SimEventKind.BattalionSpawned)
-                    {
-                        continue;
-                    }
-
-                    if (host.World.TryGetBattalionView(ev.SubjectId, out BattalionView spawned)
-                        && spawned.OwnerId == compactId
-                        && ev.Tick > 0)
-                    {
-                        compactRaises.Add(ev.Tick);
-                    }
-                }
-
-                eventCursor = liveEvents.Count;
             }
+
+            Assert.True(
+                depotNode != 0,
+                "Remnant never started a depot and never chose a BuildDepot site.");
 
             int delay = host.World.CommandDelayTicks;
             IReadOnlyList<SimEvent> events = host.World.Events;
@@ -516,7 +545,14 @@ namespace Wasteland.Sim.Tests
                 + " speed=" + remnantSpeed
                 + " pathCm=" + remnantPathCm
                 + " pathCount=" + remnantPathCount
-                + " within524=" + remnantWithinTick);
+                + " depotNode=" + depotNode
+                + " spawn=" + spawnX + "," + spawnY
+                + " nearestNode=" + nearestNode
+                + " nearestDistCm=" + nearestDistCm
+                + " firstWp=" + firstWpX + "," + firstWpY
+                + " firstWpNode=" + firstWpNode
+                + " firstLegOffRoad=" + (haveSpawn && (firstWpX != spawnX || firstWpY != spawnY))
+                + " withinDepot=" + remnantWithinTick);
             for (int i = 0; i < rejects.Count; i++)
             {
                 Console.WriteLine(
@@ -611,6 +647,81 @@ namespace Wasteland.Sim.Tests
                     + " distDalles=" + DistCm(battalion.PositionXCm, battalion.PositionYCm, dallesX, dallesY)
                     + " distHood=" + DistCm(battalion.PositionXCm, battalion.PositionYCm, hoodX, hoodY));
             }
+        }
+
+        private static void BindDepotNode(
+            AiMatchHost host,
+            int nodeId,
+            ref int depotNode,
+            ref int depotX,
+            ref int depotY,
+            ref bool haveDepotNode)
+        {
+            depotNode = nodeId;
+            haveDepotNode = host.Ai.Map.Roads.TryGetNodeIndex(nodeId, out int depotIndex);
+            if (haveDepotNode)
+            {
+                depotX = host.Ai.Map.Roads.GetNodeXCm(depotIndex);
+                depotY = host.Ai.Map.Roads.GetNodeYCm(depotIndex);
+            }
+        }
+
+        private static bool TryRemnantEngineerSpawn(AiMatchHost host, int remnantId, out int xCm, out int yCm)
+        {
+            xCm = 0;
+            yCm = 0;
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.OwnerId != remnantId)
+                {
+                    continue;
+                }
+
+                if (host.World.TryGetBattalionView(battalion.Id, out BattalionView view)
+                    && view.UnitId == "remnant_engineers")
+                {
+                    xCm = battalion.PositionXCm;
+                    yCm = battalion.PositionYCm;
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static int NearestRoadNode(AiMatchHost host, int xCm, int yCm, out int distCm)
+        {
+            distCm = -1;
+            int bestId = 0;
+            int bestX = 0;
+            int bestY = 0;
+            long bestDistSq = long.MaxValue;
+            int nodeCount = host.Ai.Map.Roads.NodeCount;
+            for (int i = 0; i < nodeCount; i++)
+            {
+                int nx = host.Ai.Map.Roads.GetNodeXCm(i);
+                int ny = host.Ai.Map.Roads.GetNodeYCm(i);
+                long dx = (long)nx - xCm;
+                long dy = (long)ny - yCm;
+                long distSq = (dx * dx) + (dy * dy);
+                int id = host.Ai.Map.Roads.GetNodeId(i);
+                if (distSq < bestDistSq || (distSq == bestDistSq && id < bestId))
+                {
+                    bestDistSq = distSq;
+                    bestId = id;
+                    bestX = nx;
+                    bestY = ny;
+                }
+            }
+
+            if (bestId != 0)
+            {
+                distCm = DistCm(xCm, yCm, bestX, bestY);
+            }
+
+            return bestId;
         }
 
         private static bool TryBattalion(AiMatchHost host, int battalionId, out SimBattalion battalion)
