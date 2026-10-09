@@ -42,6 +42,15 @@ namespace Wasteland.Sim.Ai
         {
             SimCommand stamped = _inner.Submit(SimCommand.Move(_inner.Tick, factionId, battalionId, xCm, yCm));
             _lastSequence = stamped.Sequence;
+            if (_inner is ISimWorldView view)
+            {
+                int nodeId = view.GetNearestNodeId(xCm, yCm);
+                if (nodeId != 0)
+                {
+                    _owned.NoteOrderSuccess(factionId, battalionId, CommandKind.Move, nodeId);
+                }
+            }
+
             return Record(factionId, AiIssuedKind.Move, battalionId, xCm, yCm, 0, string.Empty);
         }
 

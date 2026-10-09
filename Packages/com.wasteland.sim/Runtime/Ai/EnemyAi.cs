@@ -50,9 +50,6 @@ namespace Wasteland.Sim.Ai
         private readonly string[] _queuedUnitIds = new string[AiConstants.PendingCommandCapacity];
         private bool _shutdown;
         private bool _homesSeeded;
-        private bool _captureWatchReady;
-        private readonly int[] _lastCaptureFaction;
-        private readonly int[] _lastCaptureProgress;
         private int _strategicSliceRuns;
 
         private struct Candidate
@@ -99,8 +96,6 @@ namespace Wasteland.Sim.Ai
             _adjacencyHash = HashAdjacency(map.Adjacency);
             _candidates = new Candidate[System.Math.Max(1, difficulty.MaxCandidateGoals)];
             _networkScratch = new int[balance.ConnectivityScratchSize];
-            _lastCaptureFaction = new int[System.Math.Max(1, map.TownCount)];
-            _lastCaptureProgress = new int[System.Math.Max(1, map.TownCount)];
             _homes.Seed(_owned, _map, _balance);
             _homesSeeded = true;
             IssueOpeningForces();
@@ -411,7 +406,6 @@ namespace Wasteland.Sim.Ai
         {
             _owned.Load(blob, _matchSeed, _balanceKey, _mapKey);
             _homesSeeded = true;
-            _captureWatchReady = false;
             for (int i = 0; i < _owned.FactionCount; i++)
             {
                 _owned.FactionAt(i).LastIssuedCommandId = 0;
@@ -1104,22 +1098,21 @@ namespace Wasteland.Sim.Ai
         private void ResetClaimTownsOnCaptureDrop()
         {
             _world.CopyTowns(_townScratch);
-            if (!_captureWatchReady)
+            if (!_owned.CaptureWatchReady)
             {
                 for (int i = 0; i < _townScratch.Count; i++)
                 {
                     TownView town = _townScratch[i];
                     int index = _map.IndexOfTown(town.TownId);
-                    if (index < 0 || index >= _lastCaptureFaction.Length)
+                    if (index < 0)
                     {
                         continue;
                     }
 
-                    _lastCaptureFaction[index] = town.CaptureFactionId;
-                    _lastCaptureProgress[index] = town.CaptureProgressTicks;
+                    _owned.SetCaptureWatch(index, town.CaptureFactionId, town.CaptureProgressTicks);
                 }
 
-                _captureWatchReady = true;
+                _owned.CaptureWatchReady = true;
                 return;
             }
 
@@ -1127,13 +1120,13 @@ namespace Wasteland.Sim.Ai
             {
                 TownView town = _townScratch[i];
                 int index = _map.IndexOfTown(town.TownId);
-                if (index < 0 || index >= _lastCaptureFaction.Length)
+                if (index < 0)
                 {
                     continue;
                 }
 
-                int lastFaction = _lastCaptureFaction[index];
-                int lastProgress = _lastCaptureProgress[index];
+                int lastFaction = _owned.LastCaptureFactionAt(index);
+                int lastProgress = _owned.LastCaptureProgressAt(index);
                 bool capturerCleared = lastFaction != 0 && town.CaptureFactionId == 0;
                 bool progressDropped = lastProgress > 0 && town.CaptureProgressTicks == 0;
                 if (capturerCleared || progressDropped)
@@ -1141,8 +1134,7 @@ namespace Wasteland.Sim.Ai
                     _owned.ResetClaimTownsForTown(town.TownId);
                 }
 
-                _lastCaptureFaction[index] = town.CaptureFactionId;
-                _lastCaptureProgress[index] = town.CaptureProgressTicks;
+                _owned.SetCaptureWatch(index, town.CaptureFactionId, town.CaptureProgressTicks);
             }
         }
 
@@ -1445,7 +1437,10 @@ namespace Wasteland.Sim.Ai
                                 faction.FactionId,
                                 pending.BattalionId,
                                 out SimBattalion marching)
-                            && marching.HasTarget)
+                            && AiAttackDefend.IsMarchingTo(
+                                marching,
+                                pending.Arg0,
+                                pending.Arg1))
                         {
                             continue;
                         }
@@ -1459,6 +1454,18 @@ namespace Wasteland.Sim.Ai
                             pending.Arg1,
                             pending.Arg2);
                         _commands.Submit(command);
+                        if (pending.Kind == CommandKind.Move)
+                        {
+                            int nodeId = _world.GetNearestNodeId(pending.Arg0, pending.Arg1);
+                            if (nodeId != 0)
+                            {
+                                _owned.NoteOrderSuccess(
+                                    faction.FactionId,
+                                    pending.BattalionId,
+                                    CommandKind.Move,
+                                    nodeId);
+                            }
+                        }
                     }
                     else
                     {

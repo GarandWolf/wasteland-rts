@@ -86,7 +86,7 @@ namespace Wasteland.Sim.Ai
 
     /// <summary>
     /// Accepted ClaimTowns for one (seat, town) in the current ownership
-    /// period. Not saved and not hashed; the cap is a live-match backstop.
+    /// period. Saved and hashed as a fixed-size array sorted by seat then town.
     /// </summary>
     public struct AiClaimTownCount
     {
@@ -427,10 +427,14 @@ namespace Wasteland.Sim.Ai
         private readonly AiDepotBlacklistEntry[] _blacklist;
         private readonly AiOrderBackoffEntry[] _backoff;
         private readonly AiClaimTownCount[] _claimTowns;
+        private readonly int[] _lastCaptureFaction;
+        private readonly int[] _lastCaptureProgress;
+        private int[] _matchSeatIds;
 
         public int DroppedFromLog;
         public int BlacklistCount;
         public int BackoffCount;
+        public bool CaptureWatchReady;
 
         public AiOwnedState(AiFactionState[] factions, int townCount)
         {
@@ -458,6 +462,13 @@ namespace Wasteland.Sim.Ai
             _blacklist = new AiDepotBlacklistEntry[AiConstants.DepotNodeBlacklistCapacity];
             _backoff = new AiOrderBackoffEntry[AiConstants.OrderBackoffCapacity];
             _claimTowns = new AiClaimTownCount[AiConstants.OrderBackoffCapacity];
+            _lastCaptureFaction = new int[townCount];
+            _lastCaptureProgress = new int[townCount];
+            _matchSeatIds = new int[_factions.Length];
+            for (int i = 0; i < _factions.Length; i++)
+            {
+                _matchSeatIds[i] = _factions[i].FactionId;
+            }
         }
 
         public int ClaimTownCount;
@@ -480,6 +491,91 @@ namespace Wasteland.Sim.Ai
         public int TownSlotCount
         {
             get { return _townOwnerIds.Length; }
+        }
+
+        public AiClaimTownCount ClaimTownAt(int index)
+        {
+            if (index < 0 || index >= ClaimTownCount)
+            {
+                throw new ArgumentOutOfRangeException(nameof(index));
+            }
+
+            return _claimTowns[index];
+        }
+
+        public int LastCaptureFactionAt(int index)
+        {
+            if (index < 0 || index >= _lastCaptureFaction.Length)
+            {
+                return 0;
+            }
+
+            return _lastCaptureFaction[index];
+        }
+
+        public int LastCaptureProgressAt(int index)
+        {
+            if (index < 0 || index >= _lastCaptureProgress.Length)
+            {
+                return 0;
+            }
+
+            return _lastCaptureProgress[index];
+        }
+
+        public void SetCaptureWatch(int index, int factionId, int progress)
+        {
+            if (index < 0 || index >= _lastCaptureFaction.Length)
+            {
+                return;
+            }
+
+            _lastCaptureFaction[index] = factionId;
+            _lastCaptureProgress[index] = progress;
+        }
+
+        /// <summary>
+        /// World seats in this match, including a human MVP seat that is not
+        /// an AI faction. Town-owner load uses this list; backoff still
+        /// requires <see cref="IsKnownFactionId"/>.
+        /// </summary>
+        public void BindMatchSeatIds(int[] seatIds)
+        {
+            if (seatIds == null || seatIds.Length < 1)
+            {
+                throw new ArgumentException("At least one match seat is required.", nameof(seatIds));
+            }
+
+            int[] copy = (int[])seatIds.Clone();
+            SortIds(copy);
+            int write = 0;
+            for (int i = 0; i < copy.Length; i++)
+            {
+                if (copy[i] == 0)
+                {
+                    continue;
+                }
+
+                if (write > 0 && copy[i] == copy[write - 1])
+                {
+                    continue;
+                }
+
+                copy[write++] = copy[i];
+            }
+
+            if (write < 1)
+            {
+                throw new ArgumentException("At least one match seat is required.", nameof(seatIds));
+            }
+
+            int[] bound = new int[write];
+            for (int i = 0; i < write; i++)
+            {
+                bound[i] = copy[i];
+            }
+
+            _matchSeatIds = bound;
         }
 
         public AiFactionState FactionAt(int index)
@@ -801,6 +897,7 @@ namespace Wasteland.Sim.Ai
 
                 have.Count++;
                 _claimTowns[index] = have;
+                SortClaimTowns();
                 return true;
             }
 
@@ -815,6 +912,7 @@ namespace Wasteland.Sim.Ai
             entry.Count = 1;
             _claimTowns[ClaimTownCount] = entry;
             ClaimTownCount++;
+            SortClaimTowns();
             return true;
         }
 
@@ -1054,10 +1152,18 @@ namespace Wasteland.Sim.Ai
 
             HashBlacklist(hash);
             HashBackoff(hash);
+            HashClaimTowns(hash);
             hash.AddInt(_townOwnerIds.Length);
             for (int i = 0; i < _townOwnerIds.Length; i++)
             {
                 hash.AddInt(_townOwnerIds[i]);
+            }
+
+            hash.AddBool(CaptureWatchReady);
+            for (int i = 0; i < _lastCaptureFaction.Length; i++)
+            {
+                hash.AddInt(_lastCaptureFaction[i]);
+                hash.AddInt(_lastCaptureProgress[i]);
             }
         }
 
@@ -1175,6 +1281,14 @@ namespace Wasteland.Sim.Ai
                 writer.Write(_townOwnerIds[i]);
             }
 
+            WriteClaimTowns(writer);
+            writer.Write(CaptureWatchReady);
+            for (int i = 0; i < _lastCaptureFaction.Length; i++)
+            {
+                writer.Write(_lastCaptureFaction[i]);
+                writer.Write(_lastCaptureProgress[i]);
+            }
+
             writer.Flush();
             return stream.ToArray();
         }
@@ -1245,6 +1359,28 @@ namespace Wasteland.Sim.Ai
                 }
             }
 
+            AiClaimTownCount[] loadedClaims;
+            int loadedClaimCount;
+            ReadClaimTowns(reader, out loadedClaims, out loadedClaimCount);
+
+            bool captureWatchReady = reader.ReadBoolean();
+            int[] lastCaptureFaction = new int[towns];
+            int[] lastCaptureProgress = new int[towns];
+            for (int i = 0; i < towns; i++)
+            {
+                lastCaptureFaction[i] = reader.ReadInt32();
+                lastCaptureProgress[i] = reader.ReadInt32();
+                if (lastCaptureFaction[i] != 0 && !IsKnownTownOwnerId(lastCaptureFaction[i]))
+                {
+                    throw new InvalidDataException("AI faction id is not in this match.");
+                }
+
+                if (lastCaptureProgress[i] < 0)
+                {
+                    throw new InvalidDataException("AI capture progress is negative.");
+                }
+            }
+
             if (reader.BaseStream.Position != reader.BaseStream.Length)
             {
                 throw new InvalidDataException("AI save has trailing bytes.");
@@ -1271,6 +1407,19 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < towns; i++)
             {
                 _townOwnerIds[i] = townOwners[i];
+            }
+
+            ClaimTownCount = loadedClaimCount;
+            for (int c = 0; c < _claimTowns.Length; c++)
+            {
+                _claimTowns[c] = loadedClaims[c];
+            }
+
+            CaptureWatchReady = captureWatchReady;
+            for (int i = 0; i < towns; i++)
+            {
+                _lastCaptureFaction[i] = lastCaptureFaction[i];
+                _lastCaptureProgress[i] = lastCaptureProgress[i];
             }
         }
 
@@ -1833,8 +1982,128 @@ namespace Wasteland.Sim.Ai
                 return true;
             }
 
-            return factionId == AiConstants.DefaultAiFactionA
-                || factionId == AiConstants.DefaultAiFactionB;
+            for (int i = 0; i < _matchSeatIds.Length; i++)
+            {
+                if (_matchSeatIds[i] == factionId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void SortClaimTowns()
+        {
+            for (int i = 1; i < ClaimTownCount; i++)
+            {
+                AiClaimTownCount row = _claimTowns[i];
+                int j = i;
+                while (j > 0 && CompareClaimTownKey(_claimTowns[j - 1], row) > 0)
+                {
+                    _claimTowns[j] = _claimTowns[j - 1];
+                    j--;
+                }
+
+                _claimTowns[j] = row;
+            }
+        }
+
+        public static int CompareClaimTownKey(AiClaimTownCount a, AiClaimTownCount b)
+        {
+            int c = a.SeatId.CompareTo(b.SeatId);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            return a.TownId.CompareTo(b.TownId);
+        }
+
+        private void HashClaimTowns(XxHash64Builder hash)
+        {
+            for (int i = 0; i < _claimTowns.Length; i++)
+            {
+                AiClaimTownCount entry = _claimTowns[i];
+                hash.AddInt(entry.SeatId);
+                hash.AddInt(entry.TownId);
+                hash.AddInt(entry.Count);
+            }
+        }
+
+        private void WriteClaimTowns(BinaryWriter writer)
+        {
+            for (int i = 0; i < _claimTowns.Length; i++)
+            {
+                AiClaimTownCount entry = _claimTowns[i];
+                writer.Write(entry.SeatId);
+                writer.Write(entry.TownId);
+                writer.Write(entry.Count);
+            }
+        }
+
+        private void ReadClaimTowns(
+            BinaryReader reader,
+            out AiClaimTownCount[] loaded,
+            out int count)
+        {
+            loaded = new AiClaimTownCount[_claimTowns.Length];
+            count = 0;
+            for (int i = 0; i < loaded.Length; i++)
+            {
+                AiClaimTownCount entry = default;
+                entry.SeatId = reader.ReadInt32();
+                entry.TownId = reader.ReadInt32();
+                entry.Count = reader.ReadInt32();
+                loaded[i] = entry;
+                if (entry.SeatId == 0 && entry.TownId == 0 && entry.Count == 0)
+                {
+                    continue;
+                }
+
+                if (entry.SeatId == 0 || entry.TownId == 0)
+                {
+                    throw new InvalidDataException("AI claim-town seat or town is zero.");
+                }
+
+                if (entry.Count < 1 || entry.Count > AiConstants.MaxClaimTownsPerSeatTown)
+                {
+                    throw new InvalidDataException("AI claim-town count is out of range.");
+                }
+
+                if (!IsKnownFactionId(entry.SeatId))
+                {
+                    throw new InvalidDataException("AI faction id is not in this match.");
+                }
+
+                if (count != i)
+                {
+                    throw new InvalidDataException("AI claim-town list has a hole before unused slots.");
+                }
+
+                if (count > 0 && CompareClaimTownKey(loaded[count - 1], entry) >= 0)
+                {
+                    throw new InvalidDataException("AI claim-town list is not sorted by seat then town.");
+                }
+
+                count++;
+            }
+        }
+
+        private static void SortIds(int[] ids)
+        {
+            for (int i = 1; i < ids.Length; i++)
+            {
+                int row = ids[i];
+                int j = i - 1;
+                while (j >= 0 && ids[j] > row)
+                {
+                    ids[j + 1] = ids[j];
+                    j--;
+                }
+
+                ids[j + 1] = row;
+            }
         }
 
         private static void SortByFactionId(AiFactionState[] factions)

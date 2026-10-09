@@ -249,6 +249,7 @@ namespace Wasteland.Sim.Ai
                 AiConstants.DefaultAiFactionA,
                 AiConstants.DefaultAiFactionB
             };
+            ai.Owned.BindMatchSeatIds(worldFactions);
             for (int i = 0; i < worldFactions.Length; i++)
             {
                 int factionId = worldFactions[i];

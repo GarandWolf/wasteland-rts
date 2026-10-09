@@ -2290,7 +2290,8 @@ namespace Wasteland.Sim.Ai
                 return false;
             }
 
-            if (!AlreadyOnTheWay(faction.FactionId, battalionId, target.XCm, target.YCm))
+            if (!AlreadyOnTheWay(faction.FactionId, battalionId, target.XCm, target.YCm)
+                && !BattalionOccupiesClaim(faction, battalionId, target))
             {
                 int moveId = _commands.SubmitMove(faction.FactionId, battalionId, target.XCm, target.YCm);
                 Issue(tick, faction, moveId);
@@ -2342,6 +2343,33 @@ namespace Wasteland.Sim.Ai
             return (dx * dx) + (dy * dy) <= radiusSq;
         }
 
+        private bool BattalionOccupiesClaim(
+            AiFactionState faction,
+            int battalionId,
+            AiAttackTownInfo target)
+        {
+            if (_world == null || battalionId == 0)
+            {
+                return false;
+            }
+
+            if (!_world.TryGetTown(target.Id, out TownView town))
+            {
+                return false;
+            }
+
+            if (!_world.TryGetOwnBattalion(faction.FactionId, battalionId, out SimBattalion battalion))
+            {
+                return false;
+            }
+
+            return ClaimTownIsOccupiedBy(
+                town,
+                faction.FactionId,
+                battalion.PositionXCm,
+                battalion.PositionYCm);
+        }
+
         private bool ShouldSkipClaimTown(AiFactionState faction, int battalionId, AiAttackTownInfo target)
         {
             if (_owned != null)
@@ -2368,16 +2396,7 @@ namespace Wasteland.Sim.Ai
                 return true;
             }
 
-            if (battalionId == 0 || !_world.TryGetOwnBattalion(faction.FactionId, battalionId, out SimBattalion battalion))
-            {
-                return false;
-            }
-
-            return ClaimTownIsOccupiedBy(
-                town,
-                faction.FactionId,
-                battalion.PositionXCm,
-                battalion.PositionYCm);
+            return BattalionOccupiesClaim(faction, battalionId, target);
         }
 
         private void EnsureBuilderMarchingTo(
