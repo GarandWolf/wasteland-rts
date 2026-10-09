@@ -63,9 +63,6 @@ namespace Wasteland.Sim.Ai
         private readonly List<AiTownHoldSample> _holdSamples = new List<AiTownHoldSample>();
         private readonly int[] _factionIds;
 
-        /// <summary>economy.json <c>popCap.hqBonus</c>. Starting battalions count against this cap.</summary>
-        private const int MvpHqPopCap = 30;
-
         private const string MvpScenarioId = "columbia_gorge_100mi_mvp";
         private const string MvpMapFileId = "golden_ci_columbia_gorge_100_v1_marsh";
         private const string RemnantFactionKey = "remnant_command";
@@ -146,7 +143,7 @@ namespace Wasteland.Sim.Ai
             LoggingCommandSink sink = new LoggingCommandSink(world);
             IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
-            BindMvpSeats(world, ai, copy);
+            BindMvpSeats(world, ai, copy, balance.ScenarioCatalog);
             BindMvpRoads(world);
             return new AiMatchHost(world, ai, sink, copy);
         }
@@ -192,7 +189,7 @@ namespace Wasteland.Sim.Ai
             LoggingCommandSink sink = new LoggingCommandSink(world);
             IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
-            BindMvpSeats(world, ai, copy);
+            BindMvpSeats(world, ai, copy, balance.ScenarioCatalog);
             BindMvpRoads(world);
             ForwardingAiCommandSink? forwarding = ai.AiCommands as ForwardingAiCommandSink;
             if (forwarding != null)
@@ -233,10 +230,13 @@ namespace Wasteland.Sim.Ai
         /// Faction 1 is Remnant (scenario slot 0). Faction 2 is Compact (slot 1).
         /// HQ is the seat town the map already assigned to that faction, not the origin.
         /// </summary>
-        private static void BindMvpSeats(SimWorld world, EnemyAi ai, int[] factionIds)
+        private static void BindMvpSeats(SimWorld world, EnemyAi ai, int[] factionIds, BalanceCatalog? catalog)
         {
             string balanceDir = FindBalanceDirectory();
-            BalanceCatalog catalog = BalanceCatalog.LoadFromDirectory(balanceDir);
+            if (catalog == null)
+            {
+                catalog = BalanceCatalog.LoadFromDirectory(balanceDir);
+            }
             string mapPath = MvpMapPath(balanceDir);
             string mapName = Path.GetFileName(mapPath);
             byte[] mapBytes = File.ReadAllBytes(mapPath);
@@ -264,6 +264,10 @@ namespace Wasteland.Sim.Ai
                         "MVP seat " + scenarioSeat.Faction + " has no seat-town position on this map.");
                 }
 
+                // Starting cap only: economy.json popCap (base + hqBonus, hardCap).
+                // buildings.json hq.popCapBonus duplicates hqBonus and is not read.
+                // holdingTiers[].popCapBonus and the owner-change recompute are the
+                // capture PR (data/balance/balance-notes.md ~265).
                 world.BindSeat(new SeatSetup(
                     factionId,
                     scenarioSeat.Slot,
@@ -277,7 +281,7 @@ namespace Wasteland.Sim.Ai
                     catalog.StartingMateriel,
                     catalog.StartingFuel,
                     scenario.MatchRules.FuelEnabled,
-                    MvpHqPopCap,
+                    catalog.StartingSeatPopCap,
                     scenarioSeat.RaisableUnits,
                     scenarioSeat.AutoResearch,
                     scenarioSeat.StartingUnits));
