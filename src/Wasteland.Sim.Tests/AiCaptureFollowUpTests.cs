@@ -51,7 +51,8 @@ namespace Wasteland.Sim.Tests
                     claimed = SawClaim(first);
                 }
 
-                if (!depotBuilt && HasKind(first.World, SimEventKind.DepotStarted))
+                if (!depotBuilt
+                    && (HasKind(first.World, SimEventKind.DepotStarted) || HasReservedDepot(first)))
                 {
                     depotBuilt = true;
                     if (forcedLossTick < 0)
@@ -176,6 +177,22 @@ namespace Wasteland.Sim.Tests
             }
 
             into.Add(mix);
+        }
+
+        private static bool HasReservedDepot(AiMatchHost host)
+        {
+            IReadOnlyList<SimCommand> log = host.CommandLog;
+            for (int i = 0; i < log.Count; i++)
+            {
+                if (log[i].Kind == CommandKind.BuildDepot)
+                {
+                    return true;
+                }
+            }
+
+            List<DepotView> depots = new List<DepotView>();
+            host.World.CopyDepots(depots);
+            return depots.Count > 0;
         }
 
         private static bool SawClaim(AiMatchHost host)

@@ -618,6 +618,24 @@ namespace Wasteland.Sim.Ai
             int defender = readback.StrengthOf(readback.OwnerFactionId);
             if (prizeMarch)
             {
+                TryPlaceForwardDepot(
+                    tick,
+                    faction,
+                    seat,
+                    towns,
+                    townCount,
+                    battalions,
+                    battalionCount,
+                    graph,
+                    networkNodeIds,
+                    networkCount,
+                    target.NodeId,
+                    supplyReachCm);
+                if (_budgetDeferred)
+                {
+                    return;
+                }
+
                 if (!prizeGroupReady)
                 {
                     string waitRaiseId = SelectRaiseUnit(
