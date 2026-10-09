@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text;
 using Wasteland.Sim.Ai;
+using Wasteland.Sim.Commands;
 using Wasteland.Sim.Events;
 using Wasteland.Sim.World;
 
@@ -142,6 +143,7 @@ namespace Wasteland.Sim.Tests
 
             log.RemnantRifleSpawns = CountPrefix(spawnCounts, remnantId + ":remnant_motor_rifles");
             log.CompactRifleSpawns = CountPrefix(spawnCounts, compactId + ":compact_rifle_battalion");
+            CollectCommandStats(host, log);
             host.Shutdown();
 
             rows.Sort(CompareEvents);
@@ -156,10 +158,139 @@ namespace Wasteland.Sim.Tests
                 text.Append("\"}\n");
             }
 
+            AppendCommandStats(text, log);
             log.Jsonl = text.ToString();
             log.Path = Path.Combine(AppContext.BaseDirectory, FileName);
             File.WriteAllText(log.Path, log.Jsonl);
             return log;
+        }
+
+        private static void CollectCommandStats(AiMatchHost host, GorgeTimingLog log)
+        {
+            IReadOnlyList<SimCommand> commands = host.CommandLog;
+            for (int i = 0; i < commands.Count; i++)
+            {
+                SimCommand command = commands[i];
+                if (command.Kind == CommandKind.BuildDepot)
+                {
+                    AddCount(log.DepotOrders, command.IssuerId, command.Arg0);
+                }
+
+                if (command.Kind == CommandKind.Move)
+                {
+                    AddMove(log.Moves, command.BattalionId);
+                }
+            }
+
+            IReadOnlyList<SimEvent> events = host.World.Events;
+            for (int i = 0; i < events.Count; i++)
+            {
+                SimEvent ev = events[i];
+                if (ev.Kind != SimEventKind.CommandRejected)
+                {
+                    continue;
+                }
+
+                CommandRejectReason reason = ev.RejectReason;
+                if (reason != CommandRejectReason.UnknownNode
+                    && reason != CommandRejectReason.TerritoryNotOwned
+                    && reason != CommandRejectReason.NotConnectedToSupply
+                    && reason != CommandRejectReason.DepotTooClose
+                    && reason != CommandRejectReason.NodeHasDepot)
+                {
+                    continue;
+                }
+
+                if (ev.Param0 == 0)
+                {
+                    continue;
+                }
+
+                AddCount(log.DepotRejects, (int)(ev.Key >> 32), ev.Param0);
+            }
+        }
+
+        private static void AddCount(List<NodeCount> rows, int seatId, int nodeId)
+        {
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (rows[i].SeatId == seatId && rows[i].NodeId == nodeId)
+                {
+                    NodeCount have = rows[i];
+                    have.Count++;
+                    rows[i] = have;
+                    return;
+                }
+            }
+
+            NodeCount next = default;
+            next.SeatId = seatId;
+            next.NodeId = nodeId;
+            next.Count = 1;
+            rows.Add(next);
+        }
+
+        private static void AddMove(List<BattalionMoveCount> rows, int battalionId)
+        {
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (rows[i].BattalionId == battalionId)
+                {
+                    BattalionMoveCount have = rows[i];
+                    have.Count++;
+                    rows[i] = have;
+                    return;
+                }
+            }
+
+            BattalionMoveCount next = default;
+            next.BattalionId = battalionId;
+            next.Count = 1;
+            rows.Add(next);
+        }
+
+        private static void AppendCommandStats(StringBuilder text, GorgeTimingLog log)
+        {
+            for (int i = 0; i < log.DepotOrders.Count; i++)
+            {
+                NodeCount row = log.DepotOrders[i];
+                text.Append("{\"event\":\"depot_order\",\"seat\":");
+                text.Append(row.SeatId);
+                text.Append(",\"node\":");
+                text.Append(row.NodeId);
+                text.Append(",\"count\":");
+                text.Append(row.Count);
+                text.Append("}\n");
+            }
+
+            for (int i = 0; i < log.DepotRejects.Count; i++)
+            {
+                NodeCount row = log.DepotRejects[i];
+                text.Append("{\"event\":\"depot_reject\",\"seat\":");
+                text.Append(row.SeatId);
+                text.Append(",\"node\":");
+                text.Append(row.NodeId);
+                text.Append(",\"count\":");
+                text.Append(row.Count);
+                text.Append("}\n");
+            }
+
+            int maxMoves = 0;
+            int maxBattalion = 0;
+            for (int i = 0; i < log.Moves.Count; i++)
+            {
+                if (log.Moves[i].Count > maxMoves)
+                {
+                    maxMoves = log.Moves[i].Count;
+                    maxBattalion = log.Moves[i].BattalionId;
+                }
+            }
+
+            text.Append("{\"event\":\"max_moves\",\"battalion\":");
+            text.Append(maxBattalion);
+            text.Append(",\"count\":");
+            text.Append(maxMoves);
+            text.Append("}\n");
         }
 
         private static int AppendEvents(
@@ -428,6 +559,22 @@ namespace Wasteland.Sim.Tests
         public int RemnantRifleSpawns;
         public int CompactRifleSpawns;
         public readonly List<WhiteSalmonSample> WhiteSalmonSamples = new List<WhiteSalmonSample>();
+        public readonly List<NodeCount> DepotOrders = new List<NodeCount>();
+        public readonly List<NodeCount> DepotRejects = new List<NodeCount>();
+        public readonly List<BattalionMoveCount> Moves = new List<BattalionMoveCount>();
+    }
+
+    internal struct NodeCount
+    {
+        public int SeatId;
+        public int NodeId;
+        public int Count;
+    }
+
+    internal struct BattalionMoveCount
+    {
+        public int BattalionId;
+        public int Count;
     }
 
     internal readonly struct WhiteSalmonSample
