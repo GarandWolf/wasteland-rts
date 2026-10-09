@@ -8,7 +8,6 @@ namespace Wasteland.Sim.Ai
 {
     /// <summary>
     /// Adapter: spawn, move, claim, and depot commands go through <see cref="SimWorld.Submit"/>.
-    /// <see cref="CommandKind.Build"/> stays reserved and is not forwarded.
     /// </summary>
     public sealed class SimWorldCommandSink : ISimCommandSink, ISimWorldView, ICaptureOccupancyView
     {
@@ -45,11 +44,6 @@ namespace Wasteland.Sim.Ai
             if (command.IssuedTick != Tick)
             {
                 command = command.WithIssuedTick(Tick);
-            }
-
-            if (command.Kind == CommandKind.Build)
-            {
-                return command;
             }
 
             SimCommand stamped = _world.Submit(command);

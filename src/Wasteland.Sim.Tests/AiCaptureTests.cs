@@ -80,49 +80,38 @@ namespace Wasteland.Sim.Tests
         [Fact]
         public void MixedOccupancy_PausesCaptureTimer()
         {
-            AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
             AiMatchHost host = AiMatchHost.Start(
                 MatchConfig.Default(0xC01055A1UL),
                 AiSeamsTests.LoadGorgeV1Bytes(),
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
-                balance);
+                AiBalanceTablesTests.LoadBalance());
+            QuietAi(host, AiConstants.DefaultAiFactionA);
+            QuietAi(host, AiConstants.DefaultAiFactionB);
 
-            int townIndex = FindNeutralTown(host);
-            AiTownRecord town = host.Ai.Map.TownAt(townIndex);
-            int delay = host.World.CommandDelayTicks;
-
-            host.World.Submit(SimCommand.SpawnBattalion(
-                host.Tick,
-                AiConstants.DefaultAiFactionA,
-                9000001,
-                town.XCm,
-                town.YCm,
-                0));
-            host.Run(delay + 8);
-
-            Assert.Equal(0, host.Ai.Owned.TownOwnerAt(townIndex));
-            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.CaptureFactionAt(townIndex));
-            int heldBeforeContest = host.Ai.Owned.CaptureHeldTicksAt(townIndex);
+            TownView dalles = SeatTown(host, host.Ai.Map.TheDallesTownId);
+            Assert.Equal(0, dalles.OwnerFactionId);
+            SpawnCapturer(host, AiConstants.DefaultAiFactionA, dalles.XCm, dalles.YCm);
+            host.Run(40);
+            dalles = SeatTown(host, dalles.TownId);
+            Assert.Equal(AiConstants.DefaultAiFactionA, dalles.CaptureFactionId);
+            int heldBeforeContest = dalles.CaptureProgressTicks;
             Assert.True(heldBeforeContest > 0);
-            Assert.True(heldBeforeContest < balance.CaptureTicksForClass(town.PopulationClass));
+            Assert.True(heldBeforeContest < dalles.CaptureNeededTicks);
+            Assert.False(dalles.Contested);
 
-            host.World.Submit(SimCommand.SpawnBattalion(
-                host.Tick,
-                AiConstants.DefaultAiFactionB,
-                9000002,
-                town.XCm,
-                town.YCm,
-                0));
-            host.Run(delay + 1);
-
-            int paused = host.Ai.Owned.CaptureHeldTicksAt(townIndex);
-            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.CaptureFactionAt(townIndex));
+            SpawnCapturer(host, AiConstants.DefaultAiFactionB, dalles.XCm, dalles.YCm);
+            host.Run(2);
+            dalles = SeatTown(host, dalles.TownId);
+            Assert.True(dalles.Contested);
+            int paused = dalles.CaptureProgressTicks;
+            Assert.Equal(AiConstants.DefaultAiFactionA, dalles.CaptureFactionId);
             host.Run(80);
-
-            Assert.Equal(paused, host.Ai.Owned.CaptureHeldTicksAt(townIndex));
-            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.CaptureFactionAt(townIndex));
-            Assert.Equal(0, host.Ai.Owned.TownOwnerAt(townIndex));
+            dalles = SeatTown(host, dalles.TownId);
+            Assert.Equal(paused, dalles.CaptureProgressTicks);
+            Assert.Equal(AiConstants.DefaultAiFactionA, dalles.CaptureFactionId);
+            Assert.Equal(0, dalles.OwnerFactionId);
+            Assert.Equal(0, host.Ai.Owned.TownOwnerAt(host.Ai.Map.IndexOfTown(dalles.TownId)));
 
             host.Shutdown();
         }
@@ -172,82 +161,78 @@ namespace Wasteland.Sim.Tests
         public void Capture_PausesWhileCapturerIsAbsent_ThenDecaysFromRulesJson()
         {
             AiMatchHost host = StartOneFaction();
-            AiBalanceTables balance = host.Ai.Balance;
-            int townIndex = FindIsolatedTownOfClass(host, AiHoldingClass.Hamlet);
-            FreezeOtherUnownedTowns(host, townIndex);
-            AiTownRecord town = host.Ai.Map.TownAt(townIndex);
-            const int battalionId = 9000301;
-            SpawnAt(host, AiConstants.DefaultAiFactionA, battalionId, town.XCm, town.YCm, 25000);
-            WaitUntilHeld(host, townIndex, 40);
-            int held = host.Ai.Owned.CaptureHeldTicksAt(townIndex);
-            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.CaptureFactionAt(townIndex));
-
-            host.World.Submit(SimCommand.Move(
-                host.Tick,
-                AiConstants.DefaultAiFactionA,
-                battalionId,
-                town.XCm + 5_000_000,
-                town.YCm));
             QuietAi(host, AiConstants.DefaultAiFactionA);
-            EvacuateFactionFromTown(host, AiConstants.DefaultAiFactionA, town);
-            WaitUntilEmpty(host, town, AiConstants.DefaultAiFactionA);
+            TownView town = FindUnownedSeatOfClass(host, AiHoldingClass.Hamlet);
+            int capturer = SpawnCapturer(host, AiConstants.DefaultAiFactionA, town.XCm, town.YCm);
+            WaitUntilProgress(host, town.TownId, 40);
+            town = SeatTown(host, town.TownId);
+            Assert.Equal(AiConstants.DefaultAiFactionA, town.CaptureFactionId);
+            int held = town.CaptureProgressTicks;
 
-            int heldAtLeave = host.Ai.Owned.CaptureHeldTicksAt(townIndex);
-            int absent = host.Ai.Owned.CaptureAbsentTicksAt(townIndex);
+            host.World.PlaceBattalion(capturer, town.XCm + town.ZoneRadiusCm + 5, town.YCm);
+            WaitUntilEmptySeat(host, town.TownId);
+
+            town = SeatTown(host, town.TownId);
+            int heldAtLeave = town.CaptureProgressTicks;
+            Assert.Equal(held, heldAtLeave);
+            int absent = town.CaptureAbsentTicks;
             Assert.True(absent >= 1);
-            int decayStarts = balance.DecayStartsAfterTicks;
+            int decayStarts = host.Ai.Balance.DecayStartsAfterTicks;
             Assert.True(absent <= decayStarts);
             int remain = decayStarts - absent;
             for (int i = 0; i < remain; i++)
             {
                 QuietAi(host, AiConstants.DefaultAiFactionA);
-                EvacuateFactionFromTown(host, AiConstants.DefaultAiFactionA, town);
                 host.Step();
             }
-            Assert.Equal(heldAtLeave, host.Ai.Owned.CaptureHeldTicksAt(townIndex));
-            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.CaptureFactionAt(townIndex));
-            Assert.Equal(0, host.Ai.Owned.TownOwnerAt(townIndex));
-            Assert.Equal(decayStarts, host.Ai.Owned.CaptureAbsentTicksAt(townIndex));
+
+            town = SeatTown(host, town.TownId);
+            Assert.Equal(heldAtLeave, town.CaptureProgressTicks);
+            Assert.Equal(AiConstants.DefaultAiFactionA, town.CaptureFactionId);
+            Assert.Equal(0, town.OwnerFactionId);
+            Assert.Equal(decayStarts, town.CaptureAbsentTicks);
 
             host.Run(1);
-            Assert.Equal(heldAtLeave - balance.DecayTicksPerTick, host.Ai.Owned.CaptureHeldTicksAt(townIndex));
+            town = SeatTown(host, town.TownId);
+            Assert.Equal(heldAtLeave - host.Ai.Balance.DecayTicksPerTick, town.CaptureProgressTicks);
             host.Shutdown();
         }
 
         [Fact]
         public void Recapture_ClearsTheZoneThenHoldsTheTimer()
         {
-            AiMatchHost host = StartOneFaction();
-            int townIndex = FindIsolatedTownOfClass(host, AiHoldingClass.Hamlet);
-            FreezeOtherUnownedTowns(host, townIndex);
-            AiTownRecord town = host.Ai.Map.TownAt(townIndex);
-            const int firstId = 9000401;
-            const int secondId = 9000402;
+            AiMatchHost host = AiMatchHost.Start(
+                MatchConfig.Default(0xC01055A1UL),
+                AiSeamsTests.LoadGorgeV1Bytes(),
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                AiConstants.DifficultyNormal,
+                AiBalanceTablesTests.LoadBalance());
             QuietAi(host, AiConstants.DefaultAiFactionA);
-            SpawnAt(host, AiConstants.DefaultAiFactionA, firstId, town.XCm, town.YCm, 25000);
-            WaitUntilOwned(host, townIndex, AiConstants.DefaultAiFactionA);
+            QuietAi(host, AiConstants.DefaultAiFactionB);
+            TownView town = FindUnownedSeatOfClass(host, AiHoldingClass.Hamlet);
+            int firstId = SpawnCapturer(host, AiConstants.DefaultAiFactionA, town.XCm, town.YCm);
+            WaitUntilOwned(host, town.TownId, AiConstants.DefaultAiFactionA);
 
-            host.World.Submit(SimCommand.Move(
-                host.Tick,
-                AiConstants.DefaultAiFactionA,
-                firstId,
-                town.XCm + 5_000_000,
-                town.YCm));
-            EvacuateFactionFromTown(host, AiConstants.DefaultAiFactionA, town);
-            WaitUntilEmpty(host, town, AiConstants.DefaultAiFactionA);
-            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.TownOwnerAt(townIndex));
+            host.World.PlaceBattalion(firstId, town.XCm + town.ZoneRadiusCm + 5, town.YCm);
+            WaitUntilEmptySeat(host, town.TownId);
+            town = SeatTown(host, town.TownId);
+            Assert.Equal(AiConstants.DefaultAiFactionA, town.OwnerFactionId);
 
-            SpawnAt(host, AiConstants.DefaultAiFactionB, secondId, town.XCm, town.YCm, 0);
-            WaitUntilHeld(host, townIndex, 1);
-            int need = host.Ai.Balance.CaptureTicksForClass(town.PopulationClass);
-            Assert.Equal(AiCaptureTests.ExpectedHamletTicks, need);
-            int held = host.Ai.Owned.CaptureHeldTicksAt(townIndex);
+            SpawnCapturer(host, AiConstants.DefaultAiFactionB, town.XCm, town.YCm);
+            WaitUntilProgress(host, town.TownId, 1);
+            town = SeatTown(host, town.TownId);
+            int need = town.CaptureNeededTicks;
+            Assert.True(need >= ExpectedHamletTicks);
+            int held = town.CaptureProgressTicks;
             Assert.True(held < need);
             host.Run(need - held - 1);
-            Assert.Equal(need - 1, host.Ai.Owned.CaptureHeldTicksAt(townIndex));
-            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.TownOwnerAt(townIndex));
+            town = SeatTown(host, town.TownId);
+            Assert.Equal(need - 1, town.CaptureProgressTicks);
+            Assert.Equal(AiConstants.DefaultAiFactionA, town.OwnerFactionId);
             host.Run(1);
-            Assert.Equal(AiConstants.DefaultAiFactionB, host.Ai.Owned.TownOwnerAt(townIndex));
+            town = SeatTown(host, town.TownId);
+            Assert.Equal(AiConstants.DefaultAiFactionB, town.OwnerFactionId);
+            Assert.Equal(AiConstants.DefaultAiFactionB, host.Ai.Owned.TownOwnerAt(host.Ai.Map.IndexOfTown(town.TownId)));
             host.Shutdown();
         }
 
@@ -284,19 +269,23 @@ namespace Wasteland.Sim.Tests
         private static void AssertClaimAt(int populationClass, int expectedTicks)
         {
             AiMatchHost host = StartOneFaction();
+            QuietAi(host, AiConstants.DefaultAiFactionA);
             Assert.Equal(expectedTicks, host.Ai.Balance.CaptureTicksForClass(populationClass));
-            int townIndex = FindUnownedTownOfClass(host, populationClass);
-            FreezeOtherUnownedTowns(host, townIndex);
-            AiTownRecord town = host.Ai.Map.TownAt(townIndex);
-            int battalionId = 9000200 + populationClass;
-            SpawnAt(host, AiConstants.DefaultAiFactionA, battalionId, town.XCm, town.YCm, 0);
-            WaitUntilHeld(host, townIndex, 1);
-            Assert.Equal(0, host.Ai.Owned.TownOwnerAt(townIndex));
-            host.Run(expectedTicks - 2);
-            Assert.Equal(0, host.Ai.Owned.TownOwnerAt(townIndex));
-            Assert.Equal(expectedTicks - 1, host.Ai.Owned.CaptureHeldTicksAt(townIndex));
+            TownView town = FindUnownedSeatOfClass(host, populationClass);
+            SpawnCapturer(host, AiConstants.DefaultAiFactionA, town.XCm, town.YCm);
+            WaitUntilProgress(host, town.TownId, 1);
+            town = SeatTown(host, town.TownId);
+            Assert.Equal(0, town.OwnerFactionId);
+            int need = town.CaptureNeededTicks;
+            Assert.True(need >= expectedTicks);
+            host.Run(need - 2);
+            town = SeatTown(host, town.TownId);
+            Assert.Equal(0, town.OwnerFactionId);
+            Assert.Equal(need - 1, town.CaptureProgressTicks);
             host.Run(1);
-            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.TownOwnerAt(townIndex));
+            town = SeatTown(host, town.TownId);
+            Assert.Equal(AiConstants.DefaultAiFactionA, town.OwnerFactionId);
+            Assert.Equal(AiConstants.DefaultAiFactionA, host.Ai.Owned.TownOwnerAt(host.Ai.Map.IndexOfTown(town.TownId)));
             host.Shutdown();
         }
 
@@ -310,46 +299,87 @@ namespace Wasteland.Sim.Tests
                 AiBalanceTablesTests.LoadBalance());
         }
 
-        private static void SpawnAt(AiMatchHost host, int factionId, int battalionId, int xCm, int yCm, int speed)
+        private static TownView SeatTown(AiMatchHost host, int townId)
         {
-            host.World.Submit(SimCommand.SpawnBattalion(host.Tick, factionId, battalionId, xCm, yCm, speed));
-            host.Run(host.World.CommandDelayTicks + 1);
+            Assert.True(host.World.TryGetTown(townId, out TownView town));
+            Assert.True(town.IsSeatTown);
+            return town;
         }
 
-        private static void WaitUntilHeld(AiMatchHost host, int townIndex, int held)
+        private static TownView FindUnownedSeatOfClass(AiMatchHost host, int populationClass)
         {
-            while (host.Tick < 20000 && host.Ai.Owned.CaptureHeldTicksAt(townIndex) < held)
+            List<TownView> towns = new List<TownView>();
+            host.World.CopyTowns(towns);
+            for (int i = 0; i < towns.Count; i++)
             {
-                host.Step();
-            }
-
-            Assert.True(host.Ai.Owned.CaptureHeldTicksAt(townIndex) >= held, "capture timer did not start");
-        }
-
-        private static void WaitUntilOwned(AiMatchHost host, int townIndex, int factionId)
-        {
-            while (host.Tick < 20000 && host.Ai.Owned.TownOwnerAt(townIndex) != factionId)
-            {
-                host.Step();
-            }
-
-            Assert.Equal(factionId, host.Ai.Owned.TownOwnerAt(townIndex));
-        }
-
-        private static void WaitUntilEmpty(AiMatchHost host, AiTownRecord town, int evacuateFactionId)
-        {
-            LoggingCommandSink sink = (LoggingCommandSink)host.Ai.Commands;
-            int radius = host.Ai.Balance.CaptureRadiusCmForClass(town.PopulationClass);
-            while (host.Tick < 20000)
-            {
-                if (evacuateFactionId != 0)
+                TownView town = towns[i];
+                if (!town.IsSeatTown || town.ZoneRadiusCm <= 0 || town.OwnerFactionId != 0)
                 {
-                    QuietAi(host, evacuateFactionId);
-                    EvacuateFactionFromTown(host, evacuateFactionId, town);
+                    continue;
                 }
 
-                CaptureZoneOccupancyResult zone = sink.OccupancyOf(town.XCm, town.YCm, radius);
-                if (zone.Kind == CaptureOccupancyKind.Empty)
+                if (town.PopulationClass != populationClass)
+                {
+                    continue;
+                }
+
+                return town;
+            }
+
+            throw new InvalidOperationException("No unowned seat of class " + populationClass + ".");
+        }
+
+        private static int SpawnCapturer(AiMatchHost host, int factionId, int xCm, int yCm)
+        {
+            string unitId = factionId == AiConstants.DefaultAiFactionB
+                ? "compact_rifle_battalion"
+                : "remnant_motor_rifles";
+            int id = host.World.SpawnCatalogUnit(factionId, unitId, xCm, yCm);
+            QuietAi(host, factionId);
+            return id;
+        }
+
+        private static void WaitUntilProgress(AiMatchHost host, int townId, int progress)
+        {
+            while (host.Tick < 20000)
+            {
+                QuietAll(host);
+                TownView town = SeatTown(host, townId);
+                if (town.CaptureProgressTicks >= progress)
+                {
+                    return;
+                }
+
+                host.Step();
+            }
+
+            throw new InvalidOperationException("capture timer did not start");
+        }
+
+        private static void WaitUntilOwned(AiMatchHost host, int townId, int factionId)
+        {
+            while (host.Tick < 20000)
+            {
+                QuietAll(host);
+                TownView town = SeatTown(host, townId);
+                if (town.OwnerFactionId == factionId)
+                {
+                    return;
+                }
+
+                host.Step();
+            }
+
+            Assert.Equal(factionId, SeatTown(host, townId).OwnerFactionId);
+        }
+
+        private static void WaitUntilEmptySeat(AiMatchHost host, int townId)
+        {
+            while (host.Tick < 20000)
+            {
+                QuietAll(host);
+                TownView town = SeatTown(host, townId);
+                if (town.CaptureFactionId == 0 || town.CaptureAbsentTicks >= 1)
                 {
                     host.Step();
                     return;
@@ -361,187 +391,20 @@ namespace Wasteland.Sim.Tests
             throw new InvalidOperationException("capture zone did not empty.");
         }
 
+        private static void QuietAll(AiMatchHost host)
+        {
+            for (int i = 0; i < host.Ai.Owned.FactionCount; i++)
+            {
+                QuietAi(host, host.Ai.Owned.FactionAt(i).FactionId);
+            }
+        }
+
         private static void QuietAi(AiMatchHost host, int factionId)
         {
             AiFactionState faction = host.Ai.Owned.GetFaction(factionId);
             faction.OrderCount = 0;
+            faction.PendingCount = 0;
             faction.RejectBackoffUntilTick = int.MaxValue;
-        }
-
-        /// <summary>
-        /// Resubmitting the same exit point every tick rebuilds the road path
-        /// from the nearest node and pins the battalion on the first leg.
-        /// </summary>
-        private static bool RoadOrDirectTarget(SimBattalion battalion, int xCm, int yCm)
-        {
-            if (!battalion.HasTarget)
-            {
-                return false;
-            }
-
-            if (battalion.PathCount > 0 && battalion.PathXCm != null && battalion.PathYCm != null)
-            {
-                int last = battalion.PathCount - 1;
-                if (last < battalion.PathXCm.Length && last < battalion.PathYCm.Length)
-                {
-                    return battalion.PathXCm[last] == xCm && battalion.PathYCm[last] == yCm;
-                }
-            }
-
-            return battalion.TargetXCm == xCm && battalion.TargetYCm == yCm;
-        }
-
-        private static void EvacuateFactionFromTown(AiMatchHost host, int factionId, AiTownRecord town)
-        {
-            LoggingCommandSink sink = (LoggingCommandSink)host.Ai.Commands;
-            List<int> ids = new List<int>();
-            sink.CopyOwnBattalionIds(factionId, ids);
-            int radius = host.Ai.Balance.CaptureRadiusCmForClass(town.PopulationClass);
-            long radiusSq = (long)radius * radius;
-            for (int i = 0; i < ids.Count; i++)
-            {
-                if (!sink.TryGetOwnBattalion(factionId, ids[i], out SimBattalion battalion))
-                {
-                    continue;
-                }
-
-                long dx = (long)battalion.PositionXCm - town.XCm;
-                long dy = (long)battalion.PositionYCm - town.YCm;
-                if ((dx * dx) + (dy * dy) > radiusSq)
-                {
-                    continue;
-                }
-
-                int destX = town.XCm + 8_000_000;
-                int destY = town.YCm + 8_000_000;
-                if (RoadOrDirectTarget(battalion, destX, destY))
-                {
-                    continue;
-                }
-
-                host.World.Submit(SimCommand.Move(
-                    host.Tick,
-                    factionId,
-                    ids[i],
-                    destX,
-                    destY));
-            }
-        }
-
-        private static int FindUnownedTownOfClass(AiMatchHost host, int populationClass)
-        {
-            AiMapSnapshot map = host.Ai.Map;
-            int fallback = -1;
-            Assert.True(map.TryGetTown(map.GoldendaleTownId, out AiTownRecord goldendale));
-            long minSepSq = 3L * AiConstants.MileCm * AiConstants.MileCm;
-            for (int i = 0; i < map.TownCount; i++)
-            {
-                if (host.Ai.Owned.TownOwnerAt(i) != 0)
-                {
-                    continue;
-                }
-
-                AiTownRecord town = map.TownAt(i);
-                if (town.PopulationClass != populationClass)
-                {
-                    continue;
-                }
-
-                if (fallback < 0)
-                {
-                    fallback = i;
-                }
-
-                if (DistSq(town, goldendale) >= minSepSq)
-                {
-                    return i;
-                }
-            }
-
-            if (fallback >= 0)
-            {
-                return fallback;
-            }
-
-            throw new InvalidOperationException("No unowned town of class " + populationClass + ".");
-        }
-
-        private static int FindIsolatedTownOfClass(AiMatchHost host, int populationClass)
-        {
-            AiMapSnapshot map = host.Ai.Map;
-            AiFactionState faction = host.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA);
-            for (int i = 0; i < map.TownCount; i++)
-            {
-                if (host.Ai.Owned.TownOwnerAt(i) != 0)
-                {
-                    continue;
-                }
-
-                AiTownRecord town = map.TownAt(i);
-                if (town.PopulationClass != populationClass)
-                {
-                    continue;
-                }
-
-                if (town.TerritoryId == faction.HomeTerritoryId)
-                {
-                    continue;
-                }
-
-                if (map.Adjacency.AreNeighbors(faction.HomeTerritoryId, town.TerritoryId))
-                {
-                    continue;
-                }
-
-                return i;
-            }
-
-            throw new InvalidOperationException("No isolated town of class " + populationClass + ".");
-        }
-
-        private static void FreezeOtherUnownedTowns(AiMatchHost host, int keepIndex)
-        {
-            for (int i = 0; i < host.Ai.Map.TownCount; i++)
-            {
-                if (i == keepIndex || host.Ai.Owned.TownOwnerAt(i) != 0)
-                {
-                    continue;
-                }
-
-                host.Ai.Owned.SetTownOwner(i, 99);
-            }
-        }
-
-        private static int FindNeutralTown(AiMatchHost host)
-        {
-            AiMapSnapshot map = host.Ai.Map;
-            Assert.True(map.TryGetTown(map.GoldendaleTownId, out AiTownRecord goldendale));
-            Assert.True(map.TryGetTown(map.HoodRiverTownId, out AiTownRecord hoodRiver));
-            long minSepSq = 3L * AiConstants.MileCm * AiConstants.MileCm;
-            for (int i = 0; i < map.TownCount; i++)
-            {
-                if (host.Ai.Owned.TownOwnerAt(i) != 0)
-                {
-                    continue;
-                }
-
-                AiTownRecord town = map.TownAt(i);
-                if (DistSq(town, goldendale) < minSepSq || DistSq(town, hoodRiver) < minSepSq)
-                {
-                    continue;
-                }
-
-                return i;
-            }
-
-            throw new InvalidOperationException("No far unowned town on Gorge marsh.");
-        }
-
-        private static long DistSq(AiTownRecord a, AiTownRecord b)
-        {
-            long dx = (long)a.XCm - b.XCm;
-            long dy = (long)a.YCm - b.YCm;
-            return (dx * dx) + (dy * dy);
         }
     }
 }

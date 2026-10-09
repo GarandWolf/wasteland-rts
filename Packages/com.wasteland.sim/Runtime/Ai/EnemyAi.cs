@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Wasteland.Sim.Commands;
+using Wasteland.Sim.Events;
 using Wasteland.Sim.Hashing;
 using Wasteland.Sim.Movement;
 using Wasteland.Sim.Random;
@@ -17,7 +18,6 @@ namespace Wasteland.Sim.Ai
     {
         private readonly ISimCommandSink _commands;
         private readonly ISimWorldView _world;
-        private readonly ICaptureOccupancyView _occupancy;
         private readonly IAiEconomy _economy;
         private readonly IAiScenarioSeats _seats;
         private readonly AiSeatHomeBinder _homes;
@@ -33,6 +33,9 @@ namespace Wasteland.Sim.Ai
         private readonly List<int> _idScratch = new List<int>();
         private readonly List<int> _prizeIdScratch = new List<int>();
         private readonly List<int> _countIdScratch = new List<int>();
+        private readonly List<TownView> _townScratch = new List<TownView>();
+        private readonly List<SimEvent> _eventScratch = new List<SimEvent>();
+        private readonly List<DepotView> _depotScratch = new List<DepotView>();
         private readonly Candidate[] _candidates;
         private readonly int[] _networkScratch;
         private readonly IAiCommandSink _aiCommands;
@@ -72,16 +75,15 @@ namespace Wasteland.Sim.Ai
         {
             _commands = commands;
             _world = world;
-            _occupancy = occupancy;
             _balance = balance;
             _map = map;
             _owned = owned;
-            _economy = new AiEconomyStub(map, owned, balance, occupancy);
+            _economy = new AiEconomyStub(map, owned, balance, occupancy, world);
             _seats = seats ?? throw new ArgumentNullException(nameof(seats));
             _homes = new AiSeatHomeBinder(_seats);
             _aiCommands = new ForwardingAiCommandSink(commands, owned);
             _seatView = _fixtureSeatView;
-            _depots = new OwnedDepotView(owned);
+            _depots = new OwnedDepotView(owned, world);
             _attackDefend = new AiAttackDefend(_aiCommands, new WorldTownQuery(this), _depots);
             _attackTowns = new AiAttackTownInfo[System.Math.Max(1, map.TownCount)];
             _attackBattalions = new AiBattalionPin[16];
@@ -303,8 +305,9 @@ namespace Wasteland.Sim.Ai
                 throw new InvalidOperationException("AiOnTick tick must match the sim tick.");
             }
 
+            SyncCaptureFromSim();
+            ConsumePendingIntents();
             AccrueIncome(tick);
-            StepCaptureOccupancy();
             FlushPendingCommands();
 
             int workUnits = 0;
@@ -491,7 +494,7 @@ namespace Wasteland.Sim.Ai
 
         public int DepotCountOf(int factionId)
         {
-            return _owned.GetFaction(factionId).DepotCount;
+            return _depots.CountSites(factionId);
         }
 
         public int PendingCountOf(int factionId)
@@ -506,12 +509,22 @@ namespace Wasteland.Sim.Ai
                 return false;
             }
 
+            if (_world.TryGetTerritory(territory.StableKey, out TerritoryView view))
+            {
+                return view.OwnerFactionId == factionId;
+            }
+
             int seatIndex = _map.IndexOfTown(territory.SeatTownId);
             return seatIndex >= 0 && _owned.TownOwnerAt(seatIndex) == factionId;
         }
 
         public int TheDallesOwnerId()
         {
+            if (_world.TryGetTown(_map.TheDallesTownId, out TownView dalles))
+            {
+                return dalles.OwnerFactionId;
+            }
+
             int index = _map.IndexOfTown(_map.TheDallesTownId);
             if (index < 0)
             {
@@ -532,7 +545,7 @@ namespace Wasteland.Sim.Ai
                 TechSavingsOf(factionId),
                 BattalionCountOf(factionId),
                 TownsHeldOf(factionId),
-                faction.DepotCount,
+                DepotCountOf(factionId),
                 faction.PickedPostCount,
                 _map.TheDallesTownId,
                 TheDallesOwnerId(),
@@ -587,80 +600,164 @@ namespace Wasteland.Sim.Ai
 
         private int ZoneRadiusCm(AiTownRecord town)
         {
+            if (_world.TryGetTown(town.Id, out TownView view))
+            {
+                return view.ZoneRadiusCm;
+            }
+
+            if (!_map.TryGetTerritory(town.TerritoryId, out AiTerritoryRecord territory)
+                || territory.SeatTownId != town.Id)
+            {
+                return 0;
+            }
+
             return _balance.CaptureRadiusCmForClass(town.PopulationClass);
         }
 
-        private void StepCaptureOccupancy()
+        private void SyncCaptureFromSim()
         {
-            int decayStarts = _balance.DecayStartsAfterTicks;
-            int decayPerTick = _balance.DecayTicksPerTick;
-            for (int i = 0; i < _map.TownCount; i++)
+            _world.CopyTowns(_townScratch);
+            for (int i = 0; i < _townScratch.Count; i++)
             {
-                AiTownRecord town = _map.TownAt(i);
-                int owner = _owned.TownOwnerAt(i);
-                int radius = ZoneRadiusCm(town);
-                CaptureZoneOccupancyResult zone = _occupancy.OccupancyOf(town.XCm, town.YCm, radius);
-                int current = _owned.CaptureFactionAt(i);
-                int held = _owned.CaptureHeldTicksAt(i);
-                int absent = _owned.CaptureAbsentTicksAt(i);
-
-                if (zone.Kind == CaptureOccupancyKind.Contested)
+                TownView town = _townScratch[i];
+                int index = _map.IndexOfTown(town.TownId);
+                if (index < 0)
                 {
-                    _owned.SetCapture(i, current, held, absent);
                     continue;
                 }
 
-                if (zone.Kind == CaptureOccupancyKind.Empty)
+                _owned.SetTownOwner(index, town.OwnerFactionId);
+            }
+        }
+
+        private void ConsumePendingIntents()
+        {
+            int tick = _world.Tick;
+            if (tick < 1)
+            {
+                return;
+            }
+
+            int fromTick = tick - 1;
+            int historyStart = tick - SimWorld.EventHistoryTicks;
+            if (fromTick < historyStart)
+            {
+                fromTick = historyStart < 0 ? 0 : historyStart;
+            }
+
+            _world.CopyEventsInRange(fromTick, tick - 1, _eventScratch);
+            for (int i = 0; i < _eventScratch.Count; i++)
+            {
+                SimEvent ev = _eventScratch[i];
+                if (ev.Kind == SimEventKind.CommandRejected)
                 {
-                    if (current != 0 && held > 0)
+                    int issuer = (int)(ev.Key >> 32);
+                    int sequence = (int)ev.Key;
+                    RemoveIntentBySequence(issuer, sequence);
+                    continue;
+                }
+
+                if (ev.Kind == SimEventKind.OrderRefunded)
+                {
+                    RemoveIntentByRefund(ev.SubjectId, ev.AuxId, ev.Param0);
+                }
+            }
+
+            ClearResolvedIntents();
+        }
+
+        private void RemoveIntentBySequence(int factionId, int sequence)
+        {
+            AiFactionState faction;
+            try
+            {
+                faction = _owned.GetFaction(factionId);
+            }
+            catch (InvalidOperationException)
+            {
+                return;
+            }
+
+            for (int i = faction.IntentCount - 1; i >= 0; i--)
+            {
+                if (faction.Intents[i].Sequence == sequence)
+                {
+                    faction.RemoveIntentAt(i);
+                }
+            }
+        }
+
+        private void RemoveIntentByRefund(int factionId, int commandKind, int targetId)
+        {
+            AiIssuedKind kind;
+            if (commandKind == (int)CommandKind.ClaimTown)
+            {
+                kind = AiIssuedKind.ClaimTown;
+            }
+            else if (commandKind == (int)CommandKind.BuildDepot)
+            {
+                kind = AiIssuedKind.BuildDepot;
+            }
+            else
+            {
+                return;
+            }
+
+            AiFactionState faction;
+            try
+            {
+                faction = _owned.GetFaction(factionId);
+            }
+            catch (InvalidOperationException)
+            {
+                return;
+            }
+
+            for (int i = faction.IntentCount - 1; i >= 0; i--)
+            {
+                AiPendingIntent intent = faction.Intents[i];
+                if (intent.Kind == kind && intent.TargetId == targetId)
+                {
+                    faction.RemoveIntentAt(i);
+                }
+            }
+        }
+
+        private void ClearResolvedIntents()
+        {
+            _world.CopyDepots(_depotScratch);
+            for (int f = 0; f < _owned.FactionCount; f++)
+            {
+                AiFactionState faction = _owned.FactionAt(f);
+                for (int i = faction.IntentCount - 1; i >= 0; i--)
+                {
+                    AiPendingIntent intent = faction.Intents[i];
+                    if (intent.Kind == AiIssuedKind.ClaimTown)
                     {
-                        absent++;
-                        if (absent > decayStarts)
+                        if (_world.TryGetTown(intent.TargetId, out TownView town)
+                            && (town.OwnerFactionId == faction.FactionId
+                                || town.CaptureFactionId == faction.FactionId))
                         {
-                            held -= decayPerTick;
-                            if (held <= 0)
-                            {
-                                current = 0;
-                                held = 0;
-                                absent = 0;
-                            }
+                            faction.RemoveIntentAt(i);
                         }
 
-                        _owned.SetCapture(i, current, held, absent);
+                        continue;
                     }
 
-                    continue;
-                }
+                    if (intent.Kind != AiIssuedKind.BuildDepot)
+                    {
+                        continue;
+                    }
 
-                int occupant = zone.FactionId;
-                if (owner == occupant)
-                {
-                    _owned.SetCapture(i, 0, 0, 0);
-                    continue;
-                }
-
-                // One faction in the zone, and it is not the current owner (unowned or recapture).
-                if (current != occupant)
-                {
-                    current = occupant;
-                    held = 0;
-                    absent = 0;
-                }
-                else
-                {
-                    absent = 0;
-                }
-
-                held++;
-                int need = _balance.CaptureTicksForClass(town.PopulationClass);
-                if (held >= need)
-                {
-                    _owned.SetTownOwner(i, occupant);
-                    _owned.SetCapture(i, 0, 0, 0);
-                }
-                else
-                {
-                    _owned.SetCapture(i, current, held, absent);
+                    for (int d = 0; d < _depotScratch.Count; d++)
+                    {
+                        DepotView depot = _depotScratch[d];
+                        if (depot.OwnerFactionId == faction.FactionId && depot.NodeId == intent.TargetId)
+                        {
+                            faction.RemoveIntentAt(i);
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -753,6 +850,11 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
+                if (IsEngineerBattalion(order.BattalionId))
+                {
+                    continue;
+                }
+
                 long radiusSq = (long)ZoneRadiusCm(town) * ZoneRadiusCm(town);
                 if (InRadius(battalion.PositionXCm, battalion.PositionYCm, town.XCm, town.YCm, radiusSq))
                 {
@@ -760,6 +862,14 @@ namespace Wasteland.Sim.Ai
                 }
 
                 if (AlreadyMovingTo(battalion, town.XCm, town.YCm))
+                {
+                    continue;
+                }
+
+                if (IsAttackingPrize(faction)
+                    && IsSeatTown(town)
+                    && !IsPrizeSeatTown(town.Id)
+                    && town.Id != faction.HomeTownId)
                 {
                     continue;
                 }
@@ -800,6 +910,12 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
+            if (pending.Kind == CommandKind.BuildDepot)
+            {
+                RemoveDepotAtNode(faction, pending.Arg0);
+                return;
+            }
+
             if (pending.Kind == CommandKind.Build)
             {
                 RemoveDepotAt(faction, pending.Arg0, pending.Arg1);
@@ -828,6 +944,22 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < faction.DepotCount; i++)
             {
                 if (faction.Depots[i].XCm == xCm && faction.Depots[i].YCm == yCm)
+                {
+                    continue;
+                }
+
+                faction.Depots[write++] = faction.Depots[i];
+            }
+
+            faction.DepotCount = write;
+        }
+
+        private static void RemoveDepotAtNode(AiFactionState faction, int nodeId)
+        {
+            int write = 0;
+            for (int i = 0; i < faction.DepotCount; i++)
+            {
+                if (faction.Depots[i].NodeId == nodeId)
                 {
                     continue;
                 }
@@ -966,6 +1098,13 @@ namespace Wasteland.Sim.Ai
                 }
 
                 bool isSeat = IsSeatTown(town);
+                if (IsAttackingPrize(faction)
+                    && isSeat
+                    && !IsPrizeSeatTown(town.Id)
+                    && town.Id != faction.HomeTownId)
+                {
+                    continue;
+                }
                 int distCm = ApproxDistCm(home.XCm, home.YCm, town.XCm, town.YCm);
                 // Integer miles (cm / MileCm), not ppt. Caps so WeightEconomy/WeightDistance stay bounded.
                 int distMiles = distCm / AiConstants.MileCm;
@@ -1089,6 +1228,11 @@ namespace Wasteland.Sim.Ai
                 }
 
                 if (IsAttackingPrize(faction) && PrizeUncaptured() && IsPrizeForceBattalion(faction, id))
+                {
+                    continue;
+                }
+
+                if (IsEngineerBattalion(id))
                 {
                     continue;
                 }
@@ -1384,6 +1528,22 @@ namespace Wasteland.Sim.Ai
             return moveClass == MovementClass.Foot;
         }
 
+        private bool IsEngineerBattalion(int battalionId)
+        {
+            if (!_world.TryGetBattalionView(battalionId, out BattalionView view))
+            {
+                return false;
+            }
+
+            string role;
+            if (!_balance.UnitCatalog.TryGetRole(view.UnitId, out role))
+            {
+                return false;
+            }
+
+            return role == AiConstants.RoleEngineer;
+        }
+
         private int CountAssignedTaskForces(AiFactionState faction)
         {
             int count = 0;
@@ -1528,6 +1688,12 @@ namespace Wasteland.Sim.Ai
                     territoryKey = territory.StableKey;
                 }
 
+                int zoneRadiusCm = 0;
+                if (_world.TryGetTown(town.Id, out TownView view))
+                {
+                    zoneRadiusCm = view.ZoneRadiusCm;
+                }
+
                 _attackTowns[count++] = new AiAttackTownInfo(
                     town.Id,
                     town.TerritoryId,
@@ -1535,7 +1701,8 @@ namespace Wasteland.Sim.Ai
                     town.XCm,
                     town.YCm,
                     IsHqTown(town.Id),
-                    territoryKey);
+                    territoryKey,
+                    zoneRadiusCm);
             }
 
             return count;
@@ -1670,12 +1837,16 @@ namespace Wasteland.Sim.Ai
 
                 AiTownRecord town = _ai._map.TownAt(index);
                 int owner = _ai._owned.TownOwnerAt(index);
-                CaptureZoneOccupancyResult zone = _ai._occupancy.OccupancyOf(
-                    town.XCm,
-                    town.YCm,
-                    _ai.ZoneRadiusCm(town));
-                bool contested = zone.Kind == CaptureOccupancyKind.Contested;
-                CollectFactionIds(zone.FactionId);
+                bool contested = false;
+                int captureFactionId = 0;
+                if (_ai._world.TryGetTown(townId, out TownView view))
+                {
+                    owner = view.OwnerFactionId;
+                    contested = view.Contested;
+                    captureFactionId = view.CaptureFactionId;
+                }
+
+                CollectFactionIds(captureFactionId);
                 int side0 = 0;
                 int side0Str = 0;
                 int side1 = 0;

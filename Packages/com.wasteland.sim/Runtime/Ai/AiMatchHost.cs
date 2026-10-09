@@ -204,13 +204,7 @@ namespace Wasteland.Sim.Ai
             {
                 while (cursor < commands.Count && commands[cursor].IssuedTick == world.Tick)
                 {
-                    // Build is AI-sink-owned in M1; replaying it into SimWorld
-                    // would UnknownKind-reject.
-                    if (commands[cursor].Kind != CommandKind.Build)
-                    {
-                        world.Submit(commands[cursor]);
-                    }
-
+                    world.Submit(commands[cursor]);
                     cursor++;
                 }
 

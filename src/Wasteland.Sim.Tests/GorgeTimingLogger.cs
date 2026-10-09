@@ -29,15 +29,28 @@ namespace Wasteland.Sim.Tests
             int compactId = AiConstants.DefaultAiFactionB;
             int dallesIndex = host.Ai.Map.IndexOfTown(host.Ai.Map.TheDallesTownId);
             AiTownRecord dalles = host.Ai.Map.TownAt(dallesIndex);
-            int radius = host.Ai.Balance.CaptureRadiusCmForClass(dalles.PopulationClass);
-            long radiusSq = (long)radius * radius;
+            if (!host.World.TryGetTown(dalles.Id, out TownView dallesView))
+            {
+                throw new InvalidOperationException("The Dalles town view is missing.");
+            }
+
+            long radiusSq = (long)dallesView.ZoneRadiusCm * dallesView.ZoneRadiusCm;
+            if (!host.World.TryGetTown(host.Ai.Map.WhiteSalmonTownId, out TownView whiteSalmon))
+            {
+                throw new InvalidOperationException("White Salmon town view is missing.");
+            }
+
+            if (!host.Ai.Map.TryGetTown(host.Ai.Map.HoodRiverTownId, out AiTownRecord hood))
+            {
+                throw new InvalidOperationException("Hood River map town is missing.");
+            }
 
             List<TimedEvent> rows = new List<TimedEvent>();
             Dictionary<string, int> spawnCounts = new Dictionary<string, int>();
             int eventCursor = 0;
             bool remnantArrived = false;
             bool compactArrived = false;
-            int lastCaptureFaction = host.Ai.Owned.CaptureFactionAt(dallesIndex);
+            int lastCaptureFaction = CaptureFaction(host, host.Ai.Map.TheDallesTownId);
             int lastOwner = host.Ai.Owned.TownOwnerAt(dallesIndex);
 
             GorgeTimingLog log = new GorgeTimingLog();
@@ -65,7 +78,7 @@ namespace Wasteland.Sim.Tests
                     rows.Add(new TimedEvent(tick, 51, "remnant_dalles_arrive"));
                 }
 
-                int captureFaction = host.Ai.Owned.CaptureFactionAt(dallesIndex);
+                int captureFaction = CaptureFaction(host, host.Ai.Map.TheDallesTownId);
                 if (lastCaptureFaction == 0 && captureFaction != 0)
                 {
                     if (captureFaction == compactId)
@@ -98,6 +111,10 @@ namespace Wasteland.Sim.Tests
                 }
 
                 lastOwner = owner;
+                if (host.World.TryGetTown(host.Ai.Map.WhiteSalmonTownId, out whiteSalmon))
+                {
+                    SampleWhiteSalmon(host, compactId, whiteSalmon, hood, tick, log);
+                }
             }
 
             log.RemnantRifleSpawns = CountPrefix(spawnCounts, remnantId + ":remnant_motor_rifles");
@@ -212,6 +229,78 @@ namespace Wasteland.Sim.Tests
             return unitId;
         }
 
+        private static void SampleWhiteSalmon(
+            AiMatchHost host,
+            int compactId,
+            TownView whiteSalmon,
+            AiTownRecord hood,
+            int tick,
+            GorgeTimingLog log)
+        {
+            AiFactionState compact = host.Ai.Owned.GetFaction(compactId);
+            bool contesting = compact.AttackTargetTownId == whiteSalmon.TownId
+                || compact.DefendTownId == whiteSalmon.TownId;
+            long radius = whiteSalmon.ZoneRadiusCm;
+            long radiusSq = radius * radius;
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.OwnerId != compactId)
+                {
+                    continue;
+                }
+
+                long dx = (long)battalion.PositionXCm - whiteSalmon.XCm;
+                long dy = (long)battalion.PositionYCm - whiteSalmon.YCm;
+                if ((dx * dx) + (dy * dy) > radiusSq)
+                {
+                    continue;
+                }
+
+                long hoodDx = (long)battalion.PositionXCm - hood.XCm;
+                long hoodDy = (long)battalion.PositionYCm - hood.YCm;
+                int distHood = ApproxDistCm(battalion.PositionXCm, battalion.PositionYCm, hood.XCm, hood.YCm);
+                string unitId = string.Empty;
+                if (host.World.TryGetBattalionView(battalion.Id, out BattalionView view))
+                {
+                    unitId = view.UnitId;
+                }
+
+                bool engineer = host.Ai.Balance.UnitCatalog.TryGetRole(unitId, out string role)
+                    && role == AiConstants.RoleEngineer;
+                log.WhiteSalmonSamples.Add(new WhiteSalmonSample(
+                    tick,
+                    battalion.Id,
+                    unitId,
+                    engineer,
+                    contesting,
+                    battalion.PositionXCm,
+                    battalion.PositionYCm,
+                    distHood,
+                    (int)global::System.Math.Sqrt((double)((hoodDx * hoodDx) + (hoodDy * hoodDy)))));
+            }
+        }
+
+        private static int ApproxDistCm(int ax, int ay, int bx, int by)
+        {
+            int dx = ax > bx ? ax - bx : bx - ax;
+            int dy = ay > by ? ay - by : by - ay;
+            int max = dx > dy ? dx : dy;
+            int min = dx > dy ? dy : dx;
+            return max + (min / 2);
+        }
+
+        private static int CaptureFaction(AiMatchHost host, int townId)
+        {
+            if (host.World.TryGetTown(townId, out TownView town))
+            {
+                return town.CaptureFactionId;
+            }
+
+            return 0;
+        }
+
         private static bool FactionInDalles(
             AiMatchHost host,
             int factionId,
@@ -289,5 +378,41 @@ namespace Wasteland.Sim.Tests
         public int CompactTier2Tick = -1;
         public int RemnantRifleSpawns;
         public int CompactRifleSpawns;
+        public readonly List<WhiteSalmonSample> WhiteSalmonSamples = new List<WhiteSalmonSample>();
+    }
+
+    internal readonly struct WhiteSalmonSample
+    {
+        public readonly int Tick;
+        public readonly int BattalionId;
+        public readonly string UnitId;
+        public readonly bool Engineer;
+        public readonly bool Contesting;
+        public readonly int XCm;
+        public readonly int YCm;
+        public readonly int DistHoodApproxCm;
+        public readonly int DistHoodCm;
+
+        public WhiteSalmonSample(
+            int tick,
+            int battalionId,
+            string unitId,
+            bool engineer,
+            bool contesting,
+            int xCm,
+            int yCm,
+            int distHoodApproxCm,
+            int distHoodCm)
+        {
+            Tick = tick;
+            BattalionId = battalionId;
+            UnitId = unitId ?? string.Empty;
+            Engineer = engineer;
+            Contesting = contesting;
+            XCm = xCm;
+            YCm = yCm;
+            DistHoodApproxCm = distHoodApproxCm;
+            DistHoodCm = distHoodCm;
+        }
     }
 }

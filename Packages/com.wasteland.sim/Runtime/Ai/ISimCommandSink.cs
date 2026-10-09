@@ -7,9 +7,9 @@ namespace Wasteland.Sim.Ai
 {
     /// <summary>
     /// The only mutation path the AI may use. Implementations must forward
-    /// spawn/move to the foundation <see cref="SimWorld.Submit"/> (or a test
-    /// sink of it). <see cref="CommandKind.Build"/> is accepted here in M1
-    /// and is not forwarded; SimWorld does not stub buildings.
+    /// spawn/move/claim/depot to the foundation <see cref="SimWorld.Submit"/>
+    /// (or a test sink of it). <see cref="CommandKind.Build"/> is unused;
+    /// depots use <see cref="CommandKind.BuildDepot"/>.
     /// </summary>
     public interface ISimCommandSink
     {

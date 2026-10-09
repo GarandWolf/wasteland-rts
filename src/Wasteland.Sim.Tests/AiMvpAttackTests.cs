@@ -352,6 +352,30 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void ForwardDepot_SkipsWhenCopyDepotsCountReachesCap()
+        {
+            Harness harness = Harness.Line();
+            harness.SupplyReachCm = 1500;
+            harness.Towns[10] = Own(1);
+            harness.Towns[30] = Enemy(2, 1);
+            harness.SetBattalions(Idle(5, 1), Engineer(7, 1));
+            int cap = harness.Faction.Depots.Length;
+            Assert.True(cap >= 1);
+            for (int i = 0; i < cap; i++)
+            {
+                harness.Sink.RecordSite(harness.Faction.FactionId, 100 + i, 0, 1);
+            }
+
+            Assert.Equal(cap, harness.Sink.CountSites(harness.Faction.FactionId));
+            harness.Tick();
+            Assert.Equal(1, harness.Faction.DepotCapSkips);
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                Assert.NotEqual(AiIssuedKind.BuildDepot, harness.Sink.Log[i].Kind);
+            }
+        }
+
+        [Fact]
         public void SaveLoadContinue_ForwardDepot_RestoresDepotTicksAndReplaysCommands()
         {
             Harness live = Harness.Line();

@@ -177,6 +177,16 @@ namespace Wasteland.Sim.Ai
             }
 
             _issued.Add(new AiIssuedCommand(id, _inner.Tick, factionId, kind, arg0, arg1, arg2, arg3, unitId));
+            if (kind == AiIssuedKind.ClaimTown || kind == AiIssuedKind.BuildDepot)
+            {
+                AiPendingIntent intent = default;
+                intent.Sequence = _lastSequence;
+                intent.Kind = kind;
+                intent.BattalionId = arg0;
+                intent.TargetId = arg1;
+                _owned.EnqueueIntent(factionId, intent);
+            }
+
             return id;
         }
     }

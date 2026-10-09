@@ -20,6 +20,20 @@ namespace Wasteland.Sim.Ai
             _depots[Key(factionId, nodeId)] = new AiDepotReadback(siteTick, activeTick);
         }
 
+        public int CountSites(int factionId)
+        {
+            int count = 0;
+            foreach (KeyValuePair<long, AiDepotReadback> pair in _depots)
+            {
+                if ((int)(pair.Key >> 32) == factionId)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
         private static long Key(int factionId, int nodeId)
         {
             return ((long)factionId << 32) ^ (uint)nodeId;

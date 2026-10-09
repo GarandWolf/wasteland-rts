@@ -12,6 +12,7 @@ namespace Wasteland.Sim.Ai
         private readonly Dictionary<int, AiCommandReject> _rejects = new Dictionary<int, AiCommandReject>();
         private readonly Dictionary<long, AiDepotReadback> _depots = new Dictionary<long, AiDepotReadback>();
         private int _nextId = 1;
+        private int _lastSequence;
         private AiCommandReject _nextReject = AiCommandReject.None;
         private int _tick;
         private int _depotActiveDelayTicks = 1;
@@ -32,6 +33,11 @@ namespace Wasteland.Sim.Ai
         public IReadOnlyList<AiIssuedCommand> IssuedCommands
         {
             get { return _log; }
+        }
+
+        public int LastSequence
+        {
+            get { return _lastSequence; }
         }
 
         public int DepotActiveDelayTicks
@@ -103,6 +109,20 @@ namespace Wasteland.Sim.Ai
             _depots[DepotKey(factionId, nodeId)] = new AiDepotReadback(siteTick, activeTick);
         }
 
+        public int CountSites(int factionId)
+        {
+            int count = 0;
+            foreach (KeyValuePair<long, AiDepotReadback> pair in _depots)
+            {
+                if ((int)(pair.Key >> 32) == factionId)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
         private int Record(
             int factionId,
             AiIssuedKind kind,
@@ -114,6 +134,7 @@ namespace Wasteland.Sim.Ai
         {
             int id = _nextId;
             _nextId++;
+            _lastSequence = id;
             _log.Add(new AiIssuedCommand(id, _tick, factionId, kind, arg0, arg1, arg2, arg3, unitId));
             if (_nextReject != AiCommandReject.None)
             {

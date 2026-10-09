@@ -86,6 +86,13 @@ namespace Wasteland.Sim.Ai
 
         int SubmitBuildDepot(int factionId, int battalionId, int nodeId);
 
+        /// <summary>
+        /// Sequence stamped on the last forwarded command. Pairs with
+        /// <see cref="Wasteland.Sim.Events.SimEvent.Key"/> on CommandRejected:
+        /// <c>(issuer &lt;&lt; 32) | sequence</c>.
+        /// </summary>
+        int LastSequence { get; }
+
         AiCommandReject RejectOf(int commandId);
 
         int CommandDelayTicks { get; }
@@ -186,6 +193,9 @@ namespace Wasteland.Sim.Ai
         bool TryGet(int factionId, int nodeId, out AiDepotReadback readback);
 
         void RecordSite(int factionId, int nodeId, int siteTick, int activeTick);
+
+        /// <summary>Reserved + under-construction + active sites for one faction.</summary>
+        int CountSites(int factionId);
     }
 
     public readonly struct AiBattalionPin

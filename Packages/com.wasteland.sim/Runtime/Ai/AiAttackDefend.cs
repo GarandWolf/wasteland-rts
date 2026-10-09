@@ -13,6 +13,7 @@ namespace Wasteland.Sim.Ai
         public readonly int YCm;
         public readonly bool IsHq;
         public readonly ulong TerritoryStableKey;
+        public readonly int ZoneRadiusCm;
 
         public AiAttackTownInfo(
             int id,
@@ -22,6 +23,19 @@ namespace Wasteland.Sim.Ai
             int yCm,
             bool isHq,
             ulong territoryStableKey)
+            : this(id, territoryId, nodeId, xCm, yCm, isHq, territoryStableKey, 0)
+        {
+        }
+
+        public AiAttackTownInfo(
+            int id,
+            int territoryId,
+            int nodeId,
+            int xCm,
+            int yCm,
+            bool isHq,
+            ulong territoryStableKey,
+            int zoneRadiusCm)
         {
             Id = id;
             TerritoryId = territoryId;
@@ -30,6 +44,7 @@ namespace Wasteland.Sim.Ai
             YCm = yCm;
             IsHq = isHq;
             TerritoryStableKey = territoryStableKey;
+            ZoneRadiusCm = zoneRadiusCm;
         }
     }
 
@@ -772,6 +787,13 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
+            int cap = faction.Depots.Length;
+            if (cap > 0 && _depots.CountSites(faction.FactionId) >= cap)
+            {
+                faction.DepotCapSkips++;
+                return;
+            }
+
             AiSupplyResult fromNet = _roads.FillFromSources(graph, networkNodeIds, networkCount, faction);
             if (DeferIfExhausted(fromNet))
             {
@@ -812,6 +834,13 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
+                int nodeX = graph.GetNodeXCm(i);
+                int nodeY = graph.GetNodeYCm(i);
+                if (InUnintendedSeatZone(faction, towns, townCount, nodeX, nodeY))
+                {
+                    continue;
+                }
+
                 int remain = _roads.TargetDistanceAt(i);
                 if (bestNode != 0)
                 {
@@ -829,8 +858,8 @@ namespace Wasteland.Sim.Ai
 
                 bestRemain = remain;
                 bestNode = nodeId;
-                bestX = graph.GetNodeXCm(i);
-                bestY = graph.GetNodeYCm(i);
+                bestX = nodeX;
+                bestY = nodeY;
             }
 
             if (bestNode == 0)
@@ -1191,6 +1220,49 @@ namespace Wasteland.Sim.Ai
             }
 
             return string.Empty;
+        }
+
+        /// <summary>
+        /// True when (x,y) sits in another seat town's capture zone and this
+        /// faction is not attacking, defending, or home-holding that town.
+        /// </summary>
+        internal static bool InUnintendedSeatZone(
+            AiFactionState faction,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            int xCm,
+            int yCm)
+        {
+            if (faction == null || towns == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < townCount; i++)
+            {
+                AiAttackTownInfo town = towns[i];
+                if (town.ZoneRadiusCm <= 0)
+                {
+                    continue;
+                }
+
+                if (town.Id == faction.HomeTownId
+                    || town.Id == faction.AttackTargetTownId
+                    || town.Id == faction.DefendTownId)
+                {
+                    continue;
+                }
+
+                long dx = (long)xCm - town.XCm;
+                long dy = (long)yCm - town.YCm;
+                long radius = town.ZoneRadiusCm;
+                if ((dx * dx) + (dy * dy) <= radius * radius)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private bool PathNearEnemy(

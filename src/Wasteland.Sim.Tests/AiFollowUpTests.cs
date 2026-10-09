@@ -475,6 +475,15 @@ namespace Wasteland.Sim.Tests
                 reader.ReadInt32();
                 reader.ReadInt32();
             }
+
+            int intentCount = reader.ReadInt32();
+            for (int n = 0; n < intentCount; n++)
+            {
+                reader.ReadInt32();
+                reader.ReadByte();
+                reader.ReadInt32();
+                reader.ReadInt32();
+            }
         }
 
         private static void WriteInt32(byte[] blob, int offset, int value)
