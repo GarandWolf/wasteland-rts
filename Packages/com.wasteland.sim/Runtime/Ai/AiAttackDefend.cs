@@ -65,6 +65,7 @@ namespace Wasteland.Sim.Ai
         private readonly IAiTownQuery _towns;
         private readonly IAiDepotQuery _depots;
         private readonly ISimWorldView? _world;
+        private readonly AiOwnedState? _owned;
         private readonly AiRoadSupply _roads = new AiRoadSupply();
         private IAiSeatView _seatView = new FixtureAiSeatView();
         private IAiUnitCatalog _catalog = AiUnitCatalog.Empty;
@@ -80,7 +81,7 @@ namespace Wasteland.Sim.Ai
         private int _pendingCount;
 
         public AiAttackDefend(IAiCommandSink commands, IAiTownQuery towns, IAiDepotQuery depots)
-            : this(commands, towns, depots, null)
+            : this(commands, towns, depots, null, null)
         {
         }
 
@@ -89,11 +90,22 @@ namespace Wasteland.Sim.Ai
             IAiTownQuery towns,
             IAiDepotQuery depots,
             ISimWorldView? world)
+            : this(commands, towns, depots, world, null)
+        {
+        }
+
+        public AiAttackDefend(
+            IAiCommandSink commands,
+            IAiTownQuery towns,
+            IAiDepotQuery depots,
+            ISimWorldView? world,
+            AiOwnedState? owned)
         {
             _commands = commands ?? throw new ArgumentNullException(nameof(commands));
             _towns = towns ?? throw new ArgumentNullException(nameof(towns));
             _depots = depots ?? throw new ArgumentNullException(nameof(depots));
             _world = world;
+            _owned = owned;
         }
 
         public static bool StrengthAllowsAttack(int ownStrength, int defenderStrength, int attackStrengthRatioPpt)
@@ -862,6 +874,12 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
+            int inFlightNode = _depots.InFlightNodeId(faction.FactionId, tick);
+            if (inFlightNode != 0 && !IsNodeBlacklisted(faction, inFlightNode))
+            {
+                return;
+            }
+
             int cap = faction.Depots.Length;
             if (cap > 0 && _depots.CountSites(faction.FactionId) >= cap)
             {
@@ -893,7 +911,7 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < graph.NodeCount; i++)
             {
                 int nodeId = graph.GetNodeId(i);
-                if (faction.IsNodeBlacklisted(nodeId))
+                if (IsNodeBlacklisted(faction, nodeId))
                 {
                     continue;
                 }
@@ -904,13 +922,8 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                if (_depots.TryGet(faction.FactionId, nodeId, out AiDepotReadback existing))
+                if (_depots.TryGet(faction.FactionId, nodeId, out _))
                 {
-                    if (!existing.IsActive(tick))
-                    {
-                        return;
-                    }
-
                     continue;
                 }
 
@@ -1028,6 +1041,11 @@ namespace Wasteland.Sim.Ai
                 }
             }
 
+            if (inFlightNode != 0 && inFlightNode != bestNode && !IsNodeBlacklisted(faction, inFlightNode))
+            {
+                return;
+            }
+
             int buildId = _commands.SubmitBuildDepot(faction.FactionId, engineerId, bestNode);
             Issue(tick, faction, buildId);
             if (_commands.RejectOf(buildId) == AiCommandReject.None
@@ -1071,6 +1089,16 @@ namespace Wasteland.Sim.Ai
             }
 
             return false;
+        }
+
+        private bool IsNodeBlacklisted(AiFactionState faction, int nodeId)
+        {
+            if (_owned == null)
+            {
+                return false;
+            }
+
+            return _owned.IsDepotNodeBlacklisted(faction.FactionId, nodeId);
         }
 
         private bool DepotSiteAllowed(

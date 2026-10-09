@@ -139,11 +139,17 @@ namespace Wasteland.Sim.Tests
                 {
                     SampleWhiteSalmon(host, compactId, whiteSalmon, hood, tick, log);
                 }
+
+                if (host.Tick > 0 && host.Tick % 1000 == 0)
+                {
+                    SampleActiveDepots(host, remnantId, compactId, host.Tick, log);
+                }
             }
 
             log.RemnantRifleSpawns = CountPrefix(spawnCounts, remnantId + ":remnant_motor_rifles");
             log.CompactRifleSpawns = CountPrefix(spawnCounts, compactId + ":compact_rifle_battalion");
             CollectCommandStats(host, log);
+            CollectRemnantDepotNodes(host, remnantId, log);
             host.Shutdown();
 
             rows.Sort(CompareEvents);
@@ -291,6 +297,101 @@ namespace Wasteland.Sim.Tests
             text.Append(",\"count\":");
             text.Append(maxMoves);
             text.Append("}\n");
+
+            for (int i = 0; i < log.ActiveDepotSamples.Count; i++)
+            {
+                ActiveDepotSample sample = log.ActiveDepotSamples[i];
+                text.Append("{\"event\":\"active_depots\",\"tick\":");
+                text.Append(sample.Tick);
+                text.Append(",\"seat\":");
+                text.Append(sample.SeatId);
+                text.Append(",\"count\":");
+                text.Append(sample.Count);
+                text.Append("}\n");
+            }
+
+            for (int i = 0; i < log.RemnantDepotNodes.Count; i++)
+            {
+                text.Append("{\"event\":\"remnant_depot_node\",\"node\":");
+                text.Append(log.RemnantDepotNodes[i]);
+                text.Append("}\n");
+            }
+        }
+
+        private static void SampleActiveDepots(
+            AiMatchHost host,
+            int remnantId,
+            int compactId,
+            int tick,
+            GorgeTimingLog log)
+        {
+            List<DepotView> depots = new List<DepotView>();
+            host.World.CopyDepots(depots);
+            int remnant = 0;
+            int compact = 0;
+            for (int i = 0; i < depots.Count; i++)
+            {
+                if (depots[i].State != DepotSiteState.Active)
+                {
+                    continue;
+                }
+
+                if (depots[i].OwnerFactionId == remnantId)
+                {
+                    remnant++;
+                }
+                else if (depots[i].OwnerFactionId == compactId)
+                {
+                    compact++;
+                }
+            }
+
+            log.ActiveDepotSamples.Add(new ActiveDepotSample(tick, remnantId, remnant));
+            log.ActiveDepotSamples.Add(new ActiveDepotSample(tick, compactId, compact));
+        }
+
+        private static void CollectRemnantDepotNodes(AiMatchHost host, int remnantId, GorgeTimingLog log)
+        {
+            List<DepotView> depots = new List<DepotView>();
+            host.World.CopyDepots(depots);
+            for (int i = 0; i < depots.Count; i++)
+            {
+                if (depots[i].OwnerFactionId != remnantId || depots[i].NodeId == 0)
+                {
+                    continue;
+                }
+
+                int nodeId = depots[i].NodeId;
+                bool seen = false;
+                for (int n = 0; n < log.RemnantDepotNodes.Count; n++)
+                {
+                    if (log.RemnantDepotNodes[n] == nodeId)
+                    {
+                        seen = true;
+                        break;
+                    }
+                }
+
+                if (seen)
+                {
+                    continue;
+                }
+
+                log.RemnantDepotNodes.Add(nodeId);
+            }
+
+            for (int i = 1; i < log.RemnantDepotNodes.Count; i++)
+            {
+                int row = log.RemnantDepotNodes[i];
+                int j = i;
+                while (j > 0 && log.RemnantDepotNodes[j - 1] > row)
+                {
+                    log.RemnantDepotNodes[j] = log.RemnantDepotNodes[j - 1];
+                    j--;
+                }
+
+                log.RemnantDepotNodes[j] = row;
+            }
         }
 
         private static int AppendEvents(
@@ -330,6 +431,11 @@ namespace Wasteland.Sim.Tests
                 if (!host.World.TryGetBattalionView(ev.SubjectId, out BattalionView view))
                 {
                     continue;
+                }
+
+                if (view.OwnerId == compactId && ev.Tick > 0)
+                {
+                    log.CompactRaiseTicks.Add(ev.Tick);
                 }
 
                 string key = view.OwnerId + ":" + view.UnitId;
@@ -562,6 +668,23 @@ namespace Wasteland.Sim.Tests
         public readonly List<NodeCount> DepotOrders = new List<NodeCount>();
         public readonly List<NodeCount> DepotRejects = new List<NodeCount>();
         public readonly List<BattalionMoveCount> Moves = new List<BattalionMoveCount>();
+        public readonly List<ActiveDepotSample> ActiveDepotSamples = new List<ActiveDepotSample>();
+        public readonly List<int> RemnantDepotNodes = new List<int>();
+        public readonly List<int> CompactRaiseTicks = new List<int>();
+    }
+
+    internal readonly struct ActiveDepotSample
+    {
+        public readonly int Tick;
+        public readonly int SeatId;
+        public readonly int Count;
+
+        public ActiveDepotSample(int tick, int seatId, int count)
+        {
+            Tick = tick;
+            SeatId = seatId;
+            Count = count;
+        }
     }
 
     internal struct NodeCount

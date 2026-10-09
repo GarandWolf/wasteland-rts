@@ -63,6 +63,26 @@ namespace Wasteland.Sim.Ai
         Replaced = 2
     }
 
+    public enum AiDepotBlacklistKind : byte
+    {
+        Transient = 0,
+        Placement = 1
+    }
+
+    /// <summary>
+    /// One skipped depot node for one seat. Saved and hashed as a fixed-size
+    /// array sorted by node, then seat.
+    /// </summary>
+    public struct AiDepotBlacklistEntry
+    {
+        public int NodeId;
+        public int SeatId;
+        public int AddedTick;
+        public AiDepotBlacklistKind Kind;
+        public int TerritoryId;
+        public int OwnerFactionId;
+    }
+
     /// <summary>
     /// Per-faction AI memory. Other sim systems must not read this. Stored in
     /// faction-id order, hashed, and save/loadable.
@@ -101,7 +121,6 @@ namespace Wasteland.Sim.Ai
         public int PickedPostCount;
         public int PendingCount;
         public int IntentCount;
-        public int BlacklistCount;
         public int PendingDropped;
         public int AttackTargetTownId;
         public int DefendTownId;
@@ -118,7 +137,6 @@ namespace Wasteland.Sim.Ai
         public readonly int[] PickedGroupIds;
         public readonly AiPendingCommand[] Pending;
         public readonly AiPendingIntent[] Intents;
-        public readonly int[] BlacklistedNodeIds;
         public SimRandom StrategyRng;
         public SimRandom TacticalRng;
         public SimRandom MistakeRng;
@@ -172,7 +190,6 @@ namespace Wasteland.Sim.Ai
             PickedGroupIds = new int[postCap];
             Pending = new AiPendingCommand[AiConstants.PendingCommandCapacity];
             Intents = new AiPendingIntent[AiConstants.PendingIntentCapacity];
-            BlacklistedNodeIds = new int[AiConstants.DepotNodeBlacklistCapacity];
             StrategyRng = strategyRng;
             TacticalRng = tacticalRng;
             MistakeRng = mistakeRng;
@@ -218,64 +235,6 @@ namespace Wasteland.Sim.Ai
 
             Intents[worst] = intent;
             SortIntents();
-        }
-
-        public bool IsNodeBlacklisted(int nodeId)
-        {
-            return IndexOfBlacklistedNode(nodeId) >= 0;
-        }
-
-        public void BlacklistNode(int nodeId)
-        {
-            if (nodeId == 0 || IsNodeBlacklisted(nodeId))
-            {
-                return;
-            }
-
-            if (BlacklistCount < BlacklistedNodeIds.Length)
-            {
-                BlacklistedNodeIds[BlacklistCount] = nodeId;
-                BlacklistCount++;
-                SortBlacklist();
-                return;
-            }
-
-            for (int i = 0; i < BlacklistCount - 1; i++)
-            {
-                BlacklistedNodeIds[i] = BlacklistedNodeIds[i + 1];
-            }
-
-            BlacklistedNodeIds[BlacklistCount - 1] = nodeId;
-            SortBlacklist();
-        }
-
-        private int IndexOfBlacklistedNode(int nodeId)
-        {
-            for (int i = 0; i < BlacklistCount; i++)
-            {
-                if (BlacklistedNodeIds[i] == nodeId)
-                {
-                    return i;
-                }
-            }
-
-            return -1;
-        }
-
-        private void SortBlacklist()
-        {
-            for (int i = 1; i < BlacklistCount; i++)
-            {
-                int row = BlacklistedNodeIds[i];
-                int j = i;
-                while (j > 0 && BlacklistedNodeIds[j - 1] > row)
-                {
-                    BlacklistedNodeIds[j] = BlacklistedNodeIds[j - 1];
-                    j--;
-                }
-
-                BlacklistedNodeIds[j] = row;
-            }
         }
 
         public bool RemoveIntentAt(int index)
@@ -438,8 +397,10 @@ namespace Wasteland.Sim.Ai
     {
         private readonly AiFactionState[] _factions;
         private readonly int[] _townOwnerIds;
+        private readonly AiDepotBlacklistEntry[] _blacklist;
 
         public int DroppedFromLog;
+        public int BlacklistCount;
 
         public AiOwnedState(AiFactionState[] factions, int townCount)
         {
@@ -464,6 +425,12 @@ namespace Wasteland.Sim.Ai
             }
 
             _townOwnerIds = new int[townCount];
+            _blacklist = new AiDepotBlacklistEntry[AiConstants.DepotNodeBlacklistCapacity];
+        }
+
+        public AiDepotBlacklistEntry[] DepotBlacklist
+        {
+            get { return _blacklist; }
         }
 
         public int FactionCount
@@ -507,6 +474,130 @@ namespace Wasteland.Sim.Ai
         public void EnqueueIntent(int factionId, AiPendingIntent intent)
         {
             GetFaction(factionId).EnqueueIntent(intent);
+        }
+
+        public bool IsDepotNodeBlacklisted(int seatId, int nodeId)
+        {
+            return IndexOfBlacklist(seatId, nodeId) >= 0;
+        }
+
+        public void BlacklistDepotNode(
+            int seatId,
+            int nodeId,
+            int tick,
+            AiDepotBlacklistKind kind,
+            int territoryId,
+            int ownerFactionId)
+        {
+            if (nodeId == 0 || seatId == 0)
+            {
+                return;
+            }
+
+            if (IndexOfBlacklist(seatId, nodeId) >= 0)
+            {
+                return;
+            }
+
+            AiDepotBlacklistEntry entry = default;
+            entry.NodeId = nodeId;
+            entry.SeatId = seatId;
+            entry.AddedTick = tick;
+            entry.Kind = kind;
+            entry.TerritoryId = territoryId;
+            entry.OwnerFactionId = ownerFactionId;
+            if (BlacklistCount < _blacklist.Length)
+            {
+                _blacklist[BlacklistCount] = entry;
+                BlacklistCount++;
+                SortBlacklist();
+                return;
+            }
+
+            int victim = 0;
+            for (int i = 1; i < BlacklistCount; i++)
+            {
+                if (CompareBlacklistAge(_blacklist[i], _blacklist[victim]) < 0)
+                {
+                    victim = i;
+                }
+            }
+
+            _blacklist[victim] = entry;
+            SortBlacklist();
+        }
+
+        public void RemoveBlacklistAt(int index)
+        {
+            if (index < 0 || index >= BlacklistCount)
+            {
+                return;
+            }
+
+            for (int i = index + 1; i < BlacklistCount; i++)
+            {
+                _blacklist[i - 1] = _blacklist[i];
+            }
+
+            BlacklistCount--;
+            _blacklist[BlacklistCount] = default;
+        }
+
+        private int IndexOfBlacklist(int seatId, int nodeId)
+        {
+            for (int i = 0; i < BlacklistCount; i++)
+            {
+                if (_blacklist[i].NodeId == nodeId && _blacklist[i].SeatId == seatId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private void SortBlacklist()
+        {
+            for (int i = 1; i < BlacklistCount; i++)
+            {
+                AiDepotBlacklistEntry row = _blacklist[i];
+                int j = i;
+                while (j > 0 && CompareBlacklistKey(_blacklist[j - 1], row) > 0)
+                {
+                    _blacklist[j] = _blacklist[j - 1];
+                    j--;
+                }
+
+                _blacklist[j] = row;
+            }
+        }
+
+        public static int CompareBlacklistKey(AiDepotBlacklistEntry a, AiDepotBlacklistEntry b)
+        {
+            int c = a.NodeId.CompareTo(b.NodeId);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            return a.SeatId.CompareTo(b.SeatId);
+        }
+
+        public static int CompareBlacklistAge(AiDepotBlacklistEntry a, AiDepotBlacklistEntry b)
+        {
+            int c = a.AddedTick.CompareTo(b.AddedTick);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            c = a.NodeId.CompareTo(b.NodeId);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            return a.SeatId.CompareTo(b.SeatId);
         }
 
         public void HashInto(XxHash64Builder hash)
@@ -610,14 +701,9 @@ namespace Wasteland.Sim.Ai
                     hash.AddInt(intent.TargetId);
                     hash.AddInt(intent.IssuedTick);
                 }
-
-                hash.AddInt(faction.BlacklistCount);
-                for (int b = 0; b < faction.BlacklistCount; b++)
-                {
-                    hash.AddInt(faction.BlacklistedNodeIds[b]);
-                }
             }
 
+            HashBlacklist(hash);
             hash.AddInt(_townOwnerIds.Length);
             for (int i = 0; i < _townOwnerIds.Length; i++)
             {
@@ -729,14 +815,9 @@ namespace Wasteland.Sim.Ai
                     writer.Write(intent.TargetId);
                     writer.Write(intent.IssuedTick);
                 }
-
-                writer.Write(faction.BlacklistCount);
-                for (int b = 0; b < faction.BlacklistCount; b++)
-                {
-                    writer.Write(faction.BlacklistedNodeIds[b]);
-                }
             }
 
+            WriteBlacklist(writer);
             writer.Write(_townOwnerIds.Length);
             for (int i = 0; i < _townOwnerIds.Length; i++)
             {
@@ -789,6 +870,10 @@ namespace Wasteland.Sim.Ai
                 loaded[i] = ReadLoadedFaction(reader, _factions[i]);
             }
 
+            AiDepotBlacklistEntry[] loadedBlacklist;
+            int loadedBlacklistCount;
+            ReadBlacklist(reader, out loadedBlacklist, out loadedBlacklistCount);
+
             int towns = reader.ReadInt32();
             if (towns != _townOwnerIds.Length)
             {
@@ -813,6 +898,12 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < count; i++)
             {
                 CommitLoadedFaction(_factions[i], loaded[i]);
+            }
+
+            BlacklistCount = loadedBlacklistCount;
+            for (int b = 0; b < _blacklist.Length; b++)
+            {
+                _blacklist[b] = loadedBlacklist[b];
             }
 
             DroppedFromLog = droppedFromLog;
@@ -994,24 +1085,6 @@ namespace Wasteland.Sim.Ai
                 loaded.Intents[n] = intent;
             }
 
-            loaded.BlacklistCount = reader.ReadInt32();
-            if (loaded.BlacklistCount < 0 || loaded.BlacklistCount > current.BlacklistedNodeIds.Length)
-            {
-                throw new InvalidDataException("AI collection count exceeds slot capacity.");
-            }
-
-            loaded.BlacklistedNodeIds = new int[loaded.BlacklistCount];
-            for (int b = 0; b < loaded.BlacklistCount; b++)
-            {
-                int nodeId = reader.ReadInt32();
-                if (nodeId == 0)
-                {
-                    throw new InvalidDataException("AI blacklisted node id is zero.");
-                }
-
-                loaded.BlacklistedNodeIds[b] = nodeId;
-            }
-
             return loaded;
         }
 
@@ -1033,7 +1106,6 @@ namespace Wasteland.Sim.Ai
             faction.PickedPostCount = loaded.PickedPostCount;
             faction.PendingCount = loaded.PendingCount;
             faction.IntentCount = loaded.IntentCount;
-            faction.BlacklistCount = loaded.BlacklistCount;
             faction.PendingDropped = loaded.PendingDropped;
             faction.DepotCapSkips = loaded.DepotCapSkips;
             faction.AttackTargetTownId = loaded.AttackTargetTownId;
@@ -1075,11 +1147,6 @@ namespace Wasteland.Sim.Ai
             for (int n = 0; n < loaded.IntentCount; n++)
             {
                 faction.Intents[n] = loaded.Intents[n];
-            }
-
-            for (int b = 0; b < loaded.BlacklistCount; b++)
-            {
-                faction.BlacklistedNodeIds[b] = loaded.BlacklistedNodeIds[b];
             }
         }
 
@@ -1166,8 +1233,93 @@ namespace Wasteland.Sim.Ai
             public AiPendingCommand[] Pending = Array.Empty<AiPendingCommand>();
             public int IntentCount;
             public AiPendingIntent[] Intents = Array.Empty<AiPendingIntent>();
-            public int BlacklistCount;
-            public int[] BlacklistedNodeIds = Array.Empty<int>();
+        }
+
+        private void HashBlacklist(XxHash64Builder hash)
+        {
+            for (int i = 0; i < _blacklist.Length; i++)
+            {
+                AiDepotBlacklistEntry entry = _blacklist[i];
+                hash.AddInt(entry.NodeId);
+                hash.AddInt(entry.SeatId);
+                hash.AddInt(entry.AddedTick);
+                hash.AddByte((byte)entry.Kind);
+                hash.AddInt(entry.TerritoryId);
+                hash.AddInt(entry.OwnerFactionId);
+            }
+        }
+
+        private void WriteBlacklist(BinaryWriter writer)
+        {
+            for (int i = 0; i < _blacklist.Length; i++)
+            {
+                AiDepotBlacklistEntry entry = _blacklist[i];
+                writer.Write(entry.NodeId);
+                writer.Write(entry.SeatId);
+                writer.Write(entry.AddedTick);
+                writer.Write((byte)entry.Kind);
+                writer.Write(entry.TerritoryId);
+                writer.Write(entry.OwnerFactionId);
+            }
+        }
+
+        private void ReadBlacklist(
+            BinaryReader reader,
+            out AiDepotBlacklistEntry[] loaded,
+            out int count)
+        {
+            loaded = new AiDepotBlacklistEntry[_blacklist.Length];
+            count = 0;
+            for (int i = 0; i < loaded.Length; i++)
+            {
+                AiDepotBlacklistEntry entry = default;
+                entry.NodeId = reader.ReadInt32();
+                entry.SeatId = reader.ReadInt32();
+                entry.AddedTick = reader.ReadInt32();
+                byte kindByte = reader.ReadByte();
+                if (kindByte > (byte)AiDepotBlacklistKind.Placement)
+                {
+                    throw new InvalidDataException("AI depot blacklist kind byte is out of range.");
+                }
+
+                entry.Kind = (AiDepotBlacklistKind)kindByte;
+                entry.TerritoryId = reader.ReadInt32();
+                entry.OwnerFactionId = reader.ReadInt32();
+                loaded[i] = entry;
+                if (entry.NodeId == 0 && entry.SeatId == 0 && entry.AddedTick == 0
+                    && entry.Kind == AiDepotBlacklistKind.Transient
+                    && entry.TerritoryId == 0 && entry.OwnerFactionId == 0)
+                {
+                    continue;
+                }
+
+                if (entry.NodeId == 0 || entry.SeatId == 0)
+                {
+                    throw new InvalidDataException("AI depot blacklist node or seat is zero.");
+                }
+
+                if (entry.AddedTick < 0)
+                {
+                    throw new InvalidDataException("AI depot blacklist tick is negative.");
+                }
+
+                if (!IsKnownFactionId(entry.SeatId))
+                {
+                    throw new InvalidDataException("AI faction id is not in this match.");
+                }
+
+                if (count != i)
+                {
+                    throw new InvalidDataException("AI depot blacklist has a hole before unused slots.");
+                }
+
+                if (count > 0 && CompareBlacklistKey(loaded[count - 1], entry) >= 0)
+                {
+                    throw new InvalidDataException("AI depot blacklist is not sorted by node then seat.");
+                }
+
+                count++;
+            }
         }
 
         private static void RequireInt32(BinaryReader reader, int expected, string name)

@@ -180,6 +180,87 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void DepotBlacklist_EvictsOldestThenNodeThenSeat_AndExpires()
+        {
+            AiOwnedState owned = new AiOwnedState(new[] { TestFaction(4), TestFactionB() }, 1);
+            for (int i = 0; i < AiConstants.DepotNodeBlacklistCapacity; i++)
+            {
+                owned.BlacklistDepotNode(
+                    1,
+                    100 + i,
+                    i,
+                    AiDepotBlacklistKind.Transient,
+                    1,
+                    1);
+            }
+
+            Assert.Equal(AiConstants.DepotNodeBlacklistCapacity, owned.BlacklistCount);
+            owned.BlacklistDepotNode(1, 50, 500, AiDepotBlacklistKind.Transient, 1, 1);
+            Assert.False(owned.IsDepotNodeBlacklisted(1, 100));
+            Assert.True(owned.IsDepotNodeBlacklisted(1, 50));
+            Assert.True(owned.IsDepotNodeBlacklisted(1, 100 + AiConstants.DepotNodeBlacklistCapacity - 1));
+
+            AiOwnedState ties = new AiOwnedState(new[] { TestFaction(4), TestFactionB() }, 1);
+            ties.BlacklistDepotNode(2, 8, 3, AiDepotBlacklistKind.Transient, 1, 1);
+            ties.BlacklistDepotNode(1, 9, 3, AiDepotBlacklistKind.Transient, 1, 1);
+            ties.BlacklistDepotNode(1, 8, 3, AiDepotBlacklistKind.Transient, 1, 1);
+            Assert.Equal(8, ties.DepotBlacklist[0].NodeId);
+            Assert.Equal(1, ties.DepotBlacklist[0].SeatId);
+            Assert.Equal(8, ties.DepotBlacklist[1].NodeId);
+            Assert.Equal(2, ties.DepotBlacklist[1].SeatId);
+            Assert.Equal(9, ties.DepotBlacklist[2].NodeId);
+
+            for (int i = ties.BlacklistCount; i < AiConstants.DepotNodeBlacklistCapacity; i++)
+            {
+                ties.BlacklistDepotNode(
+                    1,
+                    200 + i,
+                    10,
+                    AiDepotBlacklistKind.Transient,
+                    1,
+                    1);
+            }
+
+            ties.BlacklistDepotNode(2, 7, 3, AiDepotBlacklistKind.Transient, 1, 1);
+            Assert.False(ties.IsDepotNodeBlacklisted(1, 8));
+            Assert.True(ties.IsDepotNodeBlacklisted(2, 8));
+            Assert.True(ties.IsDepotNodeBlacklisted(2, 7));
+
+            AiMatchHost host = StartHost();
+            int remnant = AiConstants.DefaultAiFactionA;
+            AiFactionState faction = host.Ai.Owned.GetFaction(remnant);
+            host.Ai.Owned.BlacklistDepotNode(
+                remnant,
+                77,
+                0,
+                AiDepotBlacklistKind.Transient,
+                faction.HomeTerritoryId,
+                remnant);
+            host.Run(AiConstants.BlacklistTransientExpiryTicks + 1);
+            Assert.False(host.Ai.Owned.IsDepotNodeBlacklisted(remnant, 77));
+
+            host.Ai.Owned.BlacklistDepotNode(
+                remnant,
+                88,
+                host.Tick,
+                AiDepotBlacklistKind.Placement,
+                faction.HomeTerritoryId,
+                remnant);
+            host.Run(AiConstants.BlacklistTransientExpiryTicks);
+            Assert.True(host.Ai.Owned.IsDepotNodeBlacklisted(remnant, 88));
+            host.Ai.Owned.BlacklistDepotNode(
+                remnant,
+                89,
+                host.Tick,
+                AiDepotBlacklistKind.Placement,
+                faction.HomeTerritoryId,
+                remnant + 1);
+            host.Run(1);
+            Assert.False(host.Ai.Owned.IsDepotNodeBlacklisted(remnant, 89));
+            host.Shutdown();
+        }
+
+        [Fact]
         public void HashInto_IncludesDroppedFromLog()
         {
             AiMatchHost host = StartHost();
@@ -250,6 +331,30 @@ namespace Wasteland.Sim.Tests
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
                 AiBalanceTablesTests.LoadBalance());
+        }
+
+        private static AiFactionState TestFactionB()
+        {
+            return new AiFactionState(
+                2,
+                "test-b",
+                AiConstants.DifficultyNormal,
+                0,
+                40,
+                4,
+                1,
+                60,
+                8,
+                1,
+                0,
+                4,
+                4,
+                4,
+                AiPosture.Turtle,
+                new SimRandom(5UL),
+                new SimRandom(6UL),
+                new SimRandom(7UL),
+                new SimRandom(8UL));
         }
 
         private static AiFactionState TestFaction(int workUnitsPerTick)
@@ -358,6 +463,7 @@ namespace Wasteland.Sim.Tests
                     SkipFaction(reader);
                 }
 
+                SkipDepotBlacklist(reader);
                 reader.ReadInt32();
                 return (int)reader.BaseStream.Position;
             }
@@ -391,6 +497,19 @@ namespace Wasteland.Sim.Tests
 
                 reader.ReadUInt64();
                 return (int)reader.BaseStream.Position;
+            }
+        }
+
+        private static void SkipDepotBlacklist(BinaryReader reader)
+        {
+            for (int i = 0; i < AiConstants.DepotNodeBlacklistCapacity; i++)
+            {
+                reader.ReadInt32();
+                reader.ReadInt32();
+                reader.ReadInt32();
+                reader.ReadByte();
+                reader.ReadInt32();
+                reader.ReadInt32();
             }
         }
 
@@ -483,12 +602,6 @@ namespace Wasteland.Sim.Tests
                 reader.ReadByte();
                 reader.ReadInt32();
                 reader.ReadInt32();
-                reader.ReadInt32();
-            }
-
-            int blacklistCount = reader.ReadInt32();
-            for (int b = 0; b < blacklistCount; b++)
-            {
                 reader.ReadInt32();
             }
         }

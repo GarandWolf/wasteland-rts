@@ -19,8 +19,15 @@ namespace Wasteland.Sim.Ai
         /// </summary>
         public const int ClaimTownNoProgressTicks = 1200;
 
+        /// <summary>
+        /// NoPath and builder-death blacklist entries drop after this many ticks
+        /// (120 s at 20 Hz). Placement rejects stay until the territory owner changes.
+        /// </summary>
+        public const int BlacklistTransientExpiryTicks = 2400;
+
         public const int DepotRejectSpamTicks = 8000;
         public const int MaxDepotRejectsPerNode = 3;
+        public const int MaxBuildDepotsPerSeat = 5;
         public const int MaxMovesPerBattalion = 50;
         public const int CommandLogCapacity = 4096;
         public const int TickRateHz = SimConfig.TickRateHz;

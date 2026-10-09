@@ -196,6 +196,12 @@ namespace Wasteland.Sim.Ai
 
         /// <summary>Reserved + under-construction + active sites for one faction.</summary>
         int CountSites(int factionId);
+
+        /// <summary>
+        /// Lowest node id among this seat's reserved or under-construction
+        /// sites, or 0 when none are in flight.
+        /// </summary>
+        int InFlightNodeId(int factionId, int tick);
     }
 
     public readonly struct AiBattalionPin

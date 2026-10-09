@@ -34,6 +34,31 @@ namespace Wasteland.Sim.Ai
             return count;
         }
 
+        public int InFlightNodeId(int factionId, int tick)
+        {
+            int best = 0;
+            foreach (KeyValuePair<long, AiDepotReadback> pair in _depots)
+            {
+                if ((int)(pair.Key >> 32) != factionId)
+                {
+                    continue;
+                }
+
+                if (pair.Value.IsActive(tick))
+                {
+                    continue;
+                }
+
+                int nodeId = (int)(uint)pair.Key;
+                if (best == 0 || nodeId < best)
+                {
+                    best = nodeId;
+                }
+            }
+
+            return best;
+        }
+
         private static long Key(int factionId, int nodeId)
         {
             return ((long)factionId << 32) ^ (uint)nodeId;

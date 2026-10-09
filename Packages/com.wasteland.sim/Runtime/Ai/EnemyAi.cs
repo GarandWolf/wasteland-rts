@@ -84,7 +84,7 @@ namespace Wasteland.Sim.Ai
             _aiCommands = new ForwardingAiCommandSink(commands, owned);
             _seatView = _fixtureSeatView;
             _depots = new OwnedDepotView(owned, world);
-            _attackDefend = new AiAttackDefend(_aiCommands, new WorldTownQuery(this), _depots, world);
+            _attackDefend = new AiAttackDefend(_aiCommands, new WorldTownQuery(this), _depots, world, owned);
             BindWorldRoads(world, map.Roads);
             _attackTowns = new AiAttackTownInfo[System.Math.Max(1, map.TownCount)];
             _attackBattalions = new AiBattalionPin[16];
@@ -648,6 +648,7 @@ namespace Wasteland.Sim.Ai
         private void ConsumePendingIntents()
         {
             int tick = _world.Tick;
+            ExpireDepotBlacklist(tick);
             if (tick >= 1)
             {
                 int fromTick = tick - 1;
@@ -665,7 +666,7 @@ namespace Wasteland.Sim.Ai
                     {
                         int issuer = (int)(ev.Key >> 32);
                         int sequence = (int)ev.Key;
-                        BlacklistDepotNodeFromIntent(issuer, sequence);
+                        BlacklistDepotNodeFromIntent(issuer, sequence, ev.RejectReason, ev.Param1);
                         RemoveIntentBySequence(issuer, sequence);
                         continue;
                     }
@@ -674,7 +675,10 @@ namespace Wasteland.Sim.Ai
                     {
                         if (ev.AuxId == (int)CommandKind.BuildDepot)
                         {
-                            BlacklistDepotNode(ev.SubjectId, ev.Param0);
+                            BlacklistDepotNode(
+                                ev.SubjectId,
+                                ev.Param0,
+                                AiDepotBlacklistKind.Transient);
                         }
 
                         RemoveIntentByRefund(ev.SubjectId, ev.AuxId, ev.Param0);
@@ -687,7 +691,74 @@ namespace Wasteland.Sim.Ai
             DropStaleClaimTowns(tick);
         }
 
-        private void BlacklistDepotNodeFromIntent(int factionId, int sequence)
+        private void ExpireDepotBlacklist(int tick)
+        {
+            int write = 0;
+            AiDepotBlacklistEntry[] rows = _owned.DepotBlacklist;
+            for (int i = 0; i < _owned.BlacklistCount; i++)
+            {
+                AiDepotBlacklistEntry entry = rows[i];
+                if (entry.Kind == AiDepotBlacklistKind.Transient)
+                {
+                    if (tick - entry.AddedTick >= AiConstants.BlacklistTransientExpiryTicks)
+                    {
+                        continue;
+                    }
+                }
+                else if (TerritoryOwnerChanged(entry))
+                {
+                    continue;
+                }
+
+                if (write != i)
+                {
+                    rows[write] = entry;
+                }
+
+                write++;
+            }
+
+            for (int i = write; i < _owned.BlacklistCount; i++)
+            {
+                rows[i] = default;
+            }
+
+            _owned.BlacklistCount = write;
+        }
+
+        private bool TerritoryOwnerChanged(AiDepotBlacklistEntry entry)
+        {
+            int owner;
+            if (!TryTerritoryOwner(entry.TerritoryId, out owner))
+            {
+                return false;
+            }
+
+            return owner != entry.OwnerFactionId;
+        }
+
+        private bool TryTerritoryOwner(int territoryId, out int ownerFactionId)
+        {
+            ownerFactionId = 0;
+            if (territoryId == 0 || !_map.TryGetTerritory(territoryId, out AiTerritoryRecord territory))
+            {
+                return false;
+            }
+
+            if (!_world.TryGetTerritory(territory.StableKey, out TerritoryView view))
+            {
+                return false;
+            }
+
+            ownerFactionId = view.OwnerFactionId;
+            return true;
+        }
+
+        private void BlacklistDepotNodeFromIntent(
+            int factionId,
+            int sequence,
+            CommandRejectReason reason,
+            int rejectParam1)
         {
             AiFactionState faction;
             try
@@ -704,25 +775,44 @@ namespace Wasteland.Sim.Ai
                 AiPendingIntent intent = faction.Intents[i];
                 if (intent.Sequence == sequence && intent.Kind == AiIssuedKind.BuildDepot)
                 {
-                    faction.BlacklistNode(intent.TargetId);
+                    AiDepotBlacklistKind kind = reason == CommandRejectReason.NoPath
+                        ? AiDepotBlacklistKind.Transient
+                        : AiDepotBlacklistKind.Placement;
+                    int territoryId = rejectParam1;
+                    if (territoryId == 0)
+                    {
+                        territoryId = _world.GetNodeTerritoryId(intent.TargetId);
+                    }
+
+                    BlacklistDepotNode(factionId, intent.TargetId, kind, territoryId);
                     return;
                 }
             }
         }
 
-        private void BlacklistDepotNode(int factionId, int nodeId)
+        private void BlacklistDepotNode(
+            int factionId,
+            int nodeId,
+            AiDepotBlacklistKind kind)
         {
-            AiFactionState faction;
-            try
-            {
-                faction = _owned.GetFaction(factionId);
-            }
-            catch (InvalidOperationException)
-            {
-                return;
-            }
+            BlacklistDepotNode(factionId, nodeId, kind, _world.GetNodeTerritoryId(nodeId));
+        }
 
-            faction.BlacklistNode(nodeId);
+        private void BlacklistDepotNode(
+            int factionId,
+            int nodeId,
+            AiDepotBlacklistKind kind,
+            int territoryId)
+        {
+            int owner = 0;
+            TryTerritoryOwner(territoryId, out owner);
+            _owned.BlacklistDepotNode(
+                factionId,
+                nodeId,
+                _world.Tick,
+                kind,
+                territoryId,
+                owner);
         }
 
         private void DropStaleClaimTowns(int tick)
@@ -1661,12 +1751,53 @@ namespace Wasteland.Sim.Ai
                 _networkScratch[count++] = faction.HqNodeId;
             }
 
-            for (int i = 0; i < faction.DepotCount && count < _networkScratch.Length; i++)
+            _world.CopyDepots(_depotScratch);
+            for (int i = 0; i < _depotScratch.Count && count < _networkScratch.Length; i++)
             {
-                _networkScratch[count++] = faction.Depots[i].NodeId;
+                DepotView depot = _depotScratch[i];
+                if (depot.OwnerFactionId != faction.FactionId
+                    || depot.State != DepotSiteState.Active
+                    || depot.NodeId == 0)
+                {
+                    continue;
+                }
+
+                bool seen = false;
+                for (int n = 0; n < count; n++)
+                {
+                    if (_networkScratch[n] == depot.NodeId)
+                    {
+                        seen = true;
+                        break;
+                    }
+                }
+
+                if (seen)
+                {
+                    continue;
+                }
+
+                _networkScratch[count++] = depot.NodeId;
             }
 
+            SortNetwork(_networkScratch, count);
             return count;
+        }
+
+        private static void SortNetwork(int[] nodes, int count)
+        {
+            for (int i = 1; i < count; i++)
+            {
+                int row = nodes[i];
+                int j = i;
+                while (j > 0 && nodes[j - 1] > row)
+                {
+                    nodes[j] = nodes[j - 1];
+                    j--;
+                }
+
+                nodes[j] = row;
+            }
         }
 
         private static int ApproxDistCm(int ax, int ay, int bx, int by)

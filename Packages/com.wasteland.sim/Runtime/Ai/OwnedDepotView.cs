@@ -112,6 +112,66 @@ namespace Wasteland.Sim.Ai
             return owned;
         }
 
+        public int InFlightNodeId(int factionId, int tick)
+        {
+            if (_world != null)
+            {
+                _world.CopyDepots(_scratch);
+                int best = 0;
+                for (int i = 0; i < _scratch.Count; i++)
+                {
+                    DepotView depot = _scratch[i];
+                    if (depot.OwnerFactionId != factionId || depot.NodeId == 0)
+                    {
+                        continue;
+                    }
+
+                    if (depot.State == DepotSiteState.Active)
+                    {
+                        continue;
+                    }
+
+                    if (best == 0 || depot.NodeId < best)
+                    {
+                        best = depot.NodeId;
+                    }
+                }
+
+                return best;
+            }
+
+            int fixture = 0;
+            for (int f = 0; f < _owned.FactionCount; f++)
+            {
+                AiFactionState faction = _owned.FactionAt(f);
+                if (faction.FactionId != factionId)
+                {
+                    continue;
+                }
+
+                for (int d = 0; d < faction.DepotCount; d++)
+                {
+                    int nodeId = faction.Depots[d].NodeId;
+                    if (nodeId == 0)
+                    {
+                        continue;
+                    }
+
+                    if (TryGet(factionId, nodeId, out AiDepotReadback readback) && readback.IsActive(tick))
+                    {
+                        continue;
+                    }
+
+                    if (fixture == 0 || nodeId < fixture)
+                    {
+                        fixture = nodeId;
+                    }
+                }
+            }
+
+            return fixture;
+        }
+
         private static void SortDepots(List<DepotView> depots)
         {
             for (int i = 1; i < depots.Count; i++)

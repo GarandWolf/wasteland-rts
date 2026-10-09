@@ -275,6 +275,39 @@ namespace Wasteland.Sim.Tests
                     + " received " + moves[i].Count + " Move commands.");
             }
 
+            List<SeatCount> depots = new List<SeatCount>();
+            for (int i = 0; i < log.Count; i++)
+            {
+                if (log[i].Kind != CommandKind.BuildDepot)
+                {
+                    continue;
+                }
+
+                int issuer = log[i].IssuerId;
+                int row = IndexOfSeat(depots, issuer);
+                if (row < 0)
+                {
+                    SeatCount next = default;
+                    next.SeatId = issuer;
+                    next.Count = 1;
+                    depots.Add(next);
+                }
+                else
+                {
+                    SeatCount have = depots[row];
+                    have.Count++;
+                    depots[row] = have;
+                }
+            }
+
+            for (int i = 0; i < depots.Count; i++)
+            {
+                Assert.True(
+                    depots[i].Count <= AiConstants.MaxBuildDepotsPerSeat,
+                    "seat " + depots[i].SeatId
+                    + " issued " + depots[i].Count + " BuildDepot commands.");
+            }
+
             host.Shutdown();
         }
 
@@ -313,6 +346,19 @@ namespace Wasteland.Sim.Tests
             return -1;
         }
 
+        private static int IndexOfSeat(List<SeatCount> rows, int seatId)
+        {
+            for (int i = 0; i < rows.Count; i++)
+            {
+                if (rows[i].SeatId == seatId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
         private struct RejectCount
         {
             public int IssuerId;
@@ -323,6 +369,12 @@ namespace Wasteland.Sim.Tests
         private struct MoveCount
         {
             public int BattalionId;
+            public int Count;
+        }
+
+        private struct SeatCount
+        {
+            public int SeatId;
             public int Count;
         }
 
