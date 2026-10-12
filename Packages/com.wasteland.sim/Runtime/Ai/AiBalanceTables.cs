@@ -294,6 +294,57 @@ namespace Wasteland.Sim.Ai
             return _bindingFactionIds[index];
         }
 
+        /// <summary>
+        /// Copy these tables with one factionBindings row removed. Personalities,
+        /// rules, catalogs, and the balance key stay. Used so match setup can be
+        /// proven against a missing binding without editing data files.
+        /// </summary>
+        internal AiBalanceTables WithoutFactionBinding(int factionId)
+        {
+            int keep = 0;
+            for (int i = 0; i < _bindingFactionIds.Length; i++)
+            {
+                if (_bindingFactionIds[i] != factionId)
+                {
+                    keep++;
+                }
+            }
+
+            if (keep == _bindingFactionIds.Length)
+            {
+                return this;
+            }
+
+            int[] ids = new int[keep];
+            string[] personalityIds = new string[keep];
+            int write = 0;
+            for (int i = 0; i < _bindingFactionIds.Length; i++)
+            {
+                if (_bindingFactionIds[i] == factionId)
+                {
+                    continue;
+                }
+
+                ids[write] = _bindingFactionIds[i];
+                personalityIds[write] = _bindingPersonalityIds[i];
+                write++;
+            }
+
+            return new AiBalanceTables(
+                _balanceKey,
+                PersonalityJsonHash,
+                DifficultyJsonHash,
+                _workUnitsPerTick,
+                _personalities,
+                _difficulties,
+                ids,
+                personalityIds,
+                _rules,
+                _unitCatalog,
+                _buildingCatalog,
+                _scenarioCatalog);
+        }
+
         public int PersonalityCount
         {
             get { return _personalities.Length; }
