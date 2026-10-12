@@ -20,8 +20,12 @@ namespace Wasteland.Sim.Ai
 
         public static string FormatMappedFrom(string? seatPersonalityId)
         {
-            string from = string.IsNullOrEmpty(seatPersonalityId) ? "null" : seatPersonalityId;
-            return "aiPersonality mappedFrom=" + from + " to=" + ParameterSetId;
+            if (seatPersonalityId == null || seatPersonalityId.Length == 0)
+            {
+                return "aiPersonality mappedFrom=null to=" + ParameterSetId;
+            }
+
+            return "aiPersonality mappedFrom=" + seatPersonalityId + " to=" + ParameterSetId;
         }
 
         public static void RecordMappedFrom(IList<string> diagnostics, string? seatPersonalityId)
