@@ -205,17 +205,24 @@ namespace Wasteland.Sim.Movement
             bool cacheHit = false;
             byte[] terrainHash = terrainFile.TerrainPayloadSha256();
             ulong tableHash = tables.ContentHash();
+            string? hierarchyCacheDirectory = config.HierarchyCacheDirectory;
             Stopwatch hierClock = Stopwatch.StartNew();
-            if (buildHierarchy
-                && !string.IsNullOrEmpty(config.HierarchyCacheDirectory)
-                && HierarchyCache.TryLoad(
-                    config.HierarchyCacheDirectory,
+            GridHierarchy[]? cached = null;
+            bool loadedFromCache = false;
+            if (buildHierarchy && hierarchyCacheDirectory != null && hierarchyCacheDirectory.Length > 0)
+            {
+                loadedFromCache = HierarchyCache.TryLoad(
+                    hierarchyCacheDirectory,
                     terrainHash,
                     tableHash,
                     clusterSize,
                     terrain.Width,
                     terrain.Height,
-                    out GridHierarchy[] cached)
+                    out GridHierarchy[] loaded);
+                cached = loaded;
+            }
+
+            if (loadedFromCache
                 && cached != null
                 && cached.Length == MovementTables.ClassCount)
             {
@@ -270,10 +277,10 @@ namespace Wasteland.Sim.Movement
                     });
                 }
 
-                if (buildHierarchy && !string.IsNullOrEmpty(config.HierarchyCacheDirectory))
+                if (buildHierarchy && hierarchyCacheDirectory != null && hierarchyCacheDirectory.Length > 0)
                 {
                     HierarchyCache.TrySave(
-                        config.HierarchyCacheDirectory,
+                        hierarchyCacheDirectory,
                         terrainHash,
                         tableHash,
                         clusterSize,
