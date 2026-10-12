@@ -23,7 +23,9 @@ namespace Wasteland.Sim.Ai
         BuildingNotBuildable = 4,
         TierLocked = 5,
         PopCapReached = 6,
-        InsufficientManpower = 7
+        InsufficientManpower = 7,
+        InsufficientMaterials = 8,
+        InsufficientFuel = 9
     }
 
     public readonly struct AiIssuedCommand

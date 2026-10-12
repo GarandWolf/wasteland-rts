@@ -1180,31 +1180,6 @@ namespace Wasteland.Sim.Ai
             return executeTick <= tick - 1;
         }
 
-        private bool BattalionArrivedAtMove(int factionId, AiPendingIntent intent)
-        {
-            if (intent.TargetId == 0
-                || !_world.TryGetOwnBattalion(factionId, intent.BattalionId, out SimBattalion battalion))
-            {
-                return false;
-            }
-
-            if (!battalion.HasTarget)
-            {
-                return _world.GetNearestNodeId(battalion.PositionXCm, battalion.PositionYCm)
-                    == intent.TargetId;
-            }
-
-            if (!_map.Roads.TryGetNodeIndex(intent.TargetId, out int nodeIndex))
-            {
-                return false;
-            }
-
-            return AiAttackDefend.IsMarchingTo(
-                battalion,
-                _map.Roads.GetNodeXCm(nodeIndex),
-                _map.Roads.GetNodeYCm(nodeIndex));
-        }
-
         private void ClearResolvedIntents()
         {
             int tick = _world.Tick;
@@ -1217,8 +1192,10 @@ namespace Wasteland.Sim.Ai
                     AiPendingIntent intent = faction.Intents[i];
                     if (intent.Kind == AiIssuedKind.Move)
                     {
-                        if (MoveIntentIsPastExecute(intent, tick)
-                            || BattalionArrivedAtMove(faction.FactionId, intent))
+                        // Reject handling already removed this row when the
+                        // execute tick failed. Arrival before that tick is not
+                        // success: the command can still be rejected.
+                        if (MoveIntentIsPastExecute(intent, tick))
                         {
                             if (intent.TargetId != 0)
                             {

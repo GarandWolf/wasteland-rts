@@ -256,9 +256,23 @@ namespace Wasteland.Sim.Ai
                 }
             }
 
+            if (intent.Kind == AiIssuedKind.Move)
+            {
+                EnqueueMoveIntent(intent);
+                return;
+            }
+
             if (IntentCount < Intents.Length)
             {
                 InsertIntent(intent);
+                return;
+            }
+
+            int oldestMove = IndexOfOldestIntent(AiIssuedKind.Move);
+            if (oldestMove >= 0)
+            {
+                Intents[oldestMove] = intent;
+                SortIntents();
                 return;
             }
 
@@ -278,6 +292,63 @@ namespace Wasteland.Sim.Ai
 
             Intents[worst] = intent;
             SortIntents();
+        }
+
+        /// <summary>
+        /// Moves may use only <see cref="AiConstants.MoveIntentCapacity"/> rows.
+        /// A full Move set replaces the oldest Move. It never evicts ClaimTown
+        /// or BuildDepot, so those orders keep <see cref="AiConstants.ReservedNonMoveIntentSlots"/>.
+        /// </summary>
+        private void EnqueueMoveIntent(AiPendingIntent intent)
+        {
+            int moveCount = CountIntents(AiIssuedKind.Move);
+            if (moveCount < AiConstants.MoveIntentCapacity && IntentCount < Intents.Length)
+            {
+                InsertIntent(intent);
+                return;
+            }
+
+            int oldestMove = IndexOfOldestIntent(AiIssuedKind.Move);
+            if (oldestMove < 0 || CompareIntentAge(intent, Intents[oldestMove]) <= 0)
+            {
+                return;
+            }
+
+            Intents[oldestMove] = intent;
+            SortIntents();
+        }
+
+        private int CountIntents(AiIssuedKind kind)
+        {
+            int count = 0;
+            for (int i = 0; i < IntentCount; i++)
+            {
+                if (Intents[i].Kind == kind)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private int IndexOfOldestIntent(AiIssuedKind kind)
+        {
+            int oldest = -1;
+            for (int i = 0; i < IntentCount; i++)
+            {
+                if (Intents[i].Kind != kind)
+                {
+                    continue;
+                }
+
+                if (oldest < 0 || CompareIntentAge(Intents[i], Intents[oldest]) < 0)
+                {
+                    oldest = i;
+                }
+            }
+
+            return oldest;
         }
 
         public bool RemoveIntentAt(int index)

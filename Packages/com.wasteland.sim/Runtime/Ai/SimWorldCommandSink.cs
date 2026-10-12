@@ -13,8 +13,17 @@ namespace Wasteland.Sim.Ai
     public sealed class SimWorldCommandSink : ISimCommandSink, ISimWorldView, ICaptureOccupancyView
     {
         private readonly SimWorld _world;
+        private readonly Dictionary<ulong, RejectHit> _rejectsByKey = new Dictionary<ulong, RejectHit>();
         private RoadGraph? _roads;
         private int _lastSequence;
+        private int _indexedEventCount;
+
+        private struct RejectHit
+        {
+            public CommandRejectReason Code;
+            public int Param0;
+            public int Param1;
+        }
 
         public SimWorldCommandSink(SimWorld world)
         {
@@ -78,25 +87,62 @@ namespace Wasteland.Sim.Ai
             return _world.TryGetRejection(subjectId, out code, out param0, out param1);
         }
 
+        /// <summary>
+        /// Events examined by the most recent <see cref="TryGetRejectionByKey"/> call.
+        /// Zero when the key index is already current.
+        /// </summary>
+        internal int LastRejectionScanCount { get; private set; }
+
         public bool TryGetRejectionByKey(ulong key, out CommandRejectReason code, out int param0, out int param1)
         {
-            IReadOnlyList<SimEvent> events = _world.Events;
-            for (int i = events.Count - 1; i >= 0; i--)
+            IndexNewRejections();
+            RejectHit hit;
+            if (_rejectsByKey.TryGetValue(key, out hit))
             {
-                SimEvent ev = events[i];
-                if (ev.Kind == SimEventKind.CommandRejected && ev.Key == key)
-                {
-                    code = ev.RejectReason;
-                    param0 = ev.Param0;
-                    param1 = ev.Param1;
-                    return true;
-                }
+                code = hit.Code;
+                param0 = hit.Param0;
+                param1 = hit.Param1;
+                return true;
             }
 
             code = CommandRejectReason.None;
             param0 = 0;
             param1 = 0;
             return false;
+        }
+
+        /// <summary>
+        /// Walk only events appended since the previous call and store the latest
+        /// <see cref="SimEventKind.CommandRejected"/> per key. Later events win,
+        /// matching a reverse scan of the full list.
+        /// </summary>
+        private void IndexNewRejections()
+        {
+            IReadOnlyList<SimEvent> events = _world.Events;
+            if (_indexedEventCount > events.Count)
+            {
+                _indexedEventCount = 0;
+                _rejectsByKey.Clear();
+            }
+
+            int start = _indexedEventCount;
+            for (int i = start; i < events.Count; i++)
+            {
+                SimEvent ev = events[i];
+                if (ev.Kind != SimEventKind.CommandRejected)
+                {
+                    continue;
+                }
+
+                RejectHit hit;
+                hit.Code = ev.RejectReason;
+                hit.Param0 = ev.Param0;
+                hit.Param1 = ev.Param1;
+                _rejectsByKey[ev.Key] = hit;
+            }
+
+            LastRejectionScanCount = events.Count - start;
+            _indexedEventCount = events.Count;
         }
 
         public bool HasBattalionRaiseStarted(int battalionId)

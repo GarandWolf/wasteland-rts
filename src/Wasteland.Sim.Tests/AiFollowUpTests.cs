@@ -996,12 +996,25 @@ namespace Wasteland.Sim.Tests
 
             AiFactionState faction = owned.GetFaction(seatId);
             int sequence = 1;
-            while (faction.IntentCount < faction.Intents.Length)
+            while (CountIntents(faction, AiIssuedKind.Move) < AiConstants.MoveIntentCapacity)
             {
                 owned.EnqueueIntent(seatId, new AiPendingIntent
                 {
                     Sequence = sequence,
                     Kind = AiIssuedKind.Move,
+                    BattalionId = battalionId,
+                    TargetId = sequence,
+                    IssuedTick = tick
+                });
+                sequence++;
+            }
+
+            while (faction.IntentCount < faction.Intents.Length)
+            {
+                owned.EnqueueIntent(seatId, new AiPendingIntent
+                {
+                    Sequence = sequence,
+                    Kind = AiIssuedKind.ClaimTown,
                     BattalionId = battalionId,
                     TargetId = sequence,
                     IssuedTick = tick
@@ -1015,6 +1028,20 @@ namespace Wasteland.Sim.Tests
                 owned.NoteAcceptedClaimTown(seatId, town);
                 town++;
             }
+        }
+
+        private static int CountIntents(AiFactionState faction, AiIssuedKind kind)
+        {
+            int count = 0;
+            for (int i = 0; i < faction.IntentCount; i++)
+            {
+                if (faction.Intents[i].Kind == kind)
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         private static int IntentTarget(AiFactionState faction, int sequence)

@@ -65,8 +65,6 @@ namespace Wasteland.Sim.Ai
 
         private const string MvpScenarioId = "columbia_gorge_100mi_mvp";
         private const string MvpMapFileId = "golden_ci_columbia_gorge_100_v1_marsh";
-        private const string RemnantFactionKey = "remnant_command";
-        private const string CompactFactionKey = "homestead_compact";
 
         private AiMatchHost(SimWorld world, EnemyAi ai, LoggingCommandSink sink, int[] factionIds)
         {
@@ -143,7 +141,7 @@ namespace Wasteland.Sim.Ai
             LoggingCommandSink sink = new LoggingCommandSink(world);
             IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
-            BindMvpSeats(world, ai, copy, balance.ScenarioCatalog);
+            BindMvpSeats(world, ai, balance);
             BindMvpRoads(world);
             return new AiMatchHost(world, ai, sink, copy);
         }
@@ -189,7 +187,7 @@ namespace Wasteland.Sim.Ai
             LoggingCommandSink sink = new LoggingCommandSink(world);
             IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
-            BindMvpSeats(world, ai, copy, balance.ScenarioCatalog);
+            BindMvpSeats(world, ai, balance);
             BindMvpRoads(world);
             ForwardingAiCommandSink? forwarding = ai.AiCommands as ForwardingAiCommandSink;
             if (forwarding != null)
@@ -223,16 +221,20 @@ namespace Wasteland.Sim.Ai
 
         /// <summary>
         /// Spawn the MVP scenario's authored opening force onto the host factions.
-        /// Faction 1 is Remnant (scenario slot 0). Faction 2 is Compact (slot 1).
-        /// HQ is the seat town the map already assigned to that faction, not the origin.
+        /// Seat ids come from balance faction bindings, matched to scenario seats
+        /// by the personality economy faction. HQ is the seat town the map already
+        /// assigned to that faction, not the origin.
         /// </summary>
-        private static void BindMvpSeats(SimWorld world, EnemyAi ai, int[] factionIds, BalanceCatalog? catalog)
+        private static void BindMvpSeats(SimWorld world, EnemyAi ai, AiBalanceTables balance)
         {
-            string balanceDir = FindBalanceDirectory();
-            if (catalog == null)
+            if (balance == null)
             {
-                catalog = BalanceCatalog.LoadFromDirectory(balanceDir);
+                throw new ArgumentNullException(nameof(balance));
             }
+
+            string balanceDir = FindBalanceDirectory();
+            BalanceCatalog catalog = balance.ScenarioCatalog ?? BalanceCatalog.LoadFromDirectory(balanceDir);
+
             string mapPath = MvpMapPath(balanceDir);
             string mapName = Path.GetFileName(mapPath);
             byte[] mapBytes = File.ReadAllBytes(mapPath);
@@ -244,21 +246,38 @@ namespace Wasteland.Sim.Ai
                 mapName,
                 MvpScenarioId);
             world.BindCatalog(catalog);
-            int[] worldFactions = new int[scenario.SeatCount];
-            for (int i = 0; i < worldFactions.Length; i++)
+            int[] resolvedIds = new int[balance.BindingCount];
+            ScenarioSeat[] resolvedSeats = new ScenarioSeat[balance.BindingCount];
+            int resolvedCount = 0;
+            for (int i = 0; i < balance.BindingCount; i++)
             {
-                worldFactions[i] = i + 1;
-            }
-
-            ai.Owned.BindMatchSeatIds(worldFactions);
-            for (int i = 0; i < worldFactions.Length; i++)
-            {
-                int factionId = worldFactions[i];
-                if (!TryMvpSeat(scenario, factionId, out ScenarioSeat scenarioSeat))
+                int factionId = balance.BindingFactionIdAt(i);
+                if (!TryScenarioSeatForFaction(balance, scenario, factionId, out ScenarioSeat scenarioSeat))
                 {
                     continue;
                 }
 
+                resolvedIds[resolvedCount] = factionId;
+                resolvedSeats[resolvedCount] = scenarioSeat;
+                resolvedCount++;
+            }
+
+            if (resolvedCount < 1)
+            {
+                throw new InvalidOperationException("No scenario seat matched a bound faction.");
+            }
+
+            int[] worldFactions = new int[resolvedCount];
+            for (int i = 0; i < resolvedCount; i++)
+            {
+                worldFactions[i] = resolvedIds[i];
+            }
+
+            ai.Owned.BindMatchSeatIds(worldFactions);
+            for (int i = 0; i < resolvedCount; i++)
+            {
+                int factionId = worldFactions[i];
+                ScenarioSeat scenarioSeat = resolvedSeats[i];
                 int homeTownId = scenarioSeat.HomeTownId;
                 AiFactionState aiFaction;
                 if (ai.Owned.TryGetFaction(factionId, out aiFaction))
@@ -346,31 +365,43 @@ namespace Wasteland.Sim.Ai
             return mapFileName.Substring(0, dot) + ".terrain" + mapFileName.Substring(dot);
         }
 
-        private static bool TryMvpSeat(SimScenario scenario, int factionId, out ScenarioSeat seat)
+        /// <summary>
+        /// Match a bound faction id to the scenario seat whose faction key equals
+        /// that personality's economy faction. Ids are not assumed to be 1..N.
+        /// </summary>
+        internal static bool TryScenarioSeatForFaction(
+            AiBalanceTables balance,
+            SimScenario scenario,
+            int factionId,
+            out ScenarioSeat seat)
         {
-            if (factionId == AiConstants.DefaultAiFactionA)
-            {
-                seat = scenario.SeatAt(0);
-                if (seat.Faction != RemnantFactionKey)
-                {
-                    throw new InvalidOperationException("MVP seat 0 is not " + RemnantFactionKey + ".");
-                }
-
-                return true;
-            }
-
-            if (factionId == AiConstants.DefaultAiFactionB)
-            {
-                seat = scenario.SeatAt(1);
-                if (seat.Faction != CompactFactionKey)
-                {
-                    throw new InvalidOperationException("MVP seat 1 is not " + CompactFactionKey + ".");
-                }
-
-                return true;
-            }
-
             seat = default;
+            if (balance == null || scenario == null || factionId == 0)
+            {
+                return false;
+            }
+
+            if (!balance.TryGetBoundPersonalityId(factionId, out string personalityId))
+            {
+                return false;
+            }
+
+            AiPersonalityProfile personality = balance.GetPersonality(personalityId);
+            if (string.IsNullOrEmpty(personality.EconomyFactionId))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < scenario.SeatCount; i++)
+            {
+                ScenarioSeat candidate = scenario.SeatAt(i);
+                if (candidate.Faction == personality.EconomyFactionId)
+                {
+                    seat = candidate;
+                    return true;
+                }
+            }
+
             return false;
         }
 
