@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.Events;
+using Wasteland.Sim.Movement;
 using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
@@ -127,6 +128,21 @@ namespace Wasteland.Sim.Ai
             _inner.CopyEventsInRange(fromTick, toTick, into);
         }
 
+        public void BindRoads(RoadGraph roads)
+        {
+            _inner.BindRoads(roads);
+        }
+
+        public int GetNodeTerritoryId(int nodeId)
+        {
+            return _inner.GetNodeTerritoryId(nodeId);
+        }
+
+        public int GetNearestNodeId(int xCm, int yCm)
+        {
+            return _inner.GetNearestNodeId(xCm, yCm);
+        }
+
         public CommandRejectReason PreviewDepotPlacement(int factionId, int nodeId, out int param0, out int param1)
         {
             return _inner.PreviewDepotPlacement(factionId, nodeId, out param0, out param1);
@@ -151,9 +167,19 @@ namespace Wasteland.Sim.Ai
             return _inner.TryGetRejection(subjectId, out code, out param0, out param1);
         }
 
+        public bool TryGetRejectionByKey(ulong key, out CommandRejectReason code, out int param0, out int param1)
+        {
+            return _inner.TryGetRejectionByKey(key, out code, out param0, out param1);
+        }
+
         public bool TryGetSeat(int factionId, out SeatView view)
         {
             return _inner.TryGetSeat(factionId, out view);
+        }
+
+        public int FuelOf(int factionId)
+        {
+            return _inner.FuelOf(factionId);
         }
 
         public bool TryGetBattalionView(int battalionId, out BattalionView view)

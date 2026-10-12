@@ -406,7 +406,7 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void AiCommandSink_AcceptsBuildWithoutForwardingToSimWorld()
+        public void AiCommandSink_ForwardsBuildAndBuildDepotToSimWorld()
         {
             SimWorld world = new SimWorld(MatchConfig.Default(1UL));
             SimWorldCommandSink sink = new SimWorldCommandSink(world);
@@ -414,8 +414,18 @@ namespace Wasteland.Sim.Tests
             world.Step();
             world.Step();
             world.Step();
-            Assert.Empty(world.Events);
-            Assert.Equal(0, world.BattalionCount);
+            Assert.Single(world.Events);
+            Assert.Equal(SimEventKind.CommandRejected, world.Events[0].Kind);
+            Assert.Equal(CommandRejectReason.UnknownKind, world.Events[0].RejectReason);
+
+            SimWorld depotWorld = new SimWorld(MatchConfig.Default(2UL));
+            SimWorldCommandSink depotSink = new SimWorldCommandSink(depotWorld);
+            depotSink.Submit(SimCommand.BuildDepot(0, 1, 11, 1));
+            depotWorld.Step();
+            depotWorld.Step();
+            depotWorld.Step();
+            Assert.True(depotWorld.Events.Count >= 1);
+            Assert.Equal(SimEventKind.CommandRejected, depotWorld.Events[0].Kind);
         }
 
         [Fact]
@@ -641,7 +651,37 @@ namespace Wasteland.Sim.Tests
             byte[] schema8 = { 8, 0, 0, 0 };
             InvalidDataException ex = Assert.Throws<InvalidDataException>(() => host.Ai.Load(schema8));
             Assert.Equal(
-                "AI state schema version 8 is unsupported; expected 9.",
+                "AI state schema version 8 is unsupported; expected 11.",
+                ex.Message);
+            Assert.Equal(sentinel + 1, host.Ai.Owned.FactionAt(0).Manpower);
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void AiSaveLoad_RejectsSchema9_WithVersionMismatch()
+        {
+            AiMatchHost host = StartHost();
+            int sentinel = host.Ai.Owned.FactionAt(0).Manpower;
+            host.Ai.Owned.FactionAt(0).Manpower = sentinel + 1;
+            byte[] schema9 = { 9, 0, 0, 0 };
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => host.Ai.Load(schema9));
+            Assert.Equal(
+                "AI state schema version 9 is unsupported; expected 11.",
+                ex.Message);
+            Assert.Equal(sentinel + 1, host.Ai.Owned.FactionAt(0).Manpower);
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void AiSaveLoad_RejectsSchema10_WithVersionMismatch()
+        {
+            AiMatchHost host = StartHost();
+            int sentinel = host.Ai.Owned.FactionAt(0).Manpower;
+            host.Ai.Owned.FactionAt(0).Manpower = sentinel + 1;
+            byte[] schema10 = { 10, 0, 0, 0 };
+            InvalidDataException ex = Assert.Throws<InvalidDataException>(() => host.Ai.Load(schema10));
+            Assert.Equal(
+                "AI state schema version 10 is unsupported; expected 11.",
                 ex.Message);
             Assert.Equal(sentinel + 1, host.Ai.Owned.FactionAt(0).Manpower);
             host.Shutdown();
@@ -671,9 +711,9 @@ namespace Wasteland.Sim.Tests
                 AiPendingCommand fill = default;
                 fill.ReadyTick = 1000;
                 fill.BattalionId = 50 + i;
-                fill.Kind = CommandKind.Build;
-                fill.Arg0 = 11;
-                fill.Arg1 = 22;
+                fill.Kind = CommandKind.BuildDepot;
+                fill.Arg0 = 4;
+                fill.Arg1 = 0;
                 Assert.True(faction.EnqueuePending(fill));
             }
 
@@ -683,7 +723,7 @@ namespace Wasteland.Sim.Tests
             incoming.Kind = CommandKind.SpawnBattalion;
             PendingEnqueueResult result = faction.EnqueuePending(incoming, out AiPendingCommand evicted);
             Assert.Equal(PendingEnqueueResult.Replaced, result);
-            Assert.Equal(CommandKind.Build, evicted.Kind);
+            Assert.Equal(CommandKind.BuildDepot, evicted.Kind);
             host.Ai.DropAssociated(faction, evicted);
             Assert.Equal(0, faction.DepotCount);
             Assert.Equal(1, faction.OrderCount);

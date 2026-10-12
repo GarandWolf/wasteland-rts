@@ -180,6 +180,47 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void PickAttackTarget_SkipsOwnedNonSeatWhenSeatZonesPresent()
+        {
+            Harness harness = Harness.Line();
+            AiAttackTownInfo[] towns =
+            {
+                new AiAttackTownInfo(10, 1, 1, 0, 0, true, 1UL, 1000),
+                new AiAttackTownInfo(20, 2, 2, 1000, 0, false, 2UL, 0),
+                new AiAttackTownInfo(30, 3, 3, 2000, 0, true, 3UL, 1000)
+            };
+            harness.Towns[10] = Own(1);
+            harness.Towns[20] = Enemy(2, 1);
+            harness.Towns[30] = Enemy(2, 1);
+            int withoutPrize = harness.Planner.PickAttackTarget(
+                harness.Faction,
+                towns,
+                towns.Length,
+                harness.Roads,
+                1,
+                harness.Network,
+                1,
+                100000,
+                0UL,
+                0);
+            Assert.Equal(30, withoutPrize);
+
+            harness.Towns[30] = Unowned();
+            int withPrize = harness.Planner.PickAttackTarget(
+                harness.Faction,
+                towns,
+                towns.Length,
+                harness.Roads,
+                1,
+                harness.Network,
+                1,
+                100000,
+                3UL,
+                300);
+            Assert.Equal(30, withPrize);
+        }
+
+        [Fact]
         public void Attack_IssuesMoveAndClaimWhenRatioMetAndInSupply()
         {
             Harness harness = Harness.Line();
@@ -191,6 +232,25 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(AiIssuedKind.ClaimTown, harness.Sink.Log[1].Kind);
             Assert.Equal(30, harness.Sink.Log[1].Arg1);
             Assert.Equal(30, harness.Faction.AttackTargetTownId);
+        }
+
+        [Fact]
+        public void Attack_DoesNotClaimTownWithEngineer()
+        {
+            Harness harness = Harness.Line();
+            harness.Towns[10] = Own(1);
+            harness.Towns[30] = Enemy(2, 1);
+            harness.SetBattalions(Engineer(7, 1));
+            harness.Tick();
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                Assert.NotEqual(AiIssuedKind.ClaimTown, harness.Sink.Log[i].Kind);
+                if (harness.Sink.Log[i].Kind == AiIssuedKind.Move
+                    || harness.Sink.Log[i].Kind == AiIssuedKind.ClaimTown)
+                {
+                    Assert.NotEqual(7, harness.Sink.Log[i].Arg0);
+                }
+            }
         }
 
         [Fact]
@@ -352,6 +412,30 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void ForwardDepot_SkipsWhenCopyDepotsCountReachesCap()
+        {
+            Harness harness = Harness.Line();
+            harness.SupplyReachCm = 1500;
+            harness.Towns[10] = Own(1);
+            harness.Towns[30] = Enemy(2, 1);
+            harness.SetBattalions(Idle(5, 1), Engineer(7, 1));
+            int cap = harness.Faction.Depots.Length;
+            Assert.True(cap >= 1);
+            for (int i = 0; i < cap; i++)
+            {
+                harness.Sink.RecordSite(harness.Faction.FactionId, 100 + i, 0, 1);
+            }
+
+            Assert.Equal(cap, harness.Sink.CountSites(harness.Faction.FactionId));
+            harness.Tick();
+            Assert.Equal(1, harness.Faction.DepotCapSkips);
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                Assert.NotEqual(AiIssuedKind.BuildDepot, harness.Sink.Log[i].Kind);
+            }
+        }
+
+        [Fact]
         public void SaveLoadContinue_ForwardDepot_RestoresDepotTicksAndReplaysCommands()
         {
             Harness live = Harness.Line();
@@ -393,6 +477,7 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(siteTick, restored.Faction.DepotSiteTick);
             Assert.Equal(activeTick, restored.Faction.DepotActiveTick);
             Assert.Equal(hashAtSave, HashOf(restored.Faction));
+            restored.Sink.NextIssuedId = restored.Faction.LastIssuedCommandId + 1;
             restored.Sink.RecordSite(restored.Faction.FactionId, depotNode, siteTick, activeTick);
 
             live.Tick(6);

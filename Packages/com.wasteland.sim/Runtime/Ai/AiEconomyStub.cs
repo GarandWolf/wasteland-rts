@@ -1,4 +1,5 @@
 using System;
+using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
 {
@@ -15,17 +16,29 @@ namespace Wasteland.Sim.Ai
         private readonly AiOwnedState _owned;
         private readonly AiBalanceTables _balance;
         private readonly ICaptureOccupancyView _occupancy;
+        private readonly ISimWorldView? _world;
 
         public AiEconomyStub(
             AiMapSnapshot map,
             AiOwnedState owned,
             AiBalanceTables balance,
             ICaptureOccupancyView occupancy)
+            : this(map, owned, balance, occupancy, null)
+        {
+        }
+
+        public AiEconomyStub(
+            AiMapSnapshot map,
+            AiOwnedState owned,
+            AiBalanceTables balance,
+            ICaptureOccupancyView occupancy,
+            ISimWorldView? world)
         {
             _map = map;
             _owned = owned;
             _balance = balance ?? throw new ArgumentNullException(nameof(balance));
             _occupancy = occupancy ?? throw new ArgumentNullException(nameof(occupancy));
+            _world = world;
         }
 
         public int IncomePerMinute(int factionId)
@@ -41,17 +54,9 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                if (!contestedPays)
+                if (!contestedPays && HoldingIsContested(i))
                 {
-                    AiTownRecord town = _map.TownAt(i);
-                    CaptureZoneOccupancyResult zone = _occupancy.OccupancyOf(
-                        town.XCm,
-                        town.YCm,
-                        _balance.CaptureRadiusCmForClass(town.PopulationClass));
-                    if (zone.Kind == CaptureOccupancyKind.Contested)
-                    {
-                        continue;
-                    }
+                    continue;
                 }
 
                 baseIncome += _balance.IncomePerMinForClass(_map.TownAt(i).PopulationClass);
@@ -82,6 +87,21 @@ namespace Wasteland.Sim.Ai
                     faction.ManpowerCarry -= gained * perMinute;
                 }
             }
+        }
+
+        private bool HoldingIsContested(int townIndex)
+        {
+            AiTownRecord town = _map.TownAt(townIndex);
+            if (_world != null && _world.TryGetTown(town.Id, out TownView view))
+            {
+                return view.Contested;
+            }
+
+            CaptureZoneOccupancyResult zone = _occupancy.OccupancyOf(
+                town.XCm,
+                town.YCm,
+                _balance.CaptureRadiusCmForClass(town.PopulationClass));
+            return zone.Kind == CaptureOccupancyKind.Contested;
         }
 
         private static int ApplyPpt(int value, int ppt)

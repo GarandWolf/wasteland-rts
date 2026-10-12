@@ -51,6 +51,17 @@ namespace Wasteland.Sim.Ai
             get { return _lastSequence; }
         }
 
+        /// <summary>
+        /// Next id assigned to a non-raise issued command. Saved so
+        /// <see cref="AiFactionState.LastIssuedCommandId"/> does not collide
+        /// with a live battalion id after load.
+        /// </summary>
+        internal int NextIssuedId
+        {
+            get { return _nextId; }
+            set { _nextId = value < 1 ? 1 : value; }
+        }
+
         public int SubmitClaimTown(int factionId, int battalionId, int townId)
         {
             SimCommand stamped = _inner.Submit(SimCommand.ClaimTown(_inner.Tick, factionId, battalionId, townId));
@@ -75,15 +86,33 @@ namespace Wasteland.Sim.Ai
 
         public AiCommandReject RejectOf(int commandId)
         {
+            for (int i = 0; i < _issued.Count; i++)
+            {
+                if (_issued[i].Id == commandId)
+                {
+                    return RejectOfSequence(_issued[i].FactionId, _issued[i].Sequence);
+                }
+            }
+
+            return AiCommandReject.None;
+        }
+
+        public AiCommandReject RejectOfSequence(int issuerId, int sequence)
+        {
             CommandRejectReason code;
             int param0;
             int param1;
-            if (_inner.TryGetRejection(commandId, out code, out param0, out param1))
+            if (_inner.TryGetRejectionByKey(RejectKey(issuerId, sequence), out code, out param0, out param1))
             {
                 return MapReject(code);
             }
 
             return AiCommandReject.None;
+        }
+
+        private static ulong RejectKey(int issuerId, int sequence)
+        {
+            return ((ulong)(uint)issuerId << 32) | (uint)sequence;
         }
 
         internal static AiCommandReject MapReject(CommandRejectReason code)
@@ -156,7 +185,8 @@ namespace Wasteland.Sim.Ai
                     command.Arg1,
                     command.Arg2,
                     0,
-                    unitId));
+                    unitId,
+                    command.Sequence));
             }
         }
 
@@ -176,8 +206,38 @@ namespace Wasteland.Sim.Ai
                 _nextId++;
             }
 
-            _issued.Add(new AiIssuedCommand(id, _inner.Tick, factionId, kind, arg0, arg1, arg2, arg3, unitId));
+            _issued.Add(new AiIssuedCommand(id, _inner.Tick, factionId, kind, arg0, arg1, arg2, arg3, unitId, _lastSequence));
+            if (kind == AiIssuedKind.ClaimTown || kind == AiIssuedKind.BuildDepot || kind == AiIssuedKind.Move)
+            {
+                AiPendingIntent intent = default;
+                intent.Sequence = _lastSequence;
+                intent.Kind = kind;
+                intent.BattalionId = arg0;
+                intent.TargetId = TargetIdOf(kind, arg1, arg2);
+                intent.IssuedTick = _inner.Tick;
+                _owned.EnqueueIntent(factionId, intent);
+            }
+
             return id;
+        }
+
+        private int TargetIdOf(AiIssuedKind kind, int arg1, int arg2)
+        {
+            if (kind != AiIssuedKind.Move)
+            {
+                return arg1;
+            }
+
+            if (_inner is ISimWorldView view)
+            {
+                int nodeId = view.GetNearestNodeId(arg1, arg2);
+                if (nodeId != 0)
+                {
+                    return nodeId;
+                }
+            }
+
+            return arg1;
         }
     }
 }

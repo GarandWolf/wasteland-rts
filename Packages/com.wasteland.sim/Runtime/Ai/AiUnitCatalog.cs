@@ -164,6 +164,18 @@ namespace Wasteland.Sim.Ai
             return false;
         }
 
+        public bool TryGetCanCapture(string unitId, out bool canCapture)
+        {
+            if (!TryGetRole(unitId, out string role))
+            {
+                canCapture = false;
+                return false;
+            }
+
+            canCapture = role != AiConstants.RoleEngineer && role != "supply";
+            return true;
+        }
+
         /// <summary>
         /// Mix keys only on line / AT / garrison / engineer. Extra data-pack
         /// roles are accepted so the shared <c>units.json</c> document loads;

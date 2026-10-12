@@ -12,6 +12,7 @@ namespace Wasteland.Sim.Ai
         private readonly Dictionary<int, AiCommandReject> _rejects = new Dictionary<int, AiCommandReject>();
         private readonly Dictionary<long, AiDepotReadback> _depots = new Dictionary<long, AiDepotReadback>();
         private int _nextId = 1;
+        private int _lastSequence;
         private AiCommandReject _nextReject = AiCommandReject.None;
         private int _tick;
         private int _depotActiveDelayTicks = 1;
@@ -32,6 +33,17 @@ namespace Wasteland.Sim.Ai
         public IReadOnlyList<AiIssuedCommand> IssuedCommands
         {
             get { return _log; }
+        }
+
+        public int LastSequence
+        {
+            get { return _lastSequence; }
+        }
+
+        internal int NextIssuedId
+        {
+            get { return _nextId; }
+            set { _nextId = value < 1 ? 1 : value; }
         }
 
         public int DepotActiveDelayTicks
@@ -88,6 +100,11 @@ namespace Wasteland.Sim.Ai
             return AiCommandReject.None;
         }
 
+        public AiCommandReject RejectOfSequence(int issuerId, int sequence)
+        {
+            return RejectOf(sequence);
+        }
+
         public bool RaiseHasStarted(int commandId)
         {
             return false;
@@ -103,6 +120,45 @@ namespace Wasteland.Sim.Ai
             _depots[DepotKey(factionId, nodeId)] = new AiDepotReadback(siteTick, activeTick);
         }
 
+        public int CountSites(int factionId)
+        {
+            int count = 0;
+            foreach (KeyValuePair<long, AiDepotReadback> pair in _depots)
+            {
+                if ((int)(pair.Key >> 32) == factionId)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        public int InFlightNodeId(int factionId, int tick)
+        {
+            int best = 0;
+            foreach (KeyValuePair<long, AiDepotReadback> pair in _depots)
+            {
+                if ((int)(pair.Key >> 32) != factionId)
+                {
+                    continue;
+                }
+
+                if (pair.Value.IsActive(tick))
+                {
+                    continue;
+                }
+
+                int nodeId = (int)(uint)pair.Key;
+                if (best == 0 || nodeId < best)
+                {
+                    best = nodeId;
+                }
+            }
+
+            return best;
+        }
+
         private int Record(
             int factionId,
             AiIssuedKind kind,
@@ -114,7 +170,8 @@ namespace Wasteland.Sim.Ai
         {
             int id = _nextId;
             _nextId++;
-            _log.Add(new AiIssuedCommand(id, _tick, factionId, kind, arg0, arg1, arg2, arg3, unitId));
+            _lastSequence = id;
+            _log.Add(new AiIssuedCommand(id, _tick, factionId, kind, arg0, arg1, arg2, arg3, unitId, _lastSequence));
             if (_nextReject != AiCommandReject.None)
             {
                 _rejects[id] = _nextReject;

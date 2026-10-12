@@ -7,9 +7,9 @@ namespace Wasteland.Sim.Ai
 {
     /// <summary>
     /// The only mutation path the AI may use. Implementations must forward
-    /// spawn/move to the foundation <see cref="SimWorld.Submit"/> (or a test
-    /// sink of it). <see cref="CommandKind.Build"/> is accepted here in M1
-    /// and is not forwarded; SimWorld does not stub buildings.
+    /// spawn/move/claim/depot to the foundation <see cref="SimWorld.Submit"/>
+    /// (or a test sink of it). <see cref="CommandKind.Build"/> is unused;
+    /// depots use <see cref="CommandKind.BuildDepot"/>.
     /// </summary>
     public interface ISimCommandSink
     {
@@ -33,6 +33,12 @@ namespace Wasteland.Sim.Ai
 
         bool TryGetRejection(int subjectId, out CommandRejectReason code, out int param0, out int param1);
 
+        /// <summary>
+        /// Latest <see cref="SimEventKind.CommandRejected"/> whose
+        /// <see cref="SimEvent.Key"/> is <c>(issuer &lt;&lt; 32) | sequence</c>.
+        /// </summary>
+        bool TryGetRejectionByKey(ulong key, out CommandRejectReason code, out int param0, out int param1);
+
         bool HasBattalionRaiseStarted(int battalionId);
     }
 
@@ -54,6 +60,8 @@ namespace Wasteland.Sim.Ai
         bool TryGetOwnBattalion(int factionId, int battalionId, out SimBattalion battalion);
 
         bool TryGetSeat(int factionId, out SeatView view);
+
+        int FuelOf(int factionId);
 
         bool TryGetBattalionView(int battalionId, out BattalionView view);
 
@@ -79,6 +87,18 @@ namespace Wasteland.Sim.Ai
         /// Derived state: not hashed and not saved. Replay rebuilds it by stepping.
         /// </summary>
         void CopyEventsInRange(int fromTick, int toTick, List<SimEvent> into);
+
+        /// <summary>
+        /// Map territory id of a road node, or 0 if the node is unknown.
+        /// Bind the match road graph on the sink before the first tick.
+        /// </summary>
+        int GetNodeTerritoryId(int nodeId);
+
+        /// <summary>
+        /// Nearest road node to a point, or 0 if the graph is unbound.
+        /// Ties break to the lower node id.
+        /// </summary>
+        int GetNearestNodeId(int xCm, int yCm);
 
         CommandRejectReason PreviewDepotPlacement(int factionId, int nodeId, out int param0, out int param1);
     }

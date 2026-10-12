@@ -42,11 +42,75 @@ namespace Wasteland.Sim.Ai
         public int Arg2;
     }
 
+    /// <summary>
+    /// A ClaimTown or BuildDepot still in the world queue. <see cref="Sequence"/>
+    /// is the value <see cref="ISimCommandSink.LastSequence"/> returned at enqueue
+    /// and matches CommandRejected.Key = (issuer &lt;&lt; 32) | sequence.
+    /// </summary>
+    public struct AiPendingIntent
+    {
+        public int Sequence;
+        public AiIssuedKind Kind;
+        public int BattalionId;
+        public int TargetId;
+        public int IssuedTick;
+        public int InsertSeq;
+    }
+
     public enum PendingEnqueueResult : byte
     {
         Enqueued = 0,
         DroppedIncoming = 1,
         Replaced = 2
+    }
+
+    public enum AiDepotBlacklistKind : byte
+    {
+        Transient = 0,
+        Placement = 1
+    }
+
+    /// <summary>
+    /// One skipped depot node on the shared 128-slot blacklist, keyed by
+    /// (node, seat). Saved and hashed as a fixed-size array sorted by node,
+    /// then seat. Seats do not own separate lists.
+    /// </summary>
+    public struct AiDepotBlacklistEntry
+    {
+        public int NodeId;
+        public int SeatId;
+        public int AddedTick;
+        public AiDepotBlacklistKind Kind;
+        public int TerritoryId;
+        public int OwnerFactionId;
+        public int InsertSeq;
+    }
+
+    /// <summary>
+    /// Accepted ClaimTowns for one (seat, town) in the current ownership
+    /// period. Saved and hashed as a fixed-size array sorted by seat then town.
+    /// </summary>
+    public struct AiClaimTownCount
+    {
+        public int SeatId;
+        public int TownId;
+        public int Count;
+        public int InsertSeq;
+    }
+
+    /// <summary>
+    /// One backed-off order key (seat, unit, kind, target). Saved and hashed
+    /// as a fixed-size array sorted by those four fields.
+    /// </summary>
+    public struct AiOrderBackoffEntry
+    {
+        public int SeatId;
+        public int BattalionId;
+        public byte Kind;
+        public int TargetId;
+        public int UntilTick;
+        public int Streak;
+        public int InsertSeq;
     }
 
     /// <summary>
@@ -86,10 +150,13 @@ namespace Wasteland.Sim.Ai
         public int DepotCount;
         public int PickedPostCount;
         public int PendingCount;
+        public int IntentCount;
+        public int NextIntentInsertSeq;
         public int PendingDropped;
         public int AttackTargetTownId;
         public int DefendTownId;
         public int LastIssuedCommandId;
+        public int LastIssuedSequence;
         public int LastRejectCode;
         public int RejectBackoffUntilTick;
         public int RejectStreak;
@@ -101,6 +168,7 @@ namespace Wasteland.Sim.Ai
         public readonly int[] PickedPostIds;
         public readonly int[] PickedGroupIds;
         public readonly AiPendingCommand[] Pending;
+        public readonly AiPendingIntent[] Intents;
         public SimRandom StrategyRng;
         public SimRandom TacticalRng;
         public SimRandom MistakeRng;
@@ -146,6 +214,7 @@ namespace Wasteland.Sim.Ai
 
             Posture = posture;
             NextOrderId = 1;
+            NextIntentInsertSeq = 1;
             NextBattalionId = factionId * AiConstants.BattalionIdStride + 1;
             Orders = new AiOrder[System.Math.Max(1, maxActiveOrders)];
             Depots = new AiDepot[System.Math.Max(1, maxDepotsPerFaction)];
@@ -153,10 +222,141 @@ namespace Wasteland.Sim.Ai
             PickedPostIds = new int[postCap];
             PickedGroupIds = new int[postCap];
             Pending = new AiPendingCommand[AiConstants.PendingCommandCapacity];
+            Intents = new AiPendingIntent[AiConstants.PendingIntentCapacity];
             StrategyRng = strategyRng;
             TacticalRng = tacticalRng;
             MistakeRng = mistakeRng;
             ScoutRng = scoutRng;
+        }
+
+        public void EnqueueIntent(AiPendingIntent intent)
+        {
+            for (int i = 0; i < IntentCount; i++)
+            {
+                if (Intents[i].Sequence == intent.Sequence)
+                {
+                    return;
+                }
+
+                if (Intents[i].Kind == intent.Kind
+                    && Intents[i].BattalionId == intent.BattalionId
+                    && Intents[i].TargetId == intent.TargetId)
+                {
+                    return;
+                }
+            }
+
+            if (intent.InsertSeq < 1)
+            {
+                intent.InsertSeq = NextIntentInsertSeq;
+                NextIntentInsertSeq++;
+                if (NextIntentInsertSeq < 1)
+                {
+                    NextIntentInsertSeq = 1;
+                }
+            }
+
+            if (IntentCount < Intents.Length)
+            {
+                InsertIntent(intent);
+                return;
+            }
+
+            int worst = 0;
+            for (int i = 1; i < IntentCount; i++)
+            {
+                if (CompareIntentAge(Intents[i], Intents[worst]) < 0)
+                {
+                    worst = i;
+                }
+            }
+
+            if (CompareIntentAge(intent, Intents[worst]) <= 0)
+            {
+                return;
+            }
+
+            Intents[worst] = intent;
+            SortIntents();
+        }
+
+        public bool RemoveIntentAt(int index)
+        {
+            if (index < 0 || index >= IntentCount)
+            {
+                return false;
+            }
+
+            for (int i = index + 1; i < IntentCount; i++)
+            {
+                Intents[i - 1] = Intents[i];
+            }
+
+            IntentCount--;
+            return true;
+        }
+
+        private void InsertIntent(AiPendingIntent intent)
+        {
+            int insert = IntentCount;
+            while (insert > 0 && CompareIntents(Intents[insert - 1], intent) > 0)
+            {
+                Intents[insert] = Intents[insert - 1];
+                insert--;
+            }
+
+            Intents[insert] = intent;
+            IntentCount++;
+        }
+
+        private void SortIntents()
+        {
+            for (int i = 1; i < IntentCount; i++)
+            {
+                AiPendingIntent row = Intents[i];
+                int j = i;
+                while (j > 0 && CompareIntents(Intents[j - 1], row) > 0)
+                {
+                    Intents[j] = Intents[j - 1];
+                    j--;
+                }
+
+                Intents[j] = row;
+            }
+        }
+
+        public static int CompareIntents(AiPendingIntent a, AiPendingIntent b)
+        {
+            int c = a.Sequence.CompareTo(b.Sequence);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            c = ((byte)a.Kind).CompareTo((byte)b.Kind);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            c = a.BattalionId.CompareTo(b.BattalionId);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            return a.TargetId.CompareTo(b.TargetId);
+        }
+
+        public static int CompareIntentAge(AiPendingIntent a, AiPendingIntent b)
+        {
+            int c = a.InsertSeq.CompareTo(b.InsertSeq);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            return CompareIntents(a, b);
         }
 
         /// <summary>
@@ -231,7 +431,7 @@ namespace Wasteland.Sim.Ai
                 return 2;
             }
 
-            if (kind == CommandKind.Build)
+            if (kind == CommandKind.Build || kind == CommandKind.BuildDepot)
             {
                 return 1;
             }
@@ -251,11 +451,20 @@ namespace Wasteland.Sim.Ai
     {
         private readonly AiFactionState[] _factions;
         private readonly int[] _townOwnerIds;
-        private readonly int[] _captureFactionIds;
-        private readonly int[] _captureHeldTicks;
-        private readonly int[] _captureAbsentTicks;
+        // Shared 128-slot list for every seat, keyed by (node, seat).
+        private readonly AiDepotBlacklistEntry[] _blacklist;
+        private readonly AiOrderBackoffEntry[] _backoff;
+        private readonly AiClaimTownCount[] _claimTowns;
+        private readonly int[] _lastCaptureFaction;
+        private readonly int[] _lastCaptureProgress;
+        private int[] _matchSeatIds;
 
         public int DroppedFromLog;
+        public int BlacklistCount;
+        public int BackoffCount;
+        public int NextInsertSeq = 1;
+        public int IssuedCommandNextId = 1;
+        public bool CaptureWatchReady;
 
         public AiOwnedState(AiFactionState[] factions, int townCount)
         {
@@ -280,9 +489,28 @@ namespace Wasteland.Sim.Ai
             }
 
             _townOwnerIds = new int[townCount];
-            _captureFactionIds = new int[townCount];
-            _captureHeldTicks = new int[townCount];
-            _captureAbsentTicks = new int[townCount];
+            _blacklist = new AiDepotBlacklistEntry[AiConstants.DepotNodeBlacklistCapacity];
+            _backoff = new AiOrderBackoffEntry[AiConstants.OrderBackoffCapacity];
+            _claimTowns = new AiClaimTownCount[AiConstants.OrderBackoffCapacity];
+            _lastCaptureFaction = new int[townCount];
+            _lastCaptureProgress = new int[townCount];
+            _matchSeatIds = new int[_factions.Length];
+            for (int i = 0; i < _factions.Length; i++)
+            {
+                _matchSeatIds[i] = _factions[i].FactionId;
+            }
+        }
+
+        public int ClaimTownCount;
+
+        public AiDepotBlacklistEntry[] DepotBlacklist
+        {
+            get { return _blacklist; }
+        }
+
+        public AiOrderBackoffEntry[] OrderBackoff
+        {
+            get { return _backoff; }
         }
 
         public int FactionCount
@@ -295,6 +523,91 @@ namespace Wasteland.Sim.Ai
             get { return _townOwnerIds.Length; }
         }
 
+        public AiClaimTownCount ClaimTownAt(int index)
+        {
+            if (index < 0 || index >= ClaimTownCount)
+            {
+                throw new ArgumentOutOfRangeException(nameof(index));
+            }
+
+            return _claimTowns[index];
+        }
+
+        public int LastCaptureFactionAt(int index)
+        {
+            if (index < 0 || index >= _lastCaptureFaction.Length)
+            {
+                return 0;
+            }
+
+            return _lastCaptureFaction[index];
+        }
+
+        public int LastCaptureProgressAt(int index)
+        {
+            if (index < 0 || index >= _lastCaptureProgress.Length)
+            {
+                return 0;
+            }
+
+            return _lastCaptureProgress[index];
+        }
+
+        public void SetCaptureWatch(int index, int factionId, int progress)
+        {
+            if (index < 0 || index >= _lastCaptureFaction.Length)
+            {
+                return;
+            }
+
+            _lastCaptureFaction[index] = factionId;
+            _lastCaptureProgress[index] = progress;
+        }
+
+        /// <summary>
+        /// World seats in this match, including a human MVP seat that is not
+        /// an AI faction. Town-owner load uses this list; backoff still
+        /// requires <see cref="IsKnownFactionId"/>.
+        /// </summary>
+        public void BindMatchSeatIds(int[] seatIds)
+        {
+            if (seatIds == null || seatIds.Length < 1)
+            {
+                throw new ArgumentException("At least one match seat is required.", nameof(seatIds));
+            }
+
+            int[] copy = (int[])seatIds.Clone();
+            SortIds(copy);
+            int write = 0;
+            for (int i = 0; i < copy.Length; i++)
+            {
+                if (copy[i] == 0)
+                {
+                    continue;
+                }
+
+                if (write > 0 && copy[i] == copy[write - 1])
+                {
+                    continue;
+                }
+
+                copy[write++] = copy[i];
+            }
+
+            if (write < 1)
+            {
+                throw new ArgumentException("At least one match seat is required.", nameof(seatIds));
+            }
+
+            int[] bound = new int[write];
+            for (int i = 0; i < write; i++)
+            {
+                bound[i] = copy[i];
+            }
+
+            _matchSeatIds = bound;
+        }
+
         public AiFactionState FactionAt(int index)
         {
             return _factions[index];
@@ -302,15 +615,28 @@ namespace Wasteland.Sim.Ai
 
         public AiFactionState GetFaction(int factionId)
         {
+            AiFactionState faction;
+            if (TryGetFaction(factionId, out faction))
+            {
+                return faction;
+            }
+
+            throw new InvalidOperationException("Unknown AI faction " + factionId + ".");
+        }
+
+        public bool TryGetFaction(int factionId, out AiFactionState faction)
+        {
             for (int i = 0; i < _factions.Length; i++)
             {
                 if (_factions[i].FactionId == factionId)
                 {
-                    return _factions[i];
+                    faction = _factions[i];
+                    return true;
                 }
             }
 
-            throw new InvalidOperationException("Unknown AI faction " + factionId + ".");
+            faction = null!;
+            return false;
         }
 
         public int TownOwnerAt(int townIndex)
@@ -321,31 +647,462 @@ namespace Wasteland.Sim.Ai
         public void SetTownOwner(int townIndex, int ownerId)
         {
             _townOwnerIds[townIndex] = ownerId;
-            _captureFactionIds[townIndex] = 0;
-            _captureHeldTicks[townIndex] = 0;
-            _captureAbsentTicks[townIndex] = 0;
         }
 
-        public int CaptureFactionAt(int townIndex)
+        public void EnqueueIntent(int factionId, AiPendingIntent intent)
         {
-            return _captureFactionIds[townIndex];
+            GetFaction(factionId).EnqueueIntent(intent);
         }
 
-        public int CaptureHeldTicksAt(int townIndex)
+        public bool IsDepotNodeBlacklisted(int seatId, int nodeId)
         {
-            return _captureHeldTicks[townIndex];
+            return IndexOfBlacklist(seatId, nodeId) >= 0;
         }
 
-        public int CaptureAbsentTicksAt(int townIndex)
+        public void BlacklistDepotNode(
+            int seatId,
+            int nodeId,
+            int tick,
+            AiDepotBlacklistKind kind,
+            int territoryId,
+            int ownerFactionId)
         {
-            return _captureAbsentTicks[townIndex];
+            if (nodeId == 0 || seatId == 0)
+            {
+                return;
+            }
+
+            if (IndexOfBlacklist(seatId, nodeId) >= 0)
+            {
+                return;
+            }
+
+            AiDepotBlacklistEntry entry = default;
+            entry.NodeId = nodeId;
+            entry.SeatId = seatId;
+            entry.AddedTick = tick;
+            entry.Kind = kind;
+            entry.TerritoryId = territoryId;
+            entry.OwnerFactionId = ownerFactionId;
+            entry.InsertSeq = NextInsertSeq;
+            NextInsertSeq++;
+            if (NextInsertSeq < 1)
+            {
+                NextInsertSeq = 1;
+            }
+
+            if (BlacklistCount < _blacklist.Length)
+            {
+                _blacklist[BlacklistCount] = entry;
+                BlacklistCount++;
+                SortBlacklist();
+                return;
+            }
+
+            int victim = 0;
+            for (int i = 1; i < BlacklistCount; i++)
+            {
+                if (CompareBlacklistAge(_blacklist[i], _blacklist[victim]) < 0)
+                {
+                    victim = i;
+                }
+            }
+
+            _blacklist[victim] = entry;
+            SortBlacklist();
         }
 
-        public void SetCapture(int townIndex, int factionId, int heldTicks, int absentTicks)
+        public void RemoveBlacklistAt(int index)
         {
-            _captureFactionIds[townIndex] = factionId;
-            _captureHeldTicks[townIndex] = heldTicks;
-            _captureAbsentTicks[townIndex] = absentTicks;
+            if (index < 0 || index >= BlacklistCount)
+            {
+                return;
+            }
+
+            for (int i = index + 1; i < BlacklistCount; i++)
+            {
+                _blacklist[i - 1] = _blacklist[i];
+            }
+
+            BlacklistCount--;
+            _blacklist[BlacklistCount] = default;
+        }
+
+        private int IndexOfBlacklist(int seatId, int nodeId)
+        {
+            for (int i = 0; i < BlacklistCount; i++)
+            {
+                if (_blacklist[i].NodeId == nodeId && _blacklist[i].SeatId == seatId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private void SortBlacklist()
+        {
+            for (int i = 1; i < BlacklistCount; i++)
+            {
+                AiDepotBlacklistEntry row = _blacklist[i];
+                int j = i;
+                while (j > 0 && CompareBlacklistKey(_blacklist[j - 1], row) > 0)
+                {
+                    _blacklist[j] = _blacklist[j - 1];
+                    j--;
+                }
+
+                _blacklist[j] = row;
+            }
+        }
+
+        public static int CompareBlacklistKey(AiDepotBlacklistEntry a, AiDepotBlacklistEntry b)
+        {
+            int c = a.NodeId.CompareTo(b.NodeId);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            return a.SeatId.CompareTo(b.SeatId);
+        }
+
+        public static int CompareBlacklistAge(AiDepotBlacklistEntry a, AiDepotBlacklistEntry b)
+        {
+            int c = a.InsertSeq.CompareTo(b.InsertSeq);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            c = a.AddedTick.CompareTo(b.AddedTick);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            return CompareBlacklistKey(a, b);
+        }
+
+        public bool IsOrderBackedOff(int seatId, int battalionId, CommandKind kind, int targetId, int tick)
+        {
+            int index = IndexOfBackoff(seatId, battalionId, (byte)kind, targetId);
+            if (index < 0)
+            {
+                return false;
+            }
+
+            return tick < _backoff[index].UntilTick;
+        }
+
+        public void NoteOrderReject(int seatId, int battalionId, CommandKind kind, int targetId, int tick)
+        {
+            if (seatId == 0 || battalionId == 0)
+            {
+                return;
+            }
+
+            byte kindByte = (byte)kind;
+            int index = IndexOfBackoff(seatId, battalionId, kindByte, targetId);
+            int streak = 1;
+            if (index >= 0)
+            {
+                streak = _backoff[index].Streak + 1;
+                if (streak < 1)
+                {
+                    streak = 1;
+                }
+            }
+
+            int delay = AiAttackDefend.RejectBackoffStartTicks;
+            for (int i = 1; i < streak; i++)
+            {
+                if (delay >= AiAttackDefend.RejectBackoffMaxTicks / 2)
+                {
+                    delay = AiAttackDefend.RejectBackoffMaxTicks;
+                    break;
+                }
+
+                delay *= 2;
+            }
+
+            AiOrderBackoffEntry entry = default;
+            entry.SeatId = seatId;
+            entry.BattalionId = battalionId;
+            entry.Kind = kindByte;
+            entry.TargetId = targetId;
+            entry.UntilTick = tick + delay;
+            entry.Streak = streak;
+            if (index >= 0)
+            {
+                entry.InsertSeq = _backoff[index].InsertSeq;
+                _backoff[index] = entry;
+                SortBackoff();
+                return;
+            }
+
+            entry.InsertSeq = NextInsertSeq;
+            NextInsertSeq++;
+            if (NextInsertSeq < 1)
+            {
+                NextInsertSeq = 1;
+            }
+
+            if (BackoffCount < _backoff.Length)
+            {
+                _backoff[BackoffCount] = entry;
+                BackoffCount++;
+                SortBackoff();
+                return;
+            }
+
+            int victim = 0;
+            for (int i = 1; i < BackoffCount; i++)
+            {
+                if (CompareBackoffAge(_backoff[i], _backoff[victim]) < 0)
+                {
+                    victim = i;
+                }
+            }
+
+            _backoff[victim] = entry;
+            SortBackoff();
+        }
+
+        public void NoteOrderSuccess(int seatId, int battalionId, CommandKind kind, int targetId)
+        {
+            int index = IndexOfBackoff(seatId, battalionId, (byte)kind, targetId);
+            if (index < 0)
+            {
+                return;
+            }
+
+            for (int i = index; i < BackoffCount - 1; i++)
+            {
+                _backoff[i] = _backoff[i + 1];
+            }
+
+            _backoff[BackoffCount - 1] = default;
+            BackoffCount--;
+        }
+
+        /// <summary>
+        /// Live backoff still uses <see cref="AiOrderBackoffEntry.UntilTick"/>.
+        /// Expired rows stay so the next reject on the same key can grow 2x.
+        /// Only <see cref="NoteOrderSuccess"/> clears a streak.
+        /// </summary>
+        public void ExpireOrderBackoff(int tick)
+        {
+            _ = tick;
+        }
+
+        public bool HasBackoffForBattalion(int seatId, int battalionId, int tick)
+        {
+            for (int i = 0; i < BackoffCount; i++)
+            {
+                AiOrderBackoffEntry row = _backoff[i];
+                if (row.SeatId == seatId
+                    && row.BattalionId == battalionId
+                    && tick < row.UntilTick)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        public int AcceptedClaimTowns(int seatId, int townId)
+        {
+            int index = IndexOfClaimTown(seatId, townId);
+            if (index < 0)
+            {
+                return 0;
+            }
+
+            return _claimTowns[index].Count;
+        }
+
+        public bool NoteAcceptedClaimTown(int seatId, int townId)
+        {
+            if (seatId == 0 || townId == 0)
+            {
+                return false;
+            }
+
+            int index = IndexOfClaimTown(seatId, townId);
+            if (index >= 0)
+            {
+                AiClaimTownCount have = _claimTowns[index];
+                if (have.Count >= AiConstants.MaxClaimTownsPerSeatTown)
+                {
+                    return false;
+                }
+
+                have.Count++;
+                _claimTowns[index] = have;
+                SortClaimTowns();
+                return true;
+            }
+
+            if (ClaimTownCount >= _claimTowns.Length)
+            {
+                return false;
+            }
+
+            AiClaimTownCount entry = default;
+            entry.SeatId = seatId;
+            entry.TownId = townId;
+            entry.Count = 1;
+            entry.InsertSeq = NextInsertSeq;
+            NextInsertSeq++;
+            if (NextInsertSeq < 1)
+            {
+                NextInsertSeq = 1;
+            }
+
+            _claimTowns[ClaimTownCount] = entry;
+            ClaimTownCount++;
+            SortClaimTowns();
+            return true;
+        }
+
+        public void ResetClaimTownsForTown(int townId)
+        {
+            if (townId == 0)
+            {
+                return;
+            }
+
+            int write = 0;
+            for (int i = 0; i < ClaimTownCount; i++)
+            {
+                if (_claimTowns[i].TownId == townId)
+                {
+                    continue;
+                }
+
+                if (write != i)
+                {
+                    _claimTowns[write] = _claimTowns[i];
+                }
+
+                write++;
+            }
+
+            for (int i = write; i < ClaimTownCount; i++)
+            {
+                _claimTowns[i] = default;
+            }
+
+            ClaimTownCount = write;
+        }
+
+        public bool HasPendingClaimTown(int factionId, int townId)
+        {
+            AiFactionState faction;
+            if (!TryGetFaction(factionId, out faction))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < faction.IntentCount; i++)
+            {
+                AiPendingIntent intent = faction.Intents[i];
+                if (intent.Kind == AiIssuedKind.ClaimTown && intent.TargetId == townId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private int IndexOfClaimTown(int seatId, int townId)
+        {
+            for (int i = 0; i < ClaimTownCount; i++)
+            {
+                if (_claimTowns[i].SeatId == seatId && _claimTowns[i].TownId == townId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private int IndexOfBackoff(int seatId, int battalionId, byte kind, int targetId)
+        {
+            for (int i = 0; i < BackoffCount; i++)
+            {
+                AiOrderBackoffEntry row = _backoff[i];
+                if (row.SeatId == seatId
+                    && row.BattalionId == battalionId
+                    && row.Kind == kind
+                    && row.TargetId == targetId)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        private void SortBackoff()
+        {
+            for (int i = 1; i < BackoffCount; i++)
+            {
+                AiOrderBackoffEntry row = _backoff[i];
+                int j = i;
+                while (j > 0 && CompareBackoffKey(_backoff[j - 1], row) > 0)
+                {
+                    _backoff[j] = _backoff[j - 1];
+                    j--;
+                }
+
+                _backoff[j] = row;
+            }
+        }
+
+        public static int CompareBackoffKey(AiOrderBackoffEntry a, AiOrderBackoffEntry b)
+        {
+            int c = a.SeatId.CompareTo(b.SeatId);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            c = a.BattalionId.CompareTo(b.BattalionId);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            c = a.Kind.CompareTo(b.Kind);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            return a.TargetId.CompareTo(b.TargetId);
+        }
+
+        public static int CompareBackoffAge(AiOrderBackoffEntry a, AiOrderBackoffEntry b)
+        {
+            int c = a.InsertSeq.CompareTo(b.InsertSeq);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            c = a.UntilTick.CompareTo(b.UntilTick);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            return CompareBackoffKey(a, b);
         }
 
         public void HashInto(XxHash64Builder hash)
@@ -385,6 +1142,8 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.PendingDropped);
                 hash.AddInt(faction.AttackTargetTownId);
                 hash.AddInt(faction.DefendTownId);
+                hash.AddInt(faction.LastIssuedCommandId);
+                hash.AddInt(faction.LastIssuedSequence);
                 hash.AddInt(faction.LastRejectCode);
                 hash.AddInt(faction.RejectBackoffUntilTick);
                 hash.AddInt(faction.RejectStreak);
@@ -438,15 +1197,38 @@ namespace Wasteland.Sim.Ai
                     hash.AddInt(pending.Arg1);
                     hash.AddInt(pending.Arg2);
                 }
+
+                hash.AddInt(faction.IntentCount);
+                for (int n = 0; n < faction.IntentCount; n++)
+                {
+                    AiPendingIntent intent = faction.Intents[n];
+                    hash.AddInt(intent.Sequence);
+                    hash.AddByte((byte)intent.Kind);
+                    hash.AddInt(intent.BattalionId);
+                    hash.AddInt(intent.TargetId);
+                    hash.AddInt(intent.IssuedTick);
+                    hash.AddInt(intent.InsertSeq);
+                }
+
+                hash.AddInt(faction.NextIntentInsertSeq);
             }
 
+            HashBlacklist(hash);
+            HashBackoff(hash);
+            HashClaimTowns(hash);
+            hash.AddInt(NextInsertSeq);
+            hash.AddInt(IssuedCommandNextId);
             hash.AddInt(_townOwnerIds.Length);
             for (int i = 0; i < _townOwnerIds.Length; i++)
             {
                 hash.AddInt(_townOwnerIds[i]);
-                hash.AddInt(_captureFactionIds[i]);
-                hash.AddInt(_captureHeldTicks[i]);
-                hash.AddInt(_captureAbsentTicks[i]);
+            }
+
+            hash.AddBool(CaptureWatchReady);
+            for (int i = 0; i < _lastCaptureFaction.Length; i++)
+            {
+                hash.AddInt(_lastCaptureFaction[i]);
+                hash.AddInt(_lastCaptureProgress[i]);
             }
         }
 
@@ -494,6 +1276,7 @@ namespace Wasteland.Sim.Ai
                 writer.Write(faction.AttackTargetTownId);
                 writer.Write(faction.DefendTownId);
                 writer.Write(faction.LastIssuedCommandId);
+                writer.Write(faction.LastIssuedSequence);
                 writer.Write(faction.LastRejectCode);
                 writer.Write(faction.RejectBackoffUntilTick);
                 writer.Write(faction.RejectStreak);
@@ -543,16 +1326,40 @@ namespace Wasteland.Sim.Ai
                     writer.Write(pending.Arg1);
                     writer.Write(pending.Arg2);
                 }
+
+                writer.Write(faction.IntentCount);
+                for (int n = 0; n < faction.IntentCount; n++)
+                {
+                    AiPendingIntent intent = faction.Intents[n];
+                    writer.Write(intent.Sequence);
+                    writer.Write((byte)intent.Kind);
+                    writer.Write(intent.BattalionId);
+                    writer.Write(intent.TargetId);
+                    writer.Write(intent.IssuedTick);
+                    writer.Write(intent.InsertSeq);
+                }
+
+                writer.Write(faction.NextIntentInsertSeq);
             }
 
+            WriteBlacklist(writer);
+            WriteBackoff(writer);
             writer.Write(_townOwnerIds.Length);
             for (int i = 0; i < _townOwnerIds.Length; i++)
             {
                 writer.Write(_townOwnerIds[i]);
-                writer.Write(_captureFactionIds[i]);
-                writer.Write(_captureHeldTicks[i]);
-                writer.Write(_captureAbsentTicks[i]);
             }
+
+            WriteClaimTowns(writer);
+            writer.Write(CaptureWatchReady);
+            for (int i = 0; i < _lastCaptureFaction.Length; i++)
+            {
+                writer.Write(_lastCaptureFaction[i]);
+                writer.Write(_lastCaptureProgress[i]);
+            }
+
+            writer.Write(NextInsertSeq);
+            writer.Write(IssuedCommandNextId);
 
             writer.Flush();
             return stream.ToArray();
@@ -600,6 +1407,14 @@ namespace Wasteland.Sim.Ai
                 loaded[i] = ReadLoadedFaction(reader, _factions[i]);
             }
 
+            AiDepotBlacklistEntry[] loadedBlacklist;
+            int loadedBlacklistCount;
+            ReadBlacklist(reader, out loadedBlacklist, out loadedBlacklistCount);
+
+            AiOrderBackoffEntry[] loadedBackoff;
+            int loadedBackoffCount;
+            ReadBackoff(reader, out loadedBackoff, out loadedBackoffCount);
+
             int towns = reader.ReadInt32();
             if (towns != _townOwnerIds.Length)
             {
@@ -607,24 +1422,47 @@ namespace Wasteland.Sim.Ai
             }
 
             int[] townOwners = new int[towns];
-            int[] captureFactions = new int[towns];
-            int[] captureHeld = new int[towns];
-            int[] captureAbsent = new int[towns];
             for (int i = 0; i < towns; i++)
             {
                 townOwners[i] = reader.ReadInt32();
-                captureFactions[i] = reader.ReadInt32();
-                captureHeld[i] = reader.ReadInt32();
-                captureAbsent[i] = reader.ReadInt32();
-                if (captureHeld[i] < 0 || captureAbsent[i] < 0)
-                {
-                    throw new InvalidDataException("AI capture tick counts must be >= 0.");
-                }
-
-                if (!IsKnownFactionId(townOwners[i]) || !IsKnownFactionId(captureFactions[i]))
+                if (!IsKnownTownOwnerId(townOwners[i]))
                 {
                     throw new InvalidDataException("AI faction id is not in this match.");
                 }
+            }
+
+            AiClaimTownCount[] loadedClaims;
+            int loadedClaimCount;
+            ReadClaimTowns(reader, out loadedClaims, out loadedClaimCount);
+
+            bool captureWatchReady = reader.ReadBoolean();
+            int[] lastCaptureFaction = new int[towns];
+            int[] lastCaptureProgress = new int[towns];
+            for (int i = 0; i < towns; i++)
+            {
+                lastCaptureFaction[i] = reader.ReadInt32();
+                lastCaptureProgress[i] = reader.ReadInt32();
+                if (lastCaptureFaction[i] != 0 && !IsKnownTownOwnerId(lastCaptureFaction[i]))
+                {
+                    throw new InvalidDataException("AI faction id is not in this match.");
+                }
+
+                if (lastCaptureProgress[i] < 0)
+                {
+                    throw new InvalidDataException("AI capture progress is negative.");
+                }
+            }
+
+            int loadedNextInsertSeq = reader.ReadInt32();
+            if (loadedNextInsertSeq < 1)
+            {
+                throw new InvalidDataException("AI table insert seq is invalid.");
+            }
+
+            int loadedIssuedCommandNextId = reader.ReadInt32();
+            if (loadedIssuedCommandNextId < 1)
+            {
+                throw new InvalidDataException("AI issued-command next id is invalid.");
             }
 
             if (reader.BaseStream.Position != reader.BaseStream.Length)
@@ -637,14 +1475,39 @@ namespace Wasteland.Sim.Ai
                 CommitLoadedFaction(_factions[i], loaded[i]);
             }
 
+            BlacklistCount = loadedBlacklistCount;
+            for (int b = 0; b < _blacklist.Length; b++)
+            {
+                _blacklist[b] = loadedBlacklist[b];
+            }
+
+            BackoffCount = loadedBackoffCount;
+            for (int k = 0; k < _backoff.Length; k++)
+            {
+                _backoff[k] = loadedBackoff[k];
+            }
+
             DroppedFromLog = droppedFromLog;
             for (int i = 0; i < towns; i++)
             {
                 _townOwnerIds[i] = townOwners[i];
-                _captureFactionIds[i] = captureFactions[i];
-                _captureHeldTicks[i] = captureHeld[i];
-                _captureAbsentTicks[i] = captureAbsent[i];
             }
+
+            ClaimTownCount = loadedClaimCount;
+            for (int c = 0; c < _claimTowns.Length; c++)
+            {
+                _claimTowns[c] = loadedClaims[c];
+            }
+
+            CaptureWatchReady = captureWatchReady;
+            for (int i = 0; i < towns; i++)
+            {
+                _lastCaptureFaction[i] = lastCaptureFaction[i];
+                _lastCaptureProgress[i] = lastCaptureProgress[i];
+            }
+
+            NextInsertSeq = loadedNextInsertSeq;
+            IssuedCommandNextId = loadedIssuedCommandNextId;
         }
 
         private static LoadedFaction ReadLoadedFaction(BinaryReader reader, AiFactionState current)
@@ -701,6 +1564,7 @@ namespace Wasteland.Sim.Ai
             loaded.AttackTargetTownId = reader.ReadInt32();
             loaded.DefendTownId = reader.ReadInt32();
             loaded.LastIssuedCommandId = reader.ReadInt32();
+            loaded.LastIssuedSequence = reader.ReadInt32();
             loaded.LastRejectCode = reader.ReadInt32();
             loaded.RejectBackoffUntilTick = reader.ReadInt32();
             loaded.RejectStreak = reader.ReadInt32();
@@ -791,6 +1655,41 @@ namespace Wasteland.Sim.Ai
                 loaded.Pending[q] = pending;
             }
 
+            loaded.IntentCount = reader.ReadInt32();
+            if (loaded.IntentCount < 0 || loaded.IntentCount > current.Intents.Length)
+            {
+                throw new InvalidDataException("AI collection count exceeds slot capacity.");
+            }
+
+            loaded.Intents = new AiPendingIntent[loaded.IntentCount];
+            for (int n = 0; n < loaded.IntentCount; n++)
+            {
+                AiPendingIntent intent = default;
+                intent.Sequence = reader.ReadInt32();
+                intent.Kind = ReadIssuedKind(reader);
+                intent.BattalionId = reader.ReadInt32();
+                intent.TargetId = reader.ReadInt32();
+                intent.IssuedTick = reader.ReadInt32();
+                intent.InsertSeq = reader.ReadInt32();
+                if (intent.Sequence < 0)
+                {
+                    throw new InvalidDataException("AI pending intent sequence is negative.");
+                }
+
+                if (intent.IssuedTick < 0 || intent.InsertSeq < 1)
+                {
+                    throw new InvalidDataException("AI pending intent issued tick or insert seq is invalid.");
+                }
+
+                loaded.Intents[n] = intent;
+            }
+
+            loaded.NextIntentInsertSeq = reader.ReadInt32();
+            if (loaded.NextIntentInsertSeq < 1)
+            {
+                throw new InvalidDataException("AI pending intent insert seq is invalid.");
+            }
+
             return loaded;
         }
 
@@ -811,11 +1710,14 @@ namespace Wasteland.Sim.Ai
             faction.DepotCount = loaded.DepotCount;
             faction.PickedPostCount = loaded.PickedPostCount;
             faction.PendingCount = loaded.PendingCount;
+            faction.IntentCount = loaded.IntentCount;
+            faction.NextIntentInsertSeq = loaded.NextIntentInsertSeq;
             faction.PendingDropped = loaded.PendingDropped;
             faction.DepotCapSkips = loaded.DepotCapSkips;
             faction.AttackTargetTownId = loaded.AttackTargetTownId;
             faction.DefendTownId = loaded.DefendTownId;
             faction.LastIssuedCommandId = loaded.LastIssuedCommandId;
+            faction.LastIssuedSequence = loaded.LastIssuedSequence;
             faction.LastRejectCode = loaded.LastRejectCode;
             faction.RejectBackoffUntilTick = loaded.RejectBackoffUntilTick;
             faction.RejectStreak = loaded.RejectStreak;
@@ -848,6 +1750,11 @@ namespace Wasteland.Sim.Ai
             {
                 faction.Pending[q] = loaded.Pending[q];
             }
+
+            for (int n = 0; n < loaded.IntentCount; n++)
+            {
+                faction.Intents[n] = loaded.Intents[n];
+            }
         }
 
         private static AiPosture ReadPosture(BinaryReader reader)
@@ -875,12 +1782,25 @@ namespace Wasteland.Sim.Ai
         private static CommandKind ReadCommandKind(BinaryReader reader)
         {
             byte value = reader.ReadByte();
-            if (value < (byte)CommandKind.SpawnBattalion || value > (byte)CommandKind.Build)
+            if (value < (byte)CommandKind.SpawnBattalion || value > (byte)CommandKind.BuildDepot)
             {
                 throw new InvalidDataException("AI pending command kind byte is out of range.");
             }
 
             return (CommandKind)value;
+        }
+
+        private static AiIssuedKind ReadIssuedKind(BinaryReader reader)
+        {
+            byte value = reader.ReadByte();
+            if (value != (byte)AiIssuedKind.Move
+                && value != (byte)AiIssuedKind.ClaimTown
+                && value != (byte)AiIssuedKind.BuildDepot)
+            {
+                throw new InvalidDataException("AI pending intent kind byte is out of range.");
+            }
+
+            return (AiIssuedKind)value;
         }
 
         private sealed class LoadedFaction
@@ -905,6 +1825,7 @@ namespace Wasteland.Sim.Ai
             public int AttackTargetTownId;
             public int DefendTownId;
             public int LastIssuedCommandId;
+            public int LastIssuedSequence;
             public int LastRejectCode;
             public int RejectBackoffUntilTick;
             public int RejectStreak;
@@ -920,6 +1841,190 @@ namespace Wasteland.Sim.Ai
             public int[] PickedPostIds = Array.Empty<int>();
             public int[] PickedGroupIds = Array.Empty<int>();
             public AiPendingCommand[] Pending = Array.Empty<AiPendingCommand>();
+            public int IntentCount;
+            public int NextIntentInsertSeq;
+            public AiPendingIntent[] Intents = Array.Empty<AiPendingIntent>();
+        }
+
+        private void HashBlacklist(XxHash64Builder hash)
+        {
+            for (int i = 0; i < _blacklist.Length; i++)
+            {
+                AiDepotBlacklistEntry entry = _blacklist[i];
+                hash.AddInt(entry.NodeId);
+                hash.AddInt(entry.SeatId);
+                hash.AddInt(entry.AddedTick);
+                hash.AddByte((byte)entry.Kind);
+                hash.AddInt(entry.TerritoryId);
+                hash.AddInt(entry.OwnerFactionId);
+                hash.AddInt(entry.InsertSeq);
+            }
+        }
+
+        private void WriteBlacklist(BinaryWriter writer)
+        {
+            for (int i = 0; i < _blacklist.Length; i++)
+            {
+                AiDepotBlacklistEntry entry = _blacklist[i];
+                writer.Write(entry.NodeId);
+                writer.Write(entry.SeatId);
+                writer.Write(entry.AddedTick);
+                writer.Write((byte)entry.Kind);
+                writer.Write(entry.TerritoryId);
+                writer.Write(entry.OwnerFactionId);
+                writer.Write(entry.InsertSeq);
+            }
+        }
+
+        private void HashBackoff(XxHash64Builder hash)
+        {
+            for (int i = 0; i < _backoff.Length; i++)
+            {
+                AiOrderBackoffEntry entry = _backoff[i];
+                hash.AddInt(entry.SeatId);
+                hash.AddInt(entry.BattalionId);
+                hash.AddByte(entry.Kind);
+                hash.AddInt(entry.TargetId);
+                hash.AddInt(entry.UntilTick);
+                hash.AddInt(entry.Streak);
+                hash.AddInt(entry.InsertSeq);
+            }
+        }
+
+        private void WriteBackoff(BinaryWriter writer)
+        {
+            for (int i = 0; i < _backoff.Length; i++)
+            {
+                AiOrderBackoffEntry entry = _backoff[i];
+                writer.Write(entry.SeatId);
+                writer.Write(entry.BattalionId);
+                writer.Write(entry.Kind);
+                writer.Write(entry.TargetId);
+                writer.Write(entry.UntilTick);
+                writer.Write(entry.Streak);
+                writer.Write(entry.InsertSeq);
+            }
+        }
+
+        private void ReadBackoff(
+            BinaryReader reader,
+            out AiOrderBackoffEntry[] loaded,
+            out int count)
+        {
+            loaded = new AiOrderBackoffEntry[_backoff.Length];
+            count = 0;
+            for (int i = 0; i < loaded.Length; i++)
+            {
+                AiOrderBackoffEntry entry = default;
+                entry.SeatId = reader.ReadInt32();
+                entry.BattalionId = reader.ReadInt32();
+                entry.Kind = reader.ReadByte();
+                entry.TargetId = reader.ReadInt32();
+                entry.UntilTick = reader.ReadInt32();
+                entry.Streak = reader.ReadInt32();
+                entry.InsertSeq = reader.ReadInt32();
+                loaded[i] = entry;
+                if (entry.SeatId == 0 && entry.BattalionId == 0 && entry.Kind == 0
+                    && entry.TargetId == 0 && entry.UntilTick == 0 && entry.Streak == 0
+                    && entry.InsertSeq == 0)
+                {
+                    continue;
+                }
+
+                if (entry.SeatId == 0 || entry.BattalionId == 0)
+                {
+                    throw new InvalidDataException("AI order backoff seat or battalion is zero.");
+                }
+
+                if (entry.Kind < (byte)CommandKind.Move || entry.Kind > (byte)CommandKind.BuildDepot)
+                {
+                    throw new InvalidDataException("AI order backoff kind byte is out of range.");
+                }
+
+                if (entry.UntilTick < 0 || entry.Streak < 0 || entry.InsertSeq < 1)
+                {
+                    throw new InvalidDataException("AI order backoff tick, streak, or insert seq is invalid.");
+                }
+
+                if (!IsKnownFactionId(entry.SeatId))
+                {
+                    throw new InvalidDataException("AI faction id is not in this match.");
+                }
+
+                if (count != i)
+                {
+                    throw new InvalidDataException("AI order backoff has a hole before unused slots.");
+                }
+
+                if (count > 0 && CompareBackoffKey(loaded[count - 1], entry) >= 0)
+                {
+                    throw new InvalidDataException(
+                        "AI order backoff is not sorted by seat, battalion, kind, then target.");
+                }
+
+                count++;
+            }
+        }
+
+        private void ReadBlacklist(
+            BinaryReader reader,
+            out AiDepotBlacklistEntry[] loaded,
+            out int count)
+        {
+            loaded = new AiDepotBlacklistEntry[_blacklist.Length];
+            count = 0;
+            for (int i = 0; i < loaded.Length; i++)
+            {
+                AiDepotBlacklistEntry entry = default;
+                entry.NodeId = reader.ReadInt32();
+                entry.SeatId = reader.ReadInt32();
+                entry.AddedTick = reader.ReadInt32();
+                byte kindByte = reader.ReadByte();
+                if (kindByte > (byte)AiDepotBlacklistKind.Placement)
+                {
+                    throw new InvalidDataException("AI depot blacklist kind byte is out of range.");
+                }
+
+                entry.Kind = (AiDepotBlacklistKind)kindByte;
+                entry.TerritoryId = reader.ReadInt32();
+                entry.OwnerFactionId = reader.ReadInt32();
+                entry.InsertSeq = reader.ReadInt32();
+                loaded[i] = entry;
+                if (entry.NodeId == 0 && entry.SeatId == 0 && entry.AddedTick == 0
+                    && entry.Kind == AiDepotBlacklistKind.Transient
+                    && entry.TerritoryId == 0 && entry.OwnerFactionId == 0
+                    && entry.InsertSeq == 0)
+                {
+                    continue;
+                }
+
+                if (entry.NodeId == 0 || entry.SeatId == 0)
+                {
+                    throw new InvalidDataException("AI depot blacklist node or seat is zero.");
+                }
+
+                if (entry.AddedTick < 0 || entry.InsertSeq < 1)
+                {
+                    throw new InvalidDataException("AI depot blacklist tick or insert seq is invalid.");
+                }
+
+                if (!IsKnownFactionId(entry.SeatId))
+                {
+                    throw new InvalidDataException("AI faction id is not in this match.");
+                }
+
+                if (count != i)
+                {
+                    throw new InvalidDataException("AI depot blacklist has a hole before unused slots.");
+                }
+
+                if (count > 0 && CompareBlacklistKey(loaded[count - 1], entry) >= 0)
+                {
+                    throw new InvalidDataException("AI depot blacklist is not sorted by node then seat.");
+                }
+
+                count++;
+            }
         }
 
         private static void RequireInt32(BinaryReader reader, int expected, string name)
@@ -972,6 +2077,145 @@ namespace Wasteland.Sim.Ai
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Town owners follow the world, including a human MVP seat that is
+        /// not in <see cref="_factions"/>. Backoff and blacklist still require
+        /// an AI faction so a human reject cannot load into this match.
+        /// </summary>
+        private bool IsKnownTownOwnerId(int factionId)
+        {
+            if (IsKnownFactionId(factionId))
+            {
+                return true;
+            }
+
+            for (int i = 0; i < _matchSeatIds.Length; i++)
+            {
+                if (_matchSeatIds[i] == factionId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void SortClaimTowns()
+        {
+            for (int i = 1; i < ClaimTownCount; i++)
+            {
+                AiClaimTownCount row = _claimTowns[i];
+                int j = i;
+                while (j > 0 && CompareClaimTownKey(_claimTowns[j - 1], row) > 0)
+                {
+                    _claimTowns[j] = _claimTowns[j - 1];
+                    j--;
+                }
+
+                _claimTowns[j] = row;
+            }
+        }
+
+        public static int CompareClaimTownKey(AiClaimTownCount a, AiClaimTownCount b)
+        {
+            int c = a.SeatId.CompareTo(b.SeatId);
+            if (c != 0)
+            {
+                return c;
+            }
+
+            return a.TownId.CompareTo(b.TownId);
+        }
+
+        private void HashClaimTowns(XxHash64Builder hash)
+        {
+            for (int i = 0; i < _claimTowns.Length; i++)
+            {
+                AiClaimTownCount entry = _claimTowns[i];
+                hash.AddInt(entry.SeatId);
+                hash.AddInt(entry.TownId);
+                hash.AddInt(entry.Count);
+                hash.AddInt(entry.InsertSeq);
+            }
+        }
+
+        private void WriteClaimTowns(BinaryWriter writer)
+        {
+            for (int i = 0; i < _claimTowns.Length; i++)
+            {
+                AiClaimTownCount entry = _claimTowns[i];
+                writer.Write(entry.SeatId);
+                writer.Write(entry.TownId);
+                writer.Write(entry.Count);
+                writer.Write(entry.InsertSeq);
+            }
+        }
+
+        private void ReadClaimTowns(
+            BinaryReader reader,
+            out AiClaimTownCount[] loaded,
+            out int count)
+        {
+            loaded = new AiClaimTownCount[_claimTowns.Length];
+            count = 0;
+            for (int i = 0; i < loaded.Length; i++)
+            {
+                AiClaimTownCount entry = default;
+                entry.SeatId = reader.ReadInt32();
+                entry.TownId = reader.ReadInt32();
+                entry.Count = reader.ReadInt32();
+                entry.InsertSeq = reader.ReadInt32();
+                loaded[i] = entry;
+                if (entry.SeatId == 0 && entry.TownId == 0 && entry.Count == 0 && entry.InsertSeq == 0)
+                {
+                    continue;
+                }
+
+                if (entry.SeatId == 0 || entry.TownId == 0)
+                {
+                    throw new InvalidDataException("AI claim-town seat or town is zero.");
+                }
+
+                if (entry.Count < 1 || entry.Count > AiConstants.MaxClaimTownsPerSeatTown || entry.InsertSeq < 1)
+                {
+                    throw new InvalidDataException("AI claim-town count or insert seq is out of range.");
+                }
+
+                if (!IsKnownFactionId(entry.SeatId))
+                {
+                    throw new InvalidDataException("AI faction id is not in this match.");
+                }
+
+                if (count != i)
+                {
+                    throw new InvalidDataException("AI claim-town list has a hole before unused slots.");
+                }
+
+                if (count > 0 && CompareClaimTownKey(loaded[count - 1], entry) >= 0)
+                {
+                    throw new InvalidDataException("AI claim-town list is not sorted by seat then town.");
+                }
+
+                count++;
+            }
+        }
+
+        private static void SortIds(int[] ids)
+        {
+            for (int i = 1; i < ids.Length; i++)
+            {
+                int row = ids[i];
+                int j = i - 1;
+                while (j >= 0 && ids[j] > row)
+                {
+                    ids[j + 1] = ids[j];
+                    j--;
+                }
+
+                ids[j + 1] = row;
+            }
         }
 
         private static void SortByFactionId(AiFactionState[] factions)

@@ -15,6 +15,10 @@ namespace Wasteland.Sim.Ai
 
         int Materials { get; }
 
+        int Fuel { get; }
+
+        bool FuelEnabled { get; }
+
         int PopUsed { get; }
 
         int PopCap { get; }
@@ -43,6 +47,10 @@ namespace Wasteland.Sim.Ai
         public int Manpower { get; set; }
 
         public int Materials { get; set; }
+
+        public int Fuel { get; set; }
+
+        public bool FuelEnabled { get; set; }
 
         public int PopUsed { get; set; }
 

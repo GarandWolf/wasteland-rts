@@ -37,6 +37,7 @@ namespace Wasteland.Sim.Ai
         public readonly int Arg2;
         public readonly int Arg3;
         public readonly string UnitId;
+        public readonly int Sequence;
 
         public AiIssuedCommand(
             int id,
@@ -47,7 +48,7 @@ namespace Wasteland.Sim.Ai
             int arg1,
             int arg2,
             int arg3)
-            : this(id, tick, factionId, kind, arg0, arg1, arg2, arg3, string.Empty)
+            : this(id, tick, factionId, kind, arg0, arg1, arg2, arg3, string.Empty, 0)
         {
         }
 
@@ -61,6 +62,21 @@ namespace Wasteland.Sim.Ai
             int arg2,
             int arg3,
             string unitId)
+            : this(id, tick, factionId, kind, arg0, arg1, arg2, arg3, unitId, 0)
+        {
+        }
+
+        public AiIssuedCommand(
+            int id,
+            int tick,
+            int factionId,
+            AiIssuedKind kind,
+            int arg0,
+            int arg1,
+            int arg2,
+            int arg3,
+            string unitId,
+            int sequence)
         {
             Id = id;
             Tick = tick;
@@ -71,6 +87,7 @@ namespace Wasteland.Sim.Ai
             Arg2 = arg2;
             Arg3 = arg3;
             UnitId = unitId ?? string.Empty;
+            Sequence = sequence;
         }
     }
 
@@ -86,7 +103,21 @@ namespace Wasteland.Sim.Ai
 
         int SubmitBuildDepot(int factionId, int battalionId, int nodeId);
 
+        /// <summary>
+        /// Sequence stamped on the last forwarded command. Pairs with
+        /// <see cref="Wasteland.Sim.Events.SimEvent.Key"/> on CommandRejected:
+        /// <c>(issuer &lt;&lt; 32) | sequence</c>.
+        /// </summary>
+        int LastSequence { get; }
+
         AiCommandReject RejectOf(int commandId);
+
+        /// <summary>
+        /// Rejection for the command stamped with <paramref name="sequence"/>
+        /// by <paramref name="issuerId"/>. Looks up
+        /// <c>(issuer &lt;&lt; 32) | sequence</c>, never a battalion id.
+        /// </summary>
+        AiCommandReject RejectOfSequence(int issuerId, int sequence);
 
         int CommandDelayTicks { get; }
 
@@ -186,6 +217,15 @@ namespace Wasteland.Sim.Ai
         bool TryGet(int factionId, int nodeId, out AiDepotReadback readback);
 
         void RecordSite(int factionId, int nodeId, int siteTick, int activeTick);
+
+        /// <summary>Reserved + under-construction + active sites for one faction.</summary>
+        int CountSites(int factionId);
+
+        /// <summary>
+        /// Lowest node id among this seat's reserved or under-construction
+        /// sites, or 0 when none are in flight.
+        /// </summary>
+        int InFlightNodeId(int factionId, int tick);
     }
 
     public readonly struct AiBattalionPin

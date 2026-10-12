@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using Wasteland.Sim.Commands;
+using Wasteland.Sim.Events;
 using Wasteland.Sim.Movement;
+using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
 {
@@ -13,6 +16,7 @@ namespace Wasteland.Sim.Ai
         public readonly int YCm;
         public readonly bool IsHq;
         public readonly ulong TerritoryStableKey;
+        public readonly int ZoneRadiusCm;
 
         public AiAttackTownInfo(
             int id,
@@ -22,6 +26,19 @@ namespace Wasteland.Sim.Ai
             int yCm,
             bool isHq,
             ulong territoryStableKey)
+            : this(id, territoryId, nodeId, xCm, yCm, isHq, territoryStableKey, 0)
+        {
+        }
+
+        public AiAttackTownInfo(
+            int id,
+            int territoryId,
+            int nodeId,
+            int xCm,
+            int yCm,
+            bool isHq,
+            ulong territoryStableKey,
+            int zoneRadiusCm)
         {
             Id = id;
             TerritoryId = territoryId;
@@ -30,6 +47,7 @@ namespace Wasteland.Sim.Ai
             YCm = yCm;
             IsHq = isHq;
             TerritoryStableKey = territoryStableKey;
+            ZoneRadiusCm = zoneRadiusCm;
         }
     }
 
@@ -46,6 +64,8 @@ namespace Wasteland.Sim.Ai
         private readonly IAiCommandSink _commands;
         private readonly IAiTownQuery _towns;
         private readonly IAiDepotQuery _depots;
+        private readonly ISimWorldView? _world;
+        private readonly AiOwnedState? _owned;
         private readonly AiRoadSupply _roads = new AiRoadSupply();
         private IAiSeatView _seatView = new FixtureAiSeatView();
         private IAiUnitCatalog _catalog = AiUnitCatalog.Empty;
@@ -59,12 +79,34 @@ namespace Wasteland.Sim.Ai
         private readonly string[] _pendingUnitIdScratch = new string[AiConstants.PendingCommandCapacity];
         private string[]? _pendingUnitIds;
         private int _pendingCount;
+        private readonly List<DepotView> _depotScratch = new List<DepotView>();
 
         public AiAttackDefend(IAiCommandSink commands, IAiTownQuery towns, IAiDepotQuery depots)
+            : this(commands, towns, depots, null, null)
+        {
+        }
+
+        public AiAttackDefend(
+            IAiCommandSink commands,
+            IAiTownQuery towns,
+            IAiDepotQuery depots,
+            ISimWorldView? world)
+            : this(commands, towns, depots, world, null)
+        {
+        }
+
+        public AiAttackDefend(
+            IAiCommandSink commands,
+            IAiTownQuery towns,
+            IAiDepotQuery depots,
+            ISimWorldView? world,
+            AiOwnedState? owned)
         {
             _commands = commands ?? throw new ArgumentNullException(nameof(commands));
             _towns = towns ?? throw new ArgumentNullException(nameof(towns));
             _depots = depots ?? throw new ArgumentNullException(nameof(depots));
+            _world = world;
+            _owned = owned;
         }
 
         public static bool StrengthAllowsAttack(int ownStrength, int defenderStrength, int attackStrengthRatioPpt)
@@ -256,6 +298,7 @@ namespace Wasteland.Sim.Ai
             int hqDist = AiConstants.UnreachableCm;
             bool hqPrize = false;
             int hqNodeId = 0;
+            bool seatZonesPresent = TownListHasSeatZones(towns, townCount);
             for (int i = 0; i < townCount; i++)
             {
                 AiAttackTownInfo town = towns[i];
@@ -270,6 +313,11 @@ namespace Wasteland.Sim.Ai
                 }
 
                 bool isPrize = prizeTerritoryKey != 0UL && town.TerritoryStableKey == prizeTerritoryKey;
+                if (!IsAttackableTown(town, isPrize, seatZonesPresent))
+                {
+                    continue;
+                }
+
                 if (readback.OwnerFactionId == 0 && !isPrize)
                 {
                     continue;
@@ -439,6 +487,7 @@ namespace Wasteland.Sim.Ai
             int defendY = 0;
             int worstGap = 0;
             bool defendHq = false;
+            bool seatZonesPresent = TownListHasSeatZones(towns, townCount);
             for (int i = 0; i < townCount; i++)
             {
                 AiAttackTownInfo town = towns[i];
@@ -448,6 +497,11 @@ namespace Wasteland.Sim.Ai
                 }
 
                 bool isOwnHq = town.Id == faction.HomeTownId;
+                if (!IsAttackableTown(town, false, seatZonesPresent) && !isOwnHq)
+                {
+                    continue;
+                }
+
                 if (readback.OwnerFactionId != faction.FactionId && !isOwnHq)
                 {
                     continue;
@@ -516,7 +570,16 @@ namespace Wasteland.Sim.Ai
                 return true;
             }
 
-            Issue(tick, faction, _commands.SubmitMove(faction.FactionId, battalionId, defendX, defendY));
+            if (MoveBlocked(faction, battalionId, CommandKind.Move, defendNodeId, tick))
+            {
+                return true;
+            }
+
+            if (!AlreadyOnTheWay(faction.FactionId, battalionId, defendX, defendY))
+            {
+                Issue(tick, faction, _commands.SubmitMove(faction.FactionId, battalionId, defendX, defendY));
+            }
+
             return true;
         }
 
@@ -620,6 +683,30 @@ namespace Wasteland.Sim.Ai
                         out waitX,
                         out waitY);
                     TryRaise(tick, faction, seat, waitRaiseId, waitX, waitY);
+                    if (TargetOutOfSupply(
+                        graph,
+                        target.NodeId,
+                        networkNodeIds,
+                        networkCount,
+                        faction,
+                        supplyReachCm))
+                    {
+                        TryPlaceForwardDepot(
+                            tick,
+                            faction,
+                            seat,
+                            towns,
+                            townCount,
+                            battalions,
+                            battalionCount,
+                            graph,
+                            networkNodeIds,
+                            networkCount,
+                            target.NodeId,
+                            supplyReachCm,
+                            false);
+                    }
+
                     return;
                 }
 
@@ -629,6 +716,30 @@ namespace Wasteland.Sim.Ai
                     battalions,
                     battalionCount,
                     target);
+                if (TargetOutOfSupply(
+                    graph,
+                    target.NodeId,
+                    networkNodeIds,
+                    networkCount,
+                    faction,
+                    supplyReachCm))
+                {
+                    TryPlaceForwardDepot(
+                        tick,
+                        faction,
+                        seat,
+                        towns,
+                        townCount,
+                        battalions,
+                        battalionCount,
+                        graph,
+                        networkNodeIds,
+                        networkCount,
+                        target.NodeId,
+                        supplyReachCm,
+                        false);
+                }
+
                 return;
             }
 
@@ -668,18 +779,13 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            AiSupplyResult supply = _roads.DistanceToNearestCm(
+            if (TargetOutOfSupply(
                 graph,
                 target.NodeId,
                 networkNodeIds,
                 networkCount,
-                faction);
-            if (DeferIfExhausted(supply))
-            {
-                return;
-            }
-
-            if (supply.IsUnreachable || supply.DistanceCm > supplyReachCm)
+                faction,
+                supplyReachCm))
             {
                 TryPlaceForwardDepot(
                     tick,
@@ -704,7 +810,9 @@ namespace Wasteland.Sim.Ai
                 battalions,
                 battalionCount,
                 string.Empty,
-                false);
+                false,
+                true,
+                target.Id);
             if (_budgetDeferred)
             {
                 return;
@@ -742,15 +850,7 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            int moveId = _commands.SubmitMove(faction.FactionId, battalionId, target.XCm, target.YCm);
-            Issue(tick, faction, moveId);
-            if (_commands.RejectOf(moveId) != AiCommandReject.None)
-            {
-                return;
-            }
-
-            int claimId = _commands.SubmitClaimTown(faction.FactionId, battalionId, target.Id);
-            Issue(tick, faction, claimId);
+            IssueClaimMarch(tick, faction, battalionId, FindPin(battalions, battalionCount, battalionId).UnitId, target);
         }
 
         private void TryPlaceForwardDepot(
@@ -765,9 +865,40 @@ namespace Wasteland.Sim.Ai
             int[] networkNodeIds,
             int networkCount,
             int targetNodeId,
-            int supplyReachCm)
+            int supplyReachCm,
+            bool raiseIfMissing = true)
         {
             if (!CanBuildDepot(seat, _buildings))
+            {
+                return;
+            }
+
+            if (HasPendingDepotIntent(faction))
+            {
+                return;
+            }
+
+            int cap = faction.Depots.Length;
+            if (cap > 0 && _depots.CountSites(faction.FactionId) >= cap)
+            {
+                faction.DepotCapSkips++;
+                return;
+            }
+
+            int inFlightNode = _depots.InFlightNodeId(faction.FactionId, tick);
+            if (inFlightNode != 0 && !IsNodeBlacklisted(faction, inFlightNode))
+            {
+                EnsureBuilderMarchingTo(
+                    tick,
+                    faction,
+                    battalions,
+                    battalionCount,
+                    graph,
+                    inFlightNode);
+                return;
+            }
+
+            if (!CanAffordDepot(_seatView, _buildings))
             {
                 return;
             }
@@ -796,19 +927,31 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < graph.NodeCount; i++)
             {
                 int nodeId = graph.GetNodeId(i);
+                if (IsNodeBlacklisted(faction, nodeId))
+                {
+                    continue;
+                }
+
                 int netDist = _roads.NetworkDistanceAt(i);
                 if (netDist > supplyReachCm)
                 {
                     continue;
                 }
 
-                if (_depots.TryGet(faction.FactionId, nodeId, out AiDepotReadback existing))
+                if (_depots.TryGet(faction.FactionId, nodeId, out _))
                 {
-                    if (!existing.IsActive(tick))
-                    {
-                        return;
-                    }
+                    continue;
+                }
 
+                int nodeX = graph.GetNodeXCm(i);
+                int nodeY = graph.GetNodeYCm(i);
+                if (InUnintendedSeatZone(faction, towns, townCount, nodeX, nodeY))
+                {
+                    continue;
+                }
+
+                if (!DepotSiteAllowed(faction, towns, townCount, graph, i, nodeId))
+                {
                     continue;
                 }
 
@@ -829,8 +972,8 @@ namespace Wasteland.Sim.Ai
 
                 bestRemain = remain;
                 bestNode = nodeId;
-                bestX = graph.GetNodeXCm(i);
-                bestY = graph.GetNodeYCm(i);
+                bestX = nodeX;
+                bestY = nodeY;
             }
 
             if (bestNode == 0)
@@ -852,6 +995,11 @@ namespace Wasteland.Sim.Ai
 
             if (engineerId == 0)
             {
+                if (!raiseIfMissing)
+                {
+                    return;
+                }
+
                 string engineerIdToRaise = SelectRaiseUnit(
                     seat,
                     _catalog,
@@ -886,16 +1034,27 @@ namespace Wasteland.Sim.Ai
 
                 if (escortId != 0 && escortId != engineerId)
                 {
-                    int escortCmd = _commands.SubmitMove(faction.FactionId, escortId, bestX, bestY);
-                    Issue(tick, faction, escortCmd);
-                    if (_commands.RejectOf(escortCmd) != AiCommandReject.None)
+                    AiBattalionPin escort = FindPin(battalions, battalionCount, escortId);
+                    if (escort.RoadNodeId != bestNode
+                        && !AlreadyOnTheWay(faction.FactionId, escortId, bestX, bestY))
                     {
-                        return;
+                        int escortCmd = _commands.SubmitMove(faction.FactionId, escortId, bestX, bestY);
+                        Issue(tick, faction, escortCmd);
+                        if (_commands.RejectOf(escortCmd) != AiCommandReject.None)
+                        {
+                            return;
+                        }
                     }
                 }
             }
 
-            if (engineer.RoadNodeId != bestNode)
+            if (MoveBlocked(faction, engineerId, CommandKind.BuildDepot, bestNode, bestNode, tick))
+            {
+                return;
+            }
+
+            if (engineer.RoadNodeId != bestNode
+                && !AlreadyOnTheWay(faction.FactionId, engineerId, bestX, bestY))
             {
                 int moveId = _commands.SubmitMove(faction.FactionId, engineerId, bestX, bestY);
                 Issue(tick, faction, moveId);
@@ -903,6 +1062,11 @@ namespace Wasteland.Sim.Ai
                 {
                     return;
                 }
+            }
+
+            if (inFlightNode != 0 && inFlightNode != bestNode && !IsNodeBlacklisted(faction, inFlightNode))
+            {
+                return;
             }
 
             int buildId = _commands.SubmitBuildDepot(faction.FactionId, engineerId, bestNode);
@@ -913,6 +1077,103 @@ namespace Wasteland.Sim.Ai
                 faction.DepotSiteTick = built.SiteTick;
                 faction.DepotActiveTick = built.ActiveTick;
             }
+        }
+
+        private bool TargetOutOfSupply(
+            Wasteland.Sim.Movement.RoadGraph graph,
+            int targetNodeId,
+            int[] networkNodeIds,
+            int networkCount,
+            AiFactionState faction,
+            int supplyReachCm)
+        {
+            AiSupplyResult supply = _roads.DistanceToNearestCm(
+                graph,
+                targetNodeId,
+                networkNodeIds,
+                networkCount,
+                faction);
+            if (DeferIfExhausted(supply))
+            {
+                return false;
+            }
+
+            return supply.IsUnreachable || supply.DistanceCm > supplyReachCm;
+        }
+
+        private static bool HasPendingDepotIntent(AiFactionState faction)
+        {
+            for (int i = 0; i < faction.IntentCount; i++)
+            {
+                if (faction.Intents[i].Kind == AiIssuedKind.BuildDepot)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsNodeBlacklisted(AiFactionState faction, int nodeId)
+        {
+            if (_owned == null)
+            {
+                return false;
+            }
+
+            return _owned.IsDepotNodeBlacklisted(faction.FactionId, nodeId);
+        }
+
+        private bool DepotSiteAllowed(
+            AiFactionState faction,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            Wasteland.Sim.Movement.RoadGraph graph,
+            int nodeIndex,
+            int nodeId)
+        {
+            if (_world == null)
+            {
+                return true;
+            }
+
+            int territoryId = _world.GetNodeTerritoryId(nodeId);
+            if (territoryId == 0)
+            {
+                territoryId = graph.GetNodeTerritoryId(nodeIndex);
+            }
+
+            if (!NodeTerritoryOwned(faction, towns, townCount, territoryId))
+            {
+                return false;
+            }
+
+            return _world.PreviewDepotPlacement(faction.FactionId, nodeId, out _, out _)
+                == CommandRejectReason.None;
+        }
+
+        private bool NodeTerritoryOwned(
+            AiFactionState faction,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            int territoryId)
+        {
+            ulong key = 0UL;
+            for (int i = 0; i < townCount; i++)
+            {
+                if (towns[i].TerritoryId == territoryId)
+                {
+                    key = towns[i].TerritoryStableKey;
+                    break;
+                }
+            }
+
+            if (key != 0UL && _world != null && _world.TryGetTerritory(key, out TerritoryView view))
+            {
+                return view.OwnerFactionId == faction.FactionId;
+            }
+
+            return faction.HomeTerritoryId == territoryId;
         }
 
         public static string SelectRaiseUnit(
@@ -1099,6 +1360,7 @@ namespace Wasteland.Sim.Ai
                 return false;
             }
 
+            bool seatZonesPresent = TownListHasSeatZones(towns, townCount);
             for (int i = 0; i < townCount; i++)
             {
                 AiAttackTownInfo town = towns[i];
@@ -1112,6 +1374,11 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
+                if (!IsAttackableTown(town, false, seatZonesPresent) && town.Id != faction.HomeTownId)
+                {
+                    continue;
+                }
+
                 if (readback.StrengthOf(faction.FactionId) < _minGarrisonPerTown)
                 {
                     return true;
@@ -1119,6 +1386,39 @@ namespace Wasteland.Sim.Ai
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Seat stock vs the catalog depot cost. False when the catalog has a
+        /// cost and manpower, materiel, or (when fuel is on) fuel is short.
+        /// True when the catalog has no cost so harness fixtures still place.
+        /// </summary>
+        internal static bool CanAffordDepot(IAiSeatView seatView, IAiBuildingCatalog catalog)
+        {
+            if (seatView == null || catalog == null)
+            {
+                return false;
+            }
+
+            int manpower;
+            int materiel;
+            int fuel;
+            if (!catalog.TryGetBuildCost(AiConstants.BuildingIdSupplyDepot, out manpower, out materiel, out fuel))
+            {
+                return true;
+            }
+
+            if (seatView.Manpower < manpower || seatView.Materials < materiel)
+            {
+                return false;
+            }
+
+            if (seatView.FuelEnabled && seatView.Fuel < fuel)
+            {
+                return false;
+            }
+
+            return true;
         }
 
         internal static bool CanBuildDepot(AiScenarioSeatView seat, IAiBuildingCatalog catalog)
@@ -1193,6 +1493,72 @@ namespace Wasteland.Sim.Ai
             return string.Empty;
         }
 
+        private static bool TownListHasSeatZones(AiAttackTownInfo[] towns, int townCount)
+        {
+            for (int i = 0; i < townCount; i++)
+            {
+                if (towns[i].ZoneRadiusCm > 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool IsAttackableTown(AiAttackTownInfo town, bool isPrize, bool seatZonesPresent)
+        {
+            if (!seatZonesPresent || isPrize || town.IsHq)
+            {
+                return true;
+            }
+
+            return town.ZoneRadiusCm > 0;
+        }
+
+        /// <summary>
+        /// True when (x,y) sits in another seat town's capture zone and this
+        /// faction is not attacking, defending, or home-holding that town.
+        /// </summary>
+        internal static bool InUnintendedSeatZone(
+            AiFactionState faction,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            int xCm,
+            int yCm)
+        {
+            if (faction == null || towns == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < townCount; i++)
+            {
+                AiAttackTownInfo town = towns[i];
+                if (town.ZoneRadiusCm <= 0)
+                {
+                    continue;
+                }
+
+                if (town.Id == faction.HomeTownId
+                    || town.Id == faction.AttackTargetTownId
+                    || town.Id == faction.DefendTownId)
+                {
+                    continue;
+                }
+
+                long dx = (long)xCm - town.XCm;
+                long dy = (long)yCm - town.YCm;
+                long radius = town.ZoneRadiusCm;
+                if ((dx * dx) + (dy * dy) <= radius * radius)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         private bool PathNearEnemy(
             AiFactionState faction,
             AiAttackTownInfo[] towns,
@@ -1256,6 +1622,7 @@ namespace Wasteland.Sim.Ai
         private void Issue(int tick, AiFactionState faction, int commandId)
         {
             faction.LastIssuedCommandId = commandId;
+            faction.LastIssuedSequence = _commands.LastSequence;
             AiCommandReject reject = _commands.RejectOf(commandId);
             if (reject == AiCommandReject.None)
             {
@@ -1266,6 +1633,10 @@ namespace Wasteland.Sim.Ai
             }
 
             NoteReject(tick, faction, reject);
+            if (reject != AiCommandReject.InsufficientManpower)
+            {
+                NoteIssuedReject(tick, faction, commandId);
+            }
         }
 
         private static void NoteReject(int tick, AiFactionState faction, AiCommandReject reject)
@@ -1300,7 +1671,9 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            AiCommandReject reject = _commands.RejectOf(faction.LastIssuedCommandId);
+            AiCommandReject reject = faction.LastIssuedSequence != 0
+                ? _commands.RejectOfSequence(faction.FactionId, faction.LastIssuedSequence)
+                : _commands.RejectOf(faction.LastIssuedCommandId);
             if (reject == AiCommandReject.None)
             {
                 return;
@@ -1460,6 +1833,16 @@ namespace Wasteland.Sim.Ai
                 get { return _inner.Materials; }
             }
 
+            public int Fuel
+            {
+                get { return _inner.Fuel; }
+            }
+
+            public bool FuelEnabled
+            {
+                get { return _inner.FuelEnabled; }
+            }
+
             public int PopUsed
             {
                 get { return _inner.PopUsed + _reservedPop; }
@@ -1581,7 +1964,7 @@ namespace Wasteland.Sim.Ai
                     break;
                 }
 
-                DispatchPrizeBattalion(tick, faction, pin.Id, target);
+                DispatchPrizeBattalion(tick, faction, pin, target);
                 riflesTaken++;
             }
 
@@ -1593,31 +1976,27 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                DispatchPrizeBattalion(tick, faction, pin.Id, target);
+                DispatchPrizeBattalion(tick, faction, pin, target);
             }
         }
 
         private void DispatchPrizeBattalion(
             int tick,
             AiFactionState faction,
-            int battalionId,
+            AiBattalionPin pin,
             AiAttackTownInfo target)
         {
-            if (HasPrizeOrder(faction, battalionId, target.Id))
+            if (HasPrizeOrder(faction, pin.Id, target.Id))
             {
                 return;
             }
 
-            int moveId = _commands.SubmitMove(faction.FactionId, battalionId, target.XCm, target.YCm);
-            Issue(tick, faction, moveId);
-            if (_commands.RejectOf(moveId) != AiCommandReject.None)
+            if (!IssueClaimMarch(tick, faction, pin.Id, pin.UnitId, target))
             {
                 return;
             }
 
-            int claimId = _commands.SubmitClaimTown(faction.FactionId, battalionId, target.Id);
-            Issue(tick, faction, claimId);
-            EnsurePrizeOrder(faction, battalionId, target.Id, target.TerritoryId);
+            EnsurePrizeOrder(faction, pin.Id, target.Id, target.TerritoryId);
         }
 
         private static bool HasPrizeOrder(AiFactionState faction, int battalionId, int townId)
@@ -1948,6 +2327,391 @@ namespace Wasteland.Sim.Ai
             return found;
         }
 
+        private bool IssueClaimMarch(
+            int tick,
+            AiFactionState faction,
+            int battalionId,
+            string unitId,
+            AiAttackTownInfo target)
+        {
+            if (!UnitCanCapture(unitId, battalionId))
+            {
+                return false;
+            }
+
+            if (MoveBlocked(faction, battalionId, CommandKind.ClaimTown, target.Id, target.NodeId, tick))
+            {
+                return false;
+            }
+
+            if (!AlreadyOnTheWay(faction.FactionId, battalionId, target.XCm, target.YCm)
+                && !BattalionOccupiesClaim(faction, battalionId, target))
+            {
+                int moveId = _commands.SubmitMove(faction.FactionId, battalionId, target.XCm, target.YCm);
+                Issue(tick, faction, moveId);
+                if (_commands.RejectOf(moveId) != AiCommandReject.None)
+                {
+                    return false;
+                }
+            }
+
+            if (ShouldSkipClaimTown(faction, battalionId, target))
+            {
+                return true;
+            }
+
+            int claimId = _commands.SubmitClaimTown(faction.FactionId, battalionId, target.Id);
+            Issue(tick, faction, claimId);
+            if (_commands.RejectOf(claimId) != AiCommandReject.None)
+            {
+                return false;
+            }
+
+            if (_owned != null)
+            {
+                _owned.NoteAcceptedClaimTown(faction.FactionId, target.Id);
+            }
+
+            return true;
+        }
+
+        internal static bool ClaimTownIsOccupiedBy(
+            TownView town,
+            int factionId,
+            int battalionXCm,
+            int battalionYCm)
+        {
+            if (town.OwnerFactionId == factionId || town.CaptureFactionId == factionId)
+            {
+                return true;
+            }
+
+            if (town.ZoneRadiusCm <= 0)
+            {
+                return false;
+            }
+
+            long dx = (long)battalionXCm - town.XCm;
+            long dy = (long)battalionYCm - town.YCm;
+            long radiusSq = (long)town.ZoneRadiusCm * town.ZoneRadiusCm;
+            return (dx * dx) + (dy * dy) <= radiusSq;
+        }
+
+        private bool BattalionOccupiesClaim(
+            AiFactionState faction,
+            int battalionId,
+            AiAttackTownInfo target)
+        {
+            if (_world == null || battalionId == 0)
+            {
+                return false;
+            }
+
+            if (!_world.TryGetTown(target.Id, out TownView town))
+            {
+                return false;
+            }
+
+            if (!_world.TryGetOwnBattalion(faction.FactionId, battalionId, out SimBattalion battalion))
+            {
+                return false;
+            }
+
+            return ClaimTownIsOccupiedBy(
+                town,
+                faction.FactionId,
+                battalion.PositionXCm,
+                battalion.PositionYCm);
+        }
+
+        private bool ShouldSkipClaimTown(AiFactionState faction, int battalionId, AiAttackTownInfo target)
+        {
+            if (_owned != null)
+            {
+                if (_owned.HasPendingClaimTown(faction.FactionId, target.Id))
+                {
+                    return true;
+                }
+
+                if (_owned.AcceptedClaimTowns(faction.FactionId, target.Id)
+                    >= AiConstants.MaxClaimTownsPerSeatTown)
+                {
+                    return true;
+                }
+            }
+
+            if (_world == null || !_world.TryGetTown(target.Id, out TownView town))
+            {
+                return false;
+            }
+
+            if (town.OwnerFactionId == faction.FactionId || town.CaptureFactionId == faction.FactionId)
+            {
+                return true;
+            }
+
+            return BattalionOccupiesClaim(faction, battalionId, target);
+        }
+
+        private void EnsureBuilderMarchingTo(
+            int tick,
+            AiFactionState faction,
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            Wasteland.Sim.Movement.RoadGraph graph,
+            int nodeId)
+        {
+            if (nodeId == 0 || _world == null || !graph.TryGetNodeIndex(nodeId, out int nodeIndex))
+            {
+                return;
+            }
+
+            int builderId = 0;
+            _world.CopyDepots(_depotScratch);
+            for (int i = 0; i < _depotScratch.Count; i++)
+            {
+                DepotView depot = _depotScratch[i];
+                if (depot.OwnerFactionId != faction.FactionId || depot.NodeId != nodeId)
+                {
+                    continue;
+                }
+
+                if (depot.State == DepotSiteState.Active)
+                {
+                    continue;
+                }
+
+                builderId = depot.BuilderBattalionId;
+                break;
+            }
+
+            if (builderId == 0)
+            {
+                return;
+            }
+
+            if (MoveBlocked(faction, builderId, CommandKind.BuildDepot, nodeId, nodeId, tick))
+            {
+                return;
+            }
+
+            if (!_world.TryGetOwnBattalion(faction.FactionId, builderId, out SimBattalion battalion)
+                || battalion.StrengthPpt <= 0)
+            {
+                return;
+            }
+
+            if (battalion.HasTarget)
+            {
+                return;
+            }
+
+            AiBattalionPin pin = FindPin(battalions, battalionCount, builderId);
+            int atNode = pin.Id == builderId ? pin.RoadNodeId : 0;
+            if (atNode == nodeId)
+            {
+                return;
+            }
+
+            int moveId = _commands.SubmitMove(
+                faction.FactionId,
+                builderId,
+                graph.GetNodeXCm(nodeIndex),
+                graph.GetNodeYCm(nodeIndex));
+            Issue(tick, faction, moveId);
+        }
+
+        private bool AlreadyOnTheWay(int factionId, int battalionId, int xCm, int yCm)
+        {
+            if (_world == null || battalionId == 0)
+            {
+                return false;
+            }
+
+            if (!_world.TryGetOwnBattalion(factionId, battalionId, out SimBattalion battalion))
+            {
+                return false;
+            }
+
+            return IsMarchingTo(battalion, xCm, yCm);
+        }
+
+        /// <summary>
+        /// A road move is only "already going there" when the last waypoint is
+        /// the new dest. Any other dest can pull the unit off the march.
+        /// </summary>
+        internal static bool IsMarchingTo(SimBattalion battalion, int xCm, int yCm)
+        {
+            if (!battalion.HasTarget)
+            {
+                return false;
+            }
+
+            if (battalion.PathCount > 0)
+            {
+                if (battalion.PathXCm == null || battalion.PathYCm == null)
+                {
+                    return false;
+                }
+
+                int last = battalion.PathCount - 1;
+                if (last >= battalion.PathXCm.Length || last >= battalion.PathYCm.Length)
+                {
+                    return false;
+                }
+
+                return battalion.PathXCm[last] == xCm && battalion.PathYCm[last] == yCm;
+            }
+
+            return battalion.TargetXCm == xCm && battalion.TargetYCm == yCm;
+        }
+
+        private bool UnitCanCapture(string unitId)
+        {
+            return UnitCanCapture(unitId, 0);
+        }
+
+        private bool UnitCanCapture(string unitId, int battalionId)
+        {
+            if (!string.IsNullOrEmpty(unitId)
+                && _catalog.TryGetCanCapture(unitId, out bool canCapture))
+            {
+                return canCapture;
+            }
+
+            if (battalionId != 0
+                && _world != null
+                && _world.TryGetBattalionView(battalionId, out BattalionView view)
+                && !string.IsNullOrEmpty(view.UnitId)
+                && _catalog.TryGetCanCapture(view.UnitId, out bool fromView))
+            {
+                return fromView;
+            }
+
+            return false;
+        }
+
+        private bool MoveBlocked(
+            AiFactionState faction,
+            int battalionId,
+            CommandKind kind,
+            int targetId,
+            int tick)
+        {
+            return MoveBlocked(faction, battalionId, kind, targetId, 0, tick);
+        }
+
+        private bool MoveBlocked(
+            AiFactionState faction,
+            int battalionId,
+            CommandKind kind,
+            int targetId,
+            int moveNodeId,
+            int tick)
+        {
+            if (_owned == null || battalionId == 0)
+            {
+                return false;
+            }
+
+            if (_owned.IsOrderBackedOff(faction.FactionId, battalionId, kind, targetId, tick))
+            {
+                return true;
+            }
+
+            if (kind == CommandKind.Move)
+            {
+                return false;
+            }
+
+            return moveNodeId != 0
+                && _owned.IsOrderBackedOff(
+                    faction.FactionId,
+                    battalionId,
+                    CommandKind.Move,
+                    moveNodeId,
+                    tick);
+        }
+
+        private void NoteIssuedReject(int tick, AiFactionState faction, int commandId)
+        {
+            if (_owned == null || commandId == 0)
+            {
+                return;
+            }
+
+            IReadOnlyList<AiIssuedCommand> issued = _commands.IssuedCommands;
+            if (issued == null)
+            {
+                return;
+            }
+
+            for (int i = issued.Count - 1; i >= 0; i--)
+            {
+                AiIssuedCommand cmd = issued[i];
+                if (cmd.Id != commandId || cmd.FactionId != faction.FactionId)
+                {
+                    continue;
+                }
+
+                CommandKind kind = CommandKindOf(cmd.Kind);
+                int battalionId = cmd.Arg0;
+                int targetId = TargetOfIssued(cmd);
+                if (kind == CommandKind.RaiseBattalion || battalionId == 0)
+                {
+                    return;
+                }
+
+                _owned.NoteOrderReject(faction.FactionId, battalionId, kind, targetId, tick);
+                return;
+            }
+        }
+
+        private static CommandKind CommandKindOf(AiIssuedKind kind)
+        {
+            if (kind == AiIssuedKind.ClaimTown)
+            {
+                return CommandKind.ClaimTown;
+            }
+
+            if (kind == AiIssuedKind.BuildDepot)
+            {
+                return CommandKind.BuildDepot;
+            }
+
+            if (kind == AiIssuedKind.RaiseBattalion)
+            {
+                return CommandKind.RaiseBattalion;
+            }
+
+            return CommandKind.Move;
+        }
+
+        private int TargetOfIssued(AiIssuedCommand cmd)
+        {
+            if (cmd.Kind == AiIssuedKind.ClaimTown || cmd.Kind == AiIssuedKind.BuildDepot)
+            {
+                return cmd.Arg1;
+            }
+
+            if (cmd.Kind == AiIssuedKind.Move)
+            {
+                return MoveDestinationNode(_world, cmd.Arg1, cmd.Arg2);
+            }
+
+            return 0;
+        }
+
+        internal static int MoveDestinationNode(ISimWorldView? world, int xCm, int yCm)
+        {
+            if (world == null)
+            {
+                return 0;
+            }
+
+            return world.GetNearestNodeId(xCm, yCm);
+        }
+
         private int NearestIdle(
             AiFactionState faction,
             Wasteland.Sim.Movement.RoadGraph graph,
@@ -1956,7 +2720,7 @@ namespace Wasteland.Sim.Ai
             int battalionCount,
             string role)
         {
-            return NearestIdle(faction, graph, toNodeId, battalions, battalionCount, role, false);
+            return NearestIdle(faction, graph, toNodeId, battalions, battalionCount, role, false, false, 0);
         }
 
         private int NearestIdle(
@@ -1967,6 +2731,20 @@ namespace Wasteland.Sim.Ai
             int battalionCount,
             string role,
             bool prizeMarch)
+        {
+            return NearestIdle(faction, graph, toNodeId, battalions, battalionCount, role, prizeMarch, false, 0);
+        }
+
+        private int NearestIdle(
+            AiFactionState faction,
+            Wasteland.Sim.Movement.RoadGraph graph,
+            int toNodeId,
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            string role,
+            bool prizeMarch,
+            bool capturersOnly,
+            int claimTownId)
         {
             int bestId = 0;
             int bestDist = AiConstants.UnreachableCm;
@@ -1984,6 +2762,23 @@ namespace Wasteland.Sim.Ai
                 }
 
                 if (!string.IsNullOrEmpty(role) && !pin.HasRole(_catalog, role))
+                {
+                    continue;
+                }
+
+                if (capturersOnly && !UnitCanCapture(pin.UnitId, pin.Id))
+                {
+                    continue;
+                }
+
+                if (claimTownId != 0
+                    && MoveBlocked(
+                        faction,
+                        pin.Id,
+                        CommandKind.ClaimTown,
+                        claimTownId,
+                        toNodeId,
+                        _commands.Tick))
                 {
                     continue;
                 }

@@ -4,6 +4,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.Json.Nodes;
 using Wasteland.Sim.Ai;
+using Wasteland.Sim.Events;
 using Wasteland.Sim.Random;
 using Wasteland.Sim.Scenario;
 using Xunit;
@@ -68,6 +69,36 @@ namespace Wasteland.Sim.Tests
             AiBalanceTables tables = BalanceLoad.Tables();
             Assert.True(tables.BuildingCatalog.TryGetBuildingRole("supply_depot", out string role));
             Assert.Equal(AiConstants.BuildingRoleSupplyDepot, role);
+            Assert.True(tables.BuildingCatalog.TryGetBuildCost(
+                "supply_depot",
+                out int manpower,
+                out int materiel,
+                out int fuel));
+            Assert.Equal(0, manpower);
+            Assert.Equal(200, materiel);
+            Assert.Equal(50, fuel);
+        }
+
+        [Fact]
+        public void CanAffordDepot_ChecksCatalogCostAndSkipsEmptyHarness()
+        {
+            IAiBuildingCatalog priced = AiBuildingCatalog.Parse(
+                "{\"buildings\":{\"supply_depot\":{\"category\":\"economy\",\"role\":\"supply_depot\","
+                + "\"cost\":{\"manpower\":0,\"materiel\":200,\"fuel\":50}}}}");
+            FixtureAiSeatView shortStock = new FixtureAiSeatView();
+            shortStock.Materials = 199;
+            Assert.False(AiAttackDefend.CanAffordDepot(shortStock, priced));
+            FixtureAiSeatView stocked = new FixtureAiSeatView();
+            stocked.Materials = 200;
+            Assert.True(AiAttackDefend.CanAffordDepot(stocked, priced));
+            stocked.FuelEnabled = true;
+            Assert.False(AiAttackDefend.CanAffordDepot(stocked, priced));
+            stocked.Fuel = 50;
+            Assert.True(AiAttackDefend.CanAffordDepot(stocked, priced));
+            Assert.True(AiAttackDefend.CanAffordDepot(shortStock, AiBuildingCatalog.Empty));
+            Assert.True(EnemyAi.IsSeatWideStockReject(CommandRejectReason.InsufficientMaterials));
+            Assert.True(EnemyAi.IsSeatWideStockReject(CommandRejectReason.InsufficientFuel));
+            Assert.False(EnemyAi.IsSeatWideStockReject(CommandRejectReason.DepotTooClose));
         }
 
         [Fact]
@@ -289,6 +320,8 @@ namespace Wasteland.Sim.Tests
             FixtureAiSeatView view = new FixtureAiSeatView();
             view.Tier2ResearchTicks = tables.Tier2ResearchTicks;
             view.Manpower = seat.StartingManpower;
+            view.Materials = 500;
+            view.Fuel = 400;
             view.Refresh(seat, 0);
             faction.WorkUnitsThisTick = 0;
             sink.Tick = 0;
@@ -304,7 +337,7 @@ namespace Wasteland.Sim.Tests
                 1,
                 map.Roads,
                 tables.GetDifficulty(AiConstants.DifficultyNormal).AttackStrengthRatioPpt,
-                tables.DepotRangeCm,
+                1,
                 seats.NeutralPrizeTerritoryKey,
                 personality.PrizeTargetBonusPpt,
                 view,

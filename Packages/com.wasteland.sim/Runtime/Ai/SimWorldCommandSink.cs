@@ -2,22 +2,28 @@ using System;
 using System.Collections.Generic;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.Events;
+using Wasteland.Sim.Movement;
 using Wasteland.Sim.World;
 
 namespace Wasteland.Sim.Ai
 {
     /// <summary>
     /// Adapter: spawn, move, claim, and depot commands go through <see cref="SimWorld.Submit"/>.
-    /// <see cref="CommandKind.Build"/> stays reserved and is not forwarded.
     /// </summary>
     public sealed class SimWorldCommandSink : ISimCommandSink, ISimWorldView, ICaptureOccupancyView
     {
         private readonly SimWorld _world;
+        private RoadGraph? _roads;
         private int _lastSequence;
 
         public SimWorldCommandSink(SimWorld world)
         {
             _world = world ?? throw new ArgumentNullException(nameof(world));
+        }
+
+        public void BindRoads(RoadGraph roads)
+        {
+            _roads = roads;
         }
 
         public int LastSequence
@@ -47,11 +53,6 @@ namespace Wasteland.Sim.Ai
                 command = command.WithIssuedTick(Tick);
             }
 
-            if (command.Kind == CommandKind.Build)
-            {
-                return command;
-            }
-
             SimCommand stamped = _world.Submit(command);
             _lastSequence = stamped.Sequence;
             return stamped;
@@ -75,6 +76,27 @@ namespace Wasteland.Sim.Ai
         public bool TryGetRejection(int subjectId, out CommandRejectReason code, out int param0, out int param1)
         {
             return _world.TryGetRejection(subjectId, out code, out param0, out param1);
+        }
+
+        public bool TryGetRejectionByKey(ulong key, out CommandRejectReason code, out int param0, out int param1)
+        {
+            IReadOnlyList<SimEvent> events = _world.Events;
+            for (int i = events.Count - 1; i >= 0; i--)
+            {
+                SimEvent ev = events[i];
+                if (ev.Kind == SimEventKind.CommandRejected && ev.Key == key)
+                {
+                    code = ev.RejectReason;
+                    param0 = ev.Param0;
+                    param1 = ev.Param1;
+                    return true;
+                }
+            }
+
+            code = CommandRejectReason.None;
+            param0 = 0;
+            param1 = 0;
+            return false;
         }
 
         public bool HasBattalionRaiseStarted(int battalionId)
@@ -131,6 +153,43 @@ namespace Wasteland.Sim.Ai
             _world.CopyEventsInRange(fromTick, toTick, into);
         }
 
+        public int GetNodeTerritoryId(int nodeId)
+        {
+            if (_roads == null || !_roads.TryGetNodeIndex(nodeId, out int index))
+            {
+                return 0;
+            }
+
+            return _roads.GetNodeTerritoryId(index);
+        }
+
+        public int GetNearestNodeId(int xCm, int yCm)
+        {
+            if (_roads == null || _roads.NodeCount < 1)
+            {
+                return 0;
+            }
+
+            int bestIndex = 0;
+            int bestId = _roads.GetNodeId(0);
+            long bestDist = long.MaxValue;
+            for (int i = 0; i < _roads.NodeCount; i++)
+            {
+                long dx = (long)_roads.GetNodeXCm(i) - xCm;
+                long dy = (long)_roads.GetNodeYCm(i) - yCm;
+                long dist = (dx * dx) + (dy * dy);
+                int id = _roads.GetNodeId(i);
+                if (dist < bestDist || (dist == bestDist && id < bestId))
+                {
+                    bestDist = dist;
+                    bestId = id;
+                    bestIndex = i;
+                }
+            }
+
+            return _roads.GetNodeId(bestIndex);
+        }
+
         public CommandRejectReason PreviewDepotPlacement(int factionId, int nodeId, out int param0, out int param1)
         {
             return _world.PreviewDepotPlacement(factionId, nodeId, out param0, out param1);
@@ -139,6 +198,11 @@ namespace Wasteland.Sim.Ai
         public bool TryGetSeat(int factionId, out SeatView view)
         {
             return _world.TryGetSeat(factionId, out view);
+        }
+
+        public int FuelOf(int factionId)
+        {
+            return _world.FuelOf(factionId);
         }
 
         public bool TryGetBattalionView(int battalionId, out BattalionView view)

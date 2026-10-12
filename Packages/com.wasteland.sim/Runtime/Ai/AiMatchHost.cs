@@ -204,13 +204,7 @@ namespace Wasteland.Sim.Ai
             {
                 while (cursor < commands.Count && commands[cursor].IssuedTick == world.Tick)
                 {
-                    // Build is AI-sink-owned in M1; replaying it into SimWorld
-                    // would UnknownKind-reject.
-                    if (commands[cursor].Kind != CommandKind.Build)
-                    {
-                        world.Submit(commands[cursor]);
-                    }
-
+                    world.Submit(commands[cursor]);
                     cursor++;
                 }
 
@@ -250,16 +244,29 @@ namespace Wasteland.Sim.Ai
                 mapName,
                 MvpScenarioId);
             world.BindCatalog(catalog);
-            for (int i = 0; i < factionIds.Length; i++)
+            int[] worldFactions = new int[scenario.SeatCount];
+            for (int i = 0; i < worldFactions.Length; i++)
             {
-                int factionId = factionIds[i];
+                worldFactions[i] = i + 1;
+            }
+
+            ai.Owned.BindMatchSeatIds(worldFactions);
+            for (int i = 0; i < worldFactions.Length; i++)
+            {
+                int factionId = worldFactions[i];
                 if (!TryMvpSeat(scenario, factionId, out ScenarioSeat scenarioSeat))
                 {
                     continue;
                 }
 
-                AiFactionState faction = ai.Owned.GetFaction(factionId);
-                if (!ai.Map.TryGetTown(faction.HomeTownId, out AiTownRecord town)
+                int homeTownId = scenarioSeat.HomeTownId;
+                AiFactionState aiFaction;
+                if (ai.Owned.TryGetFaction(factionId, out aiFaction))
+                {
+                    homeTownId = aiFaction.HomeTownId;
+                }
+
+                if (!ai.Map.TryGetTown(homeTownId, out AiTownRecord town)
                     || (town.XCm == 0 && town.YCm == 0))
                 {
                     throw new InvalidOperationException(

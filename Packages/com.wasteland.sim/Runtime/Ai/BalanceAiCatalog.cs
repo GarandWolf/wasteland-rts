@@ -61,6 +61,18 @@ namespace Wasteland.Sim.Ai
             moveClass = _inner.UnitMoveClassAt(index);
             return true;
         }
+
+        public bool TryGetCanCapture(string unitId, out bool canCapture)
+        {
+            if (!_inner.TryGetUnitIndex(unitId, out int index))
+            {
+                canCapture = false;
+                return false;
+            }
+
+            canCapture = _inner.UnitCanCaptureAt(index);
+            return true;
+        }
     }
 
     /// <summary>
@@ -71,15 +83,58 @@ namespace Wasteland.Sim.Ai
     public sealed class BalanceAiBuildingCatalog : IAiBuildingCatalog
     {
         private readonly BalanceCatalog _inner;
+        private readonly int _depotManpower;
+        private readonly int _depotMateriel;
+        private readonly int _depotFuel;
+        private readonly bool _haveDepotCost;
 
         public BalanceAiBuildingCatalog(BalanceCatalog inner)
+            : this(inner, 0, 0, 0, false)
+        {
+        }
+
+        public BalanceAiBuildingCatalog(
+            BalanceCatalog inner,
+            int depotManpower,
+            int depotMateriel,
+            int depotFuel)
+            : this(inner, depotManpower, depotMateriel, depotFuel, true)
+        {
+        }
+
+        private BalanceAiBuildingCatalog(
+            BalanceCatalog inner,
+            int depotManpower,
+            int depotMateriel,
+            int depotFuel,
+            bool haveDepotCost)
         {
             _inner = inner ?? throw new ArgumentNullException(nameof(inner));
+            _depotManpower = depotManpower;
+            _depotMateriel = depotMateriel;
+            _depotFuel = depotFuel;
+            _haveDepotCost = haveDepotCost;
         }
 
         public bool TryGetBuildingRole(string buildingId, out string role)
         {
             return _inner.TryGetBuildingRole(buildingId, out role);
+        }
+
+        public bool TryGetBuildCost(string buildingId, out int manpower, out int materiel, out int fuel)
+        {
+            manpower = 0;
+            materiel = 0;
+            fuel = 0;
+            if (!_haveDepotCost || buildingId != AiConstants.BuildingIdSupplyDepot)
+            {
+                return false;
+            }
+
+            manpower = _depotManpower;
+            materiel = _depotMateriel;
+            fuel = _depotFuel;
+            return true;
         }
     }
 
