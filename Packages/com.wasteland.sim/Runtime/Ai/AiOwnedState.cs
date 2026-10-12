@@ -45,7 +45,7 @@ namespace Wasteland.Sim.Ai
     /// <summary>
     /// A ClaimTown or BuildDepot still in the world queue. <see cref="Sequence"/>
     /// is the value <see cref="ISimCommandSink.LastSequence"/> returned at enqueue
-    /// and matches CommandRejected.Key = (issuer &lt;&lt; 32) | sequence.
+    /// and matches CommandRejected.Key = (issuer << 32) | sequence.
     /// </summary>
     public struct AiPendingIntent
     {
@@ -889,7 +889,7 @@ namespace Wasteland.Sim.Ai
 
         /// <summary>
         /// Live backoff still uses <see cref="AiOrderBackoffEntry.UntilTick"/>.
-        /// Expired rows stay so the next reject on the same key can double.
+        /// Expired rows stay so the next reject on the same key can grow 2x.
         /// Only <see cref="NoteOrderSuccess"/> clears a streak.
         /// </summary>
         public void ExpireOrderBackoff(int tick)
