@@ -1633,10 +1633,22 @@ namespace Wasteland.Sim.Ai
             }
 
             NoteReject(tick, faction, reject);
-            if (reject != AiCommandReject.InsufficientManpower)
+            if (!SkipsKeyedOrderBackoff(reject))
             {
                 NoteIssuedReject(tick, faction, commandId);
             }
+        }
+
+        /// <summary>
+        /// Seat stock shortfalls wait on the seat-wide backoff from
+        /// <see cref="NoteReject"/>. They do not take a keyed order-backoff row.
+        /// Manpower, materials, and fuel share that skip.
+        /// </summary>
+        private static bool SkipsKeyedOrderBackoff(AiCommandReject reject)
+        {
+            return reject == AiCommandReject.InsufficientManpower
+                || reject == AiCommandReject.InsufficientMaterials
+                || reject == AiCommandReject.InsufficientFuel;
         }
 
         private static void NoteReject(int tick, AiFactionState faction, AiCommandReject reject)

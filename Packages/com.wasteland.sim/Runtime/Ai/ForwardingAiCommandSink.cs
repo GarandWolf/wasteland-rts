@@ -132,11 +132,19 @@ namespace Wasteland.Sim.Ai
                 return AiCommandReject.PopCapReached;
             }
 
-            if (code == CommandRejectReason.InsufficientManpower
-                || code == CommandRejectReason.InsufficientMaterials
-                || code == CommandRejectReason.InsufficientFuel)
+            if (code == CommandRejectReason.InsufficientManpower)
             {
                 return AiCommandReject.InsufficientManpower;
+            }
+
+            if (code == CommandRejectReason.InsufficientMaterials)
+            {
+                return AiCommandReject.InsufficientMaterials;
+            }
+
+            if (code == CommandRejectReason.InsufficientFuel)
+            {
+                return AiCommandReject.InsufficientFuel;
             }
 
             if (code == CommandRejectReason.None)
