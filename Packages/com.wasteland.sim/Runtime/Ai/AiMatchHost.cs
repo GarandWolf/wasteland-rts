@@ -546,6 +546,7 @@ namespace Wasteland.Sim.Ai
             byte[] terrainBlob = File.ReadAllBytes(terrainPath);
             MovementService movement = MovementService.Create(mapBlob, terrainBlob, MovementTables.Default());
             world.BindRoads(movement, Wrmb.ReadRoadGraph(mapBlob));
+            world.BindCombatTerrain(CombatTerrain.Read(terrainBlob));
         }
 
         private static string MvpMapPath(string balanceDir)

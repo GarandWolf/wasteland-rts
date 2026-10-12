@@ -26,7 +26,8 @@ namespace Wasteland.Sim.Scenario
             ScenarioSeat[] seats,
             ScenarioMatchRules matchRules,
             ScenarioDerived derived,
-            ulong[] neutralTerritoryKeys)
+            ulong[] neutralTerritoryKeys,
+            ScenarioGarrison[] garrisons)
         {
             DataVersion = dataVersion;
             Id = id;
@@ -39,6 +40,7 @@ namespace Wasteland.Sim.Scenario
             MatchRules = matchRules;
             Derived = derived;
             NeutralTerritoryKeys = neutralTerritoryKeys;
+            Garrisons = garrisons ?? Array.Empty<ScenarioGarrison>();
         }
 
         public int DataVersion { get; }
@@ -66,6 +68,9 @@ namespace Wasteland.Sim.Scenario
 
         /// <summary>Map territories no seat holds at start, sorted by stable key.</summary>
         public ulong[] NeutralTerritoryKeys { get; }
+
+        /// <summary>Neutral garrisons in file order. Empty when the scenario lists none.</summary>
+        public ScenarioGarrison[] Garrisons { get; }
 
         public int SeatCount
         {

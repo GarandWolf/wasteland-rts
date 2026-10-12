@@ -99,6 +99,12 @@ namespace Wasteland.Sim.Commands
             return new SimCommand(issuedTick, issuerId, builderBattalionId, CommandKind.BuildDepot, nodeId, 0, 0);
         }
 
+        /// <summary>Order a battalion to attack another. Arg0 is the target battalion id.</summary>
+        public static SimCommand Attack(int issuedTick, int issuerId, int battalionId, int targetBattalionId)
+        {
+            return new SimCommand(issuedTick, issuerId, battalionId, CommandKind.Attack, targetBattalionId, 0, 0);
+        }
+
         public SimCommand WithIssuedTick(int issuedTick)
         {
             return new SimCommand(issuedTick, IssuerId, BattalionId, Kind, Arg0, Arg1, Arg2, ExecuteTick, Sequence);

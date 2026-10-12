@@ -6,7 +6,7 @@ namespace Wasteland.Sim.Ai
         public const int SchemaVersion = 1;
         public const int BalanceSchemaVersion = 1;
         public const int DataVersion = 1;
-        public const int StateSchemaVersion = 11;
+        public const int StateSchemaVersion = 12;
         public const int PendingCommandCapacity = 128;
         public const int PendingIntentCapacity = 32;
 

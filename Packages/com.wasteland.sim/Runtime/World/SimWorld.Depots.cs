@@ -61,7 +61,7 @@ namespace Wasteland.Sim.World
                 return;
             }
 
-            if (battalion.StrengthPpt <= 0)
+            if (battalion.Hp <= 0)
             {
                 Reject(command, CommandRejectReason.UnknownBattalion, 0, 0);
                 return;
@@ -151,6 +151,7 @@ namespace Wasteland.Sim.World
             }
 
             _seats[seatIndex] = seat;
+            battalion.AttackTargetId = 0;
 
             int nodeIndex = _roads.TryGetNodeIndex(command.Arg0, out int found) ? found : -1;
             ulong territoryKey = 0UL;
@@ -258,7 +259,7 @@ namespace Wasteland.Sim.World
             for (int b = 0; b < _battalions.Count; b++)
             {
                 SimBattalion battalion = _battalions[b];
-                if (battalion.StrengthPpt <= 0)
+                if (battalion.Hp <= 0)
                 {
                     continue;
                 }
@@ -565,7 +566,7 @@ namespace Wasteland.Sim.World
                 return false;
             }
 
-            return _battalions[index].StrengthPpt > 0;
+            return _battalions[index].Hp > 0;
         }
 
         private bool TryDetachReserved(int builderId, out DepotState depot)

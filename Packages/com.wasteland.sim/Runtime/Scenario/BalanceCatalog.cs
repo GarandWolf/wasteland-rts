@@ -44,6 +44,17 @@ namespace Wasteland.Sim.Scenario
         private readonly bool[] _unitCanContest;
         private readonly bool[] _unitCanBuild;
         private readonly int[] _buildingFortification;
+        private bool[] _unitArmed = System.Array.Empty<bool>();
+        private int[] _unitMaxHp = System.Array.Empty<int>();
+        private int[] _unitArmorPpt = System.Array.Empty<int>();
+        private int[] _unitDamageSoft = System.Array.Empty<int>();
+        private int[] _unitDamageArmored = System.Array.Empty<int>();
+        private int[] _unitRangeCm = System.Array.Empty<int>();
+        private int[] _unitMinRangeCm = System.Array.Empty<int>();
+        private int[] _unitReloadTicks = System.Array.Empty<int>();
+        private bool[] _unitIndirect = System.Array.Empty<bool>();
+        private bool[] _unitCanTargetAir = System.Array.Empty<bool>();
+        private CombatRules _combat = null!;
         private readonly CaptureBalance _capture;
 
         private BalanceCatalog(
@@ -379,6 +390,7 @@ namespace Wasteland.Sim.Scenario
                 }
             }
 
+            catalog.LoadCombat(unitsRoot, rulesRoot);
             return catalog;
         }
 
@@ -545,6 +557,67 @@ namespace Wasteland.Sim.Scenario
         internal bool UnitCanBuildAt(int index)
         {
             return _unitCanBuild[index];
+        }
+
+        public CombatRules Combat
+        {
+            get { return _combat; }
+        }
+
+        internal bool UnitArmedAt(int index)
+        {
+            return _unitArmed[index];
+        }
+
+        internal int UnitMaxHpAt(int index)
+        {
+            return _unitMaxHp[index];
+        }
+
+        internal int UnitArmorPptAt(int index)
+        {
+            return _unitArmorPpt[index];
+        }
+
+        internal int UnitDamageVsSoftAt(int index)
+        {
+            return _unitDamageSoft[index];
+        }
+
+        internal int UnitDamageVsArmoredAt(int index)
+        {
+            return _unitDamageArmored[index];
+        }
+
+        internal int UnitRangeCmAt(int index)
+        {
+            return _unitRangeCm[index];
+        }
+
+        internal int UnitMinRangeCmAt(int index)
+        {
+            return _unitMinRangeCm[index];
+        }
+
+        internal int UnitReloadTicksAt(int index)
+        {
+            return _unitReloadTicks[index];
+        }
+
+        internal bool UnitIndirectAt(int index)
+        {
+            return _unitIndirect[index];
+        }
+
+        internal bool UnitCanTargetAirAt(int index)
+        {
+            return _unitCanTargetAir[index];
+        }
+
+        internal bool UnitTargetArmoredAt(int index)
+        {
+            string target = _unitTargetClasses[index];
+            return target == "armored" || target == "structure";
         }
 
         internal int BuildingFortification(string buildingId)
@@ -1438,6 +1511,154 @@ namespace Wasteland.Sim.Scenario
             }
 
             return value.BoolValue;
+        }
+
+        private void LoadCombat(JsonValue unitsRoot, JsonValue rulesRoot)
+        {
+            int count = _unitIds.Length;
+            _unitArmed = new bool[count];
+            _unitMaxHp = new int[count];
+            _unitArmorPpt = new int[count];
+            _unitDamageSoft = new int[count];
+            _unitDamageArmored = new int[count];
+            _unitRangeCm = new int[count];
+            _unitMinRangeCm = new int[count];
+            _unitReloadTicks = new int[count];
+            _unitIndirect = new bool[count];
+            _unitCanTargetAir = new bool[count];
+
+            JsonValue combat = Child(rulesRoot, "combat", "rules.json $.combat");
+            string scalesPath = "rules.json $.combat.damageScalesWithStrength";
+            if (BoolAt(Child(combat, "damageScalesWithStrength", scalesPath), scalesPath))
+            {
+                throw ScenarioErrors.At(scalesPath, "damage must not scale with strength.");
+            }
+
+            string orderPath = "rules.json $.combat.damageChainOrder";
+            JsonValue order = Child(combat, "damageChainOrder", orderPath);
+            string[] expectedOrder =
+            {
+                "base", "attack", "armor", "defense", "high_ground", "min_damage"
+            };
+            if (order.Kind != JsonKind.Array || order.ArrayValue.Count != expectedOrder.Length)
+            {
+                throw ScenarioErrors.At(orderPath, "damage chain order does not match the spec.");
+            }
+
+            for (int i = 0; i < expectedOrder.Length; i++)
+            {
+                string step = TextAt(order.ArrayValue[i], orderPath + "[" + i + "]");
+                if (step != expectedOrder[i])
+                {
+                    throw ScenarioErrors.At(orderPath, "damage chain order does not match the spec.");
+                }
+            }
+
+            JsonValue limits = Child(combat, "limits", "rules.json $.combat.limits");
+            int maxHpLimit = IntAt(Child(limits, "maxHp", "rules.json $.combat.limits.maxHp"), "rules.json $.combat.limits.maxHp", 1);
+            int baseDamageLimit = IntAt(Child(limits, "baseDamage", "rules.json $.combat.limits.baseDamage"), "rules.json $.combat.limits.baseDamage", 0);
+            int armorMin = IntAt(Child(limits, "armorPptMin", "rules.json $.combat.limits.armorPptMin"), "rules.json $.combat.limits.armorPptMin", 0);
+            int armorMax = IntAt(Child(limits, "armorPptMax", "rules.json $.combat.limits.armorPptMax"), "rules.json $.combat.limits.armorPptMax", 0);
+            int defenseMin = IntAt(Child(limits, "defensePptMin", "rules.json $.combat.limits.defensePptMin"), "rules.json $.combat.limits.defensePptMin", int.MinValue);
+            int rangeMax = IntAt(Child(limits, "rangeCmMax", "rules.json $.combat.limits.rangeCmMax"), "rules.json $.combat.limits.rangeCmMax", 1);
+
+            JsonValue units = Child(unitsRoot, "units", "units.json $.units");
+            for (int i = 0; i < count; i++)
+            {
+                string id = _unitIds[i];
+                int foundAt = -1;
+                for (int u = 0; u < units.ObjectValue.Count; u++)
+                {
+                    if (units.ObjectValue[u].Name == id)
+                    {
+                        foundAt = u;
+                        break;
+                    }
+                }
+
+                if (foundAt < 0)
+                {
+                    throw ScenarioErrors.At("units.json $.units." + id, "missing unit.");
+                }
+
+                JsonValue row = units.ObjectValue[foundAt].Value;
+
+                string path = "units.json $.units." + id;
+                int maxHp = IntAt(Child(row, "maxHp", path + ".maxHp"), path + ".maxHp", 1);
+                int armor = IntAt(Child(row, "armorPpt", path + ".armorPpt"), path + ".armorPpt", 0);
+                if (maxHp > maxHpLimit)
+                {
+                    throw ScenarioErrors.At(path + ".maxHp", "above combat.limits.maxHp.");
+                }
+
+                if (armor < armorMin || armor > armorMax)
+                {
+                    throw ScenarioErrors.At(path + ".armorPpt", "outside combat.limits.");
+                }
+
+                _unitMaxHp[i] = maxHp;
+                _unitArmorPpt[i] = armor;
+                JsonValue weapon = Child(row, "weapon", path + ".weapon");
+                if (weapon.Kind == JsonKind.Null)
+                {
+                    _unitArmed[i] = false;
+                    continue;
+                }
+
+                if (weapon.Kind != JsonKind.Object)
+                {
+                    throw ScenarioErrors.At(path + ".weapon", "expected an object or null.");
+                }
+
+                int soft = IntAt(Child(weapon, "damageVsSoft", path + ".weapon.damageVsSoft"), path + ".weapon.damageVsSoft", 0);
+                int armored = IntAt(Child(weapon, "damageVsArmored", path + ".weapon.damageVsArmored"), path + ".weapon.damageVsArmored", 0);
+                int range = IntAt(Child(weapon, "rangeCm", path + ".weapon.rangeCm"), path + ".weapon.rangeCm", 0);
+                int minRange = IntAt(Child(weapon, "minRangeCm", path + ".weapon.minRangeCm"), path + ".weapon.minRangeCm", 0);
+                if (soft > baseDamageLimit || armored > baseDamageLimit)
+                {
+                    throw ScenarioErrors.At(path + ".weapon", "damage above combat.limits.baseDamage.");
+                }
+
+                if (range > rangeMax || minRange > rangeMax)
+                {
+                    throw ScenarioErrors.At(path + ".weapon.rangeCm", "above combat.limits.rangeCmMax.");
+                }
+
+                _unitArmed[i] = true;
+                _unitDamageSoft[i] = soft;
+                _unitDamageArmored[i] = armored;
+                _unitRangeCm[i] = range;
+                _unitMinRangeCm[i] = minRange;
+                _unitReloadTicks[i] = IntAt(Child(weapon, "reloadTicks", path + ".weapon.reloadTicks"), path + ".weapon.reloadTicks", 1);
+                _unitIndirect[i] = BoolAt(Child(weapon, "indirect", path + ".weapon.indirect"), path + ".weapon.indirect");
+                _unitCanTargetAir[i] = BoolAt(Child(weapon, "canTargetAir", path + ".weapon.canTargetAir"), path + ".weapon.canTargetAir");
+            }
+
+            JsonValue defense = Child(combat, "defensePpt", "rules.json $.combat.defensePpt");
+            JsonValue high = Child(combat, "highGround", "rules.json $.combat.highGround");
+            JsonValue supply = Child(rulesRoot, "supply", "rules.json $.supply");
+            JsonValue penalty = Child(supply, "outOfSupply", "rules.json $.supply.outOfSupply");
+            _combat = new CombatRules(
+                IntAt(Child(combat, "indirectVsStructureBonusPpt", "rules.json $.combat.indirectVsStructureBonusPpt"), "rules.json $.combat.indirectVsStructureBonusPpt", 0),
+                IntAt(Child(combat, "armourAttackInUrbanPpt", "rules.json $.combat.armourAttackInUrbanPpt"), "rules.json $.combat.armourAttackInUrbanPpt", int.MinValue),
+                IntAt(Child(combat, "attackPptMax", "rules.json $.combat.attackPptMax"), "rules.json $.combat.attackPptMax", 0),
+                IntAt(Child(combat, "maxDefensePpt", "rules.json $.combat.maxDefensePpt"), "rules.json $.combat.maxDefensePpt", 0),
+                IntAt(Child(combat, "minDamagePerVolley", "rules.json $.combat.minDamagePerVolley"), "rules.json $.combat.minDamagePerVolley", 0),
+                IntAt(Child(defense, "infantryInUrban", "rules.json $.combat.defensePpt.infantryInUrban"), "rules.json $.combat.defensePpt.infantryInUrban", 0),
+                IntAt(Child(defense, "infantryInForest", "rules.json $.combat.defensePpt.infantryInForest"), "rules.json $.combat.defensePpt.infantryInForest", 0),
+                IntAt(Child(defense, "slope300to599Defender", "rules.json $.combat.defensePpt.slope300to599Defender"), "rules.json $.combat.defensePpt.slope300to599Defender", 0),
+                IntAt(Child(defense, "perFortificationLevel", "rules.json $.combat.defensePpt.perFortificationLevel"), "rules.json $.combat.defensePpt.perFortificationLevel", 0),
+                IntAt(Child(combat, "fordCrossingDefensePpt", "rules.json $.combat.fordCrossingDefensePpt"), "rules.json $.combat.fordCrossingDefensePpt", int.MinValue),
+                IntAt(Child(high, "thresholdDm", "rules.json $.combat.highGround.thresholdDm"), "rules.json $.combat.highGround.thresholdDm", 0),
+                IntAt(Child(high, "highGroundPpt", "rules.json $.combat.highGround.highGroundPpt"), "rules.json $.combat.highGround.highGroundPpt", 0),
+                defenseMin,
+                IntAt(Child(supply, "recheckIntervalTicks", "rules.json $.supply.recheckIntervalTicks"), "rules.json $.supply.recheckIntervalTicks", 1),
+                IntAt(Child(supply, "graceTicks", "rules.json $.supply.graceTicks"), "rules.json $.supply.graceTicks", 0),
+                IntAt(Child(penalty, "fireRatePpt", "rules.json $.supply.outOfSupply.fireRatePpt"), "rules.json $.supply.outOfSupply.fireRatePpt", 1),
+                IntAt(Child(penalty, "speedPpt", "rules.json $.supply.outOfSupply.speedPpt"), "rules.json $.supply.outOfSupply.speedPpt", 0),
+                IntAt(Child(supply, "hqRangeCm", "rules.json $.supply.hqRangeCm"), "rules.json $.supply.hqRangeCm", 0),
+                IntAt(Child(supply, "depotRangeCm", "rules.json $.supply.depotRangeCm"), "rules.json $.supply.depotRangeCm", 0),
+                IntAt(Child(supply, "unitLinkMaxOffRoadCm", "rules.json $.supply.unitLinkMaxOffRoadCm"), "rules.json $.supply.unitLinkMaxOffRoadCm", 0));
         }
     }
 }

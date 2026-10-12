@@ -654,6 +654,15 @@ namespace Wasteland.Sim.Tests
             Assert.True(host.World.TryGetTown(dallesId, out TownView dalles));
             int bonus = HoldingBonus(host.World, dalles.TerritoryId);
             Assert.Equal(10, bonus);
+            for (int i = 0; i < host.World.BattalionCount; i++)
+            {
+                SimBattalion battalion = host.World.Battalions[i];
+                if (battalion.OwnerId == SimWorld.NeutralOwnerId)
+                {
+                    host.World.SetBattalionStrength(battalion.Id, 0);
+                }
+            }
+
             int capturer = FirstCapturer(host.World, Remnant);
             host.World.PlaceBattalion(capturer, dalles.XCm, dalles.YCm);
             StepUntil(host.World, dalles.CaptureNeededTicks + 5, delegate

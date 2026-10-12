@@ -29,7 +29,11 @@ namespace Wasteland.Sim.Events
         /// <summary>Depot removed. Param1 is 1 when the site was reserved or still under construction.</summary>
         DepotDestroyed = 9,
 
-        /// <summary>A running capture became contested. Subject town, aux capturer, param0 progress, param1 owner.</summary>
+        /// <summary>
+        /// A zone became contested. Subject is the town. Aux is seat A and
+        /// param0 is seat B (the lower id first, -1 when a garrison is a side).
+        /// Param1 is the town owner. Key is the territory key.
+        /// </summary>
         TownContestStarted = 10,
 
         /// <summary>Contest ended. Payload matches <see cref="TownContestStarted"/>.</summary>
@@ -38,10 +42,20 @@ namespace Wasteland.Sim.Events
         /// <summary>Seat town owner changed. Aux is the new owner, param0 the old owner, param1 is 1 for a seat town.</summary>
         TownOwnerChanged = 12,
 
-        /// <summary>Reserved for the win/loss pass. Not emitted yet.</summary>
+        /// <summary>
+        /// Match is over. Subject is the winner seat, or -1 for a draw.
+        /// Aux is 1 when an HQ was captured and 2 for a draw.
+        /// Param0 is the losing seat, or -1 for a draw.
+        /// </summary>
         MatchEnded = 13,
 
         /// <summary>A dropped order returned materiel. Subject seat, aux command kind, param0 target, param1 materiel.</summary>
-        OrderRefunded = 14
+        OrderRefunded = 14,
+
+        /// <summary>
+        /// A battalion reached 0 hp. Subject is the battalion, aux is the owner
+        /// seat (-1 for a garrison), param0 is the catalog unit index.
+        /// </summary>
+        BattalionDestroyed = 15
     }
 }

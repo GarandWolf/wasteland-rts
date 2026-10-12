@@ -33,6 +33,7 @@ namespace Wasteland.Audio
         [SerializeField] private float _maxDistance = 500f;
 
         private readonly List<ContestedTown> _towns = new List<ContestedTown>();
+        private readonly CombatBedLedger _beds = new CombatBedLedger();
         private Voice[] _voices;
         private int[] _ids = Array.Empty<int>();
         private Vector3[] _positions = Array.Empty<Vector3>();
@@ -98,7 +99,73 @@ namespace Wasteland.Audio
 
         public void Clear()
         {
+            _beds.Clear();
             SetContestedTowns(null);
+        }
+
+        /// <summary>
+        /// Start or stop the bed for a contest event. Kind 10 starts, kind 11 stops.
+        /// Subject is the town. Aux and param0 are the two seats, -1 for a garrison.
+        /// </summary>
+        public bool ApplyContestEvent(int kind, int subjectId, int auxId, int param0, Vector3 worldPosition)
+        {
+            int townId;
+            int seatA;
+            int seatB;
+            bool started;
+            if (!CombatContestEvents.TryRead(kind, subjectId, auxId, param0, out townId, out seatA, out seatB, out started))
+            {
+                return false;
+            }
+
+            _beds.Apply(kind, subjectId, auxId, param0);
+            if (started)
+            {
+                SetContestedTowns(ReplaceTown(_towns, new ContestedTown(townId, worldPosition)));
+                return true;
+            }
+
+            List<ContestedTown> remaining = new List<ContestedTown>();
+            for (int i = 0; i < _towns.Count; i++)
+            {
+                if (_towns[i].Id != townId)
+                {
+                    remaining.Add(_towns[i]);
+                }
+            }
+
+            SetContestedTowns(remaining);
+            return true;
+        }
+
+        public bool IsTownBedActive(int townId)
+        {
+            return _beds.Contains(townId);
+        }
+
+        private static List<ContestedTown> ReplaceTown(List<ContestedTown> current, ContestedTown town)
+        {
+            List<ContestedTown> next = new List<ContestedTown>();
+            bool replaced = false;
+            for (int i = 0; i < current.Count; i++)
+            {
+                if (current[i].Id == town.Id)
+                {
+                    next.Add(town);
+                    replaced = true;
+                }
+                else
+                {
+                    next.Add(current[i]);
+                }
+            }
+
+            if (!replaced)
+            {
+                next.Add(town);
+            }
+
+            return next;
         }
 
         private void Update()

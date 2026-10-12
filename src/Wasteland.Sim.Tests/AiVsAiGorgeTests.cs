@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Commands;
+using Wasteland.Sim.Events;
 using Wasteland.Sim.World;
 using Xunit;
 
@@ -195,7 +196,7 @@ namespace Wasteland.Sim.Tests
             AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
             Assert.True(host.Ai.Seats.SeatAt(0).HasAuthoredStartingUnits);
             Assert.True(host.Ai.Seats.SeatAt(1).HasAuthoredStartingUnits);
-            const int authoredCount = 10;
+            const int authoredCount = 12;
             Assert.Equal(authoredCount, host.World.BattalionCount);
             host.Run(30);
             Assert.Equal(authoredCount, host.World.BattalionCount);
@@ -290,6 +291,51 @@ namespace Wasteland.Sim.Tests
             Assert.NotEqual(normalHash, brutal.HashWorld());
             Assert.Equal(1100, brutal.Ai.Balance.IncomeMultiplierPpt(AiConstants.DifficultyBrutal));
             brutal.Shutdown();
+        }
+
+        [Fact]
+        public void GorgeCombat_RecordsGarrisonClearCaptureAndDallesFight()
+        {
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, BalanceLoad.Tables());
+            host.Run(20000);
+            int dalles = host.Ai.Map.TheDallesTownId;
+            int garrisonClear = -1;
+            int dallesFight = -1;
+            int dallesCapture = -1;
+            int matchEnd = -1;
+            IReadOnlyList<SimEvent> events = host.World.Events;
+            for (int i = 0; i < events.Count; i++)
+            {
+                SimEvent ev = events[i];
+                if (garrisonClear < 0 && ev.Kind == SimEventKind.BattalionDestroyed && ev.AuxId == SimWorld.NeutralOwnerId)
+                {
+                    garrisonClear = ev.Tick;
+                }
+
+                if (dallesFight < 0
+                    && ev.Kind == SimEventKind.TownContestStarted
+                    && ev.SubjectId == dalles
+                    && (ev.AuxId == SimWorld.NeutralOwnerId || ev.Param0 == SimWorld.NeutralOwnerId))
+                {
+                    dallesFight = ev.Tick;
+                }
+
+                if (dallesCapture < 0 && ev.Kind == SimEventKind.TownOwnerChanged && ev.SubjectId == dalles)
+                {
+                    dallesCapture = ev.Tick;
+                }
+
+                if (ev.Kind == SimEventKind.MatchEnded)
+                {
+                    matchEnd = ev.Tick;
+                }
+            }
+
+            Assert.Equal(4343, garrisonClear);
+            Assert.Equal(3683, dallesFight);
+            Assert.Equal(18925, dallesCapture);
+            Assert.Equal(-1, matchEnd);
+            host.Shutdown();
         }
 
         [Fact]

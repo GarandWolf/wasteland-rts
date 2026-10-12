@@ -84,6 +84,14 @@ namespace Wasteland.Sim.Ai
             return Record(factionId, AiIssuedKind.BuildDepot, battalionId, nodeId, 0, 0, string.Empty);
         }
 
+        public int SubmitAttack(int factionId, int battalionId, int targetBattalionId)
+        {
+            SimCommand stamped = _inner.Submit(SimCommand.Attack(_inner.Tick, factionId, battalionId, targetBattalionId));
+            _lastSequence = stamped.Sequence;
+            Record(factionId, AiIssuedKind.Attack, battalionId, targetBattalionId, 0, 0, string.Empty);
+            return stamped.Sequence;
+        }
+
         public AiCommandReject RejectOf(int commandId)
         {
             for (int i = 0; i < _issued.Count; i++)
@@ -215,7 +223,10 @@ namespace Wasteland.Sim.Ai
             }
 
             _issued.Add(new AiIssuedCommand(id, _inner.Tick, factionId, kind, arg0, arg1, arg2, arg3, unitId, _lastSequence));
-            if (kind == AiIssuedKind.ClaimTown || kind == AiIssuedKind.BuildDepot || kind == AiIssuedKind.Move)
+            if (kind == AiIssuedKind.ClaimTown
+                || kind == AiIssuedKind.BuildDepot
+                || kind == AiIssuedKind.Move
+                || kind == AiIssuedKind.Attack)
             {
                 AiPendingIntent intent = default;
                 intent.Sequence = _lastSequence;

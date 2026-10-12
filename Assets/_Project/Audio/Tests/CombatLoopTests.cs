@@ -76,6 +76,23 @@ namespace Wasteland.Audio.Tests
         }
 
         [Test]
+        public void GarrisonContest_StartsAndStopsABed_WithSeatMinusOne()
+        {
+            CombatBedLedger beds = new CombatBedLedger();
+            const int townId = 14;
+            const int garrisonSeat = -1;
+            const int attackerSeat = 1;
+
+            Assert.That(beds.Apply(CombatContestEvents.Started, townId, garrisonSeat, attackerSeat), Is.True);
+            Assert.That(beds.Contains(townId), Is.True);
+            Assert.That(beds.Count, Is.EqualTo(1));
+
+            Assert.That(beds.Apply(CombatContestEvents.Ended, townId, garrisonSeat, attackerSeat), Is.True);
+            Assert.That(beds.Contains(townId), Is.False);
+            Assert.That(beds.Count, Is.EqualTo(0));
+        }
+
+        [Test]
         public void Fade_MovesTowardTheTargetWithoutOvershooting()
         {
             Assert.That(SoundFades.Advance(0f, 1f, 0.25f, 0.5f), Is.EqualTo(0.5f));

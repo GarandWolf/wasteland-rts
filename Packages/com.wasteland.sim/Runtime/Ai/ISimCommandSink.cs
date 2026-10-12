@@ -43,17 +43,50 @@ namespace Wasteland.Sim.Ai
     }
 
     /// <summary>
-    /// Fog-honest world reads. Enemy live intent stays hidden.
+    /// One enemy or neutral battalion. <see cref="OwnerSeat"/> is -1 for a garrison.
+    /// </summary>
+    public readonly struct AiCombatantView
+    {
+        public readonly int Id;
+        public readonly int OwnerSeat;
+        public readonly int XCm;
+        public readonly int YCm;
+        public readonly int NodeId;
+        public readonly int Hp;
+        public readonly int MaxHp;
+
+        public AiCombatantView(int id, int ownerSeat, int xCm, int yCm, int nodeId, int hp, int maxHp)
+        {
+            Id = id;
+            OwnerSeat = ownerSeat;
+            XCm = xCm;
+            YCm = yCm;
+            NodeId = nodeId;
+            Hp = hp;
+            MaxHp = maxHp;
+        }
+    }
+
+    /// <summary>
+    /// World reads. Enemy live intent stays hidden. Positions of other battalions are visible.
     /// </summary>
     public interface ISimWorldView
     {
         int Tick { get; }
+
+        MatchResultView MatchResult { get; }
 
         int BattalionCount { get; }
 
         void CopyOwnBattalionIds(int factionId, List<int> into);
 
         void CopyVisibleEnemyBattalionIds(int factionId, List<int> into);
+
+        /// <summary>
+        /// Enemy seats and neutral garrisons. Owner seat -1 is a garrison.
+        /// Fog is off, so every living battalion that is not <paramref name="factionId"/> is included.
+        /// </summary>
+        void CopyCombatants(int factionId, List<AiCombatantView> into);
 
         int CountOwnBattalions(int factionId);
 

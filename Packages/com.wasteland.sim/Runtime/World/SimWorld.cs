@@ -137,6 +137,11 @@ namespace Wasteland.Sim.World
                 return stamped;
             }
 
+            if (_matchOver)
+            {
+                return stamped;
+            }
+
             _commands.Enqueue(stamped);
             if (stamped.Kind == CommandKind.SpawnBattalion || stamped.Kind == CommandKind.RaiseBattalion)
             {
@@ -386,7 +391,10 @@ namespace Wasteland.Sim.World
                 battalion.PositionXCm,
                 battalion.PositionYCm,
                 unitId,
-                battalion.StrengthPpt);
+                battalion.StrengthPpt,
+                battalion.Hp,
+                battalion.MaxHp,
+                battalion.AttackTargetId);
             return true;
         }
 
@@ -426,9 +434,17 @@ namespace Wasteland.Sim.World
 
         public ulong Step()
         {
+            if (_matchOver)
+            {
+                _commands.Clear();
+                return HashState();
+            }
+
             ProcessQueue();
             IntegrateMovement();
             StartDepotBuilds();
+            SupplyUpdate();
+            ResolveCombat();
             ResolveCapture();
             DestroyFlippedDepots();
             if (_ownersChanged)
@@ -438,17 +454,15 @@ namespace Wasteland.Sim.World
             }
 
             AdvanceDepotConstruction();
+            HqCheck();
             Tick++;
             PruneEventHistory();
             return HashState();
         }
 
-        /// <summary>
-        /// Win/loss is reserved for a later pass. The HQ check does not run, so this stays not over.
-        /// </summary>
         public MatchResultView MatchResult
         {
-            get { return new MatchResultView(false); }
+            get { return new MatchResultView(_matchOver, _matchWinner, _matchReason, _matchLoser, _matchEndTick); }
         }
 
         public ulong HashState()
@@ -472,7 +486,13 @@ namespace Wasteland.Sim.World
                 hash.AddInt(battalion.TargetXCm);
                 hash.AddInt(battalion.TargetYCm);
                 hash.AddInt(battalion.SpeedCmPerSecond);
+                hash.AddInt(battalion.Hp);
+                hash.AddInt(battalion.MaxHp);
                 hash.AddInt(battalion.StrengthPpt);
+                hash.AddInt(battalion.Cooldown);
+                hash.AddInt(battalion.AttackTargetId);
+                hash.AddInt(battalion.CutDetectedTick);
+                hash.AddBool(battalion.Penalized);
                 hash.AddBool(battalion.HasTarget);
                 hash.AddInt(battalion.UnitIndex);
                 hash.AddByte((byte)battalion.MoveClass);
@@ -579,6 +599,7 @@ namespace Wasteland.Sim.World
             }
 
             HashCaptureState(hash);
+            HashMatch(hash);
             return hash.Digest();
         }
 
@@ -604,6 +625,9 @@ namespace Wasteland.Sim.World
                         break;
                     case CommandKind.BuildDepot:
                         ApplyBuildDepot(command);
+                        break;
+                    case CommandKind.Attack:
+                        ApplyAttack(command);
                         break;
                     default:
                         Reject(command, CommandRejectReason.UnknownKind, 0, 0);
@@ -637,7 +661,6 @@ namespace Wasteland.Sim.World
                 TargetXCm = 0,
                 TargetYCm = 0,
                 SpeedCmPerSecond = command.Arg2,
-                StrengthPpt = SimConfig.PptScale,
                 HasTarget = false,
                 UnitIndex = -1,
                 MoveClass = MovementClass.Wheeled,
@@ -646,6 +669,7 @@ namespace Wasteland.Sim.World
                 PathXCm = null,
                 PathYCm = null
             };
+            SyncSpawnVitals(ref battalion, 1000);
 
             int insertAt = _battalions.BinarySearch(battalion, BattalionIdComparer.Instance);
             if (insertAt < 0)
@@ -689,6 +713,7 @@ namespace Wasteland.Sim.World
                 return;
             }
 
+            battalion.AttackTargetId = 0;
             DropReservedDepotForReorder(command);
 
             if (_movement != null && _roads != null)
@@ -898,7 +923,6 @@ namespace Wasteland.Sim.World
                 TargetXCm = 0,
                 TargetYCm = 0,
                 SpeedCmPerSecond = _catalog.SpeedCmPerSecond(moveClass),
-                StrengthPpt = SimConfig.PptScale,
                 HasTarget = false,
                 UnitIndex = unitIndex,
                 MoveClass = moveClass,
@@ -907,6 +931,8 @@ namespace Wasteland.Sim.World
                 PathXCm = null,
                 PathYCm = null
             };
+            int maxHp = unitIndex >= 0 ? _catalog.UnitMaxHpAt(unitIndex) : 1000;
+            SyncSpawnVitals(ref battalion, maxHp);
 
             int insertAt = _battalions.BinarySearch(battalion, BattalionIdComparer.Instance);
             if (insertAt < 0)
@@ -939,8 +965,10 @@ namespace Wasteland.Sim.World
             for (int i = 0; i < _battalions.Count; i++)
             {
                 SimBattalion battalion = _battalions[i];
+                PrepareAttackMove(ref battalion);
                 if (!battalion.HasTarget)
                 {
+                    _battalions[i] = battalion;
                     continue;
                 }
 
@@ -961,7 +989,13 @@ namespace Wasteland.Sim.World
                     continue;
                 }
 
-                Fixed64 speedPerTick = Fixed64.FromInt(battalion.SpeedCmPerSecond) * SimConfig.TickDuration;
+                int speedCmPerSecond = battalion.SpeedCmPerSecond;
+                if (battalion.Penalized && _catalog != null)
+                {
+                    speedCmPerSecond = (int)((long)speedCmPerSecond * _catalog.Combat.SpeedPpt / 1000);
+                }
+
+                Fixed64 speedPerTick = Fixed64.FromInt(speedCmPerSecond) * SimConfig.TickDuration;
                 Fixed64Vec2 delta = new Fixed64Vec2(Fixed64.FromInt(dx), Fixed64.FromInt(dy));
                 Fixed64 distance = delta.Length();
                 if (distance <= speedPerTick)
@@ -981,6 +1015,7 @@ namespace Wasteland.Sim.World
                     battalion.PositionYCm += step.Y.ToIntTowardZero();
                 }
 
+                PrepareAttackMove(ref battalion);
                 _battalions[i] = battalion;
             }
         }

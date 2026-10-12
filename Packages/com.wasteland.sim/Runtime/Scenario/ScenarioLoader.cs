@@ -9,7 +9,7 @@ namespace Wasteland.Sim.Scenario
 {
     internal static class ScenarioLoader
     {
-        private const int ContentHashVersion = 1;
+        private const int ContentHashVersion = 2;
         private const string PopulationDesignerOverride = "designer_override";
         private const string PopulationCensus = "us_census_2020_pl";
 
@@ -109,7 +109,8 @@ namespace Wasteland.Sim.Scenario
             ulong[] neutralKeys = NeutralKeys(derived, seats);
             ResolvePrize(draft.Rules, seats, neutralKeys);
             ulong jsonHash = XxHash64.Hash(Encoding.UTF8.GetBytes(scenarioJson), 0UL);
-            ulong contentHash = Hash(draft, seats, derived, neutralKeys);
+            ScenarioGarrison[] garrisons = ResolveGarrisons(draft, derived);
+            ulong contentHash = Hash(draft, seats, derived, neutralKeys, garrisons);
             return new SimScenario(
                 draft.DataVersion,
                 draft.Id,
@@ -121,7 +122,8 @@ namespace Wasteland.Sim.Scenario
                 seats,
                 draft.Rules,
                 derived,
-                neutralKeys);
+                neutralKeys,
+                garrisons);
         }
 
         private static Draft Parse(string scenarioJson)
@@ -150,8 +152,9 @@ namespace Wasteland.Sim.Scenario
             DraftSeat[] seats = ParseSeats(root);
             ScenarioMatchRules rules = ParseRules(root);
             DraftDerived derived = ParseDerived(root);
+            DraftGarrison[] garrisons = ParseGarrisons(root);
             root.End();
-            return new Draft(dataVersion, id, mapFile, mapFormatVersion, shaText, sha, seats, rules, derived);
+            return new Draft(dataVersion, id, mapFile, mapFormatVersion, shaText, sha, seats, rules, derived, garrisons);
         }
 
         private static DraftSeat[] ParseSeats(ScenarioObject root)
@@ -1067,7 +1070,12 @@ namespace Wasteland.Sim.Scenario
             }
         }
 
-        private static ulong Hash(Draft draft, ScenarioSeat[] seats, ScenarioDerived derived, ulong[] neutralKeys)
+        private static ulong Hash(
+            Draft draft,
+            ScenarioSeat[] seats,
+            ScenarioDerived derived,
+            ulong[] neutralKeys,
+            ScenarioGarrison[] garrisons)
         {
             ScenarioHasher hash = new ScenarioHasher();
             hash.Int(ContentHashVersion);
@@ -1091,7 +1099,135 @@ namespace Wasteland.Sim.Scenario
                 hash.ULong(neutralKeys[i]);
             }
 
+            hash.Int(garrisons.Length);
+            for (int i = 0; i < garrisons.Length; i++)
+            {
+                hash.ULong(garrisons[i].TerritoryKey);
+                hash.Int(garrisons[i].Units.Length);
+                for (int u = 0; u < garrisons[i].Units.Length; u++)
+                {
+                    hash.Text(garrisons[i].Units[u].UnitId);
+                    hash.Int(garrisons[i].Units[u].Count);
+                }
+            }
+
             return hash.Digest();
+        }
+
+        private static DraftGarrison[] ParseGarrisons(ScenarioObject root)
+        {
+            if (!root.TryValue("neutralGarrisons", out JsonValue array))
+            {
+                return Array.Empty<DraftGarrison>();
+            }
+
+            if (array.Kind != JsonKind.Array)
+            {
+                throw ScenarioErrors.At("$.neutralGarrisons", "expected an array.");
+            }
+
+            DraftGarrison[] rows = new DraftGarrison[array.ArrayValue.Count];
+            for (int i = 0; i < rows.Length; i++)
+            {
+                string path = "$.neutralGarrisons[" + i + "]";
+                ScenarioObject row = new ScenarioObject(array.ArrayValue[i], path);
+                ulong key = TerritoryKeys.Parse(row.String("territoryKey"), row.Child("territoryKey"));
+                NamedCount[] units = ParseCounts(row, "units");
+                row.End();
+                rows[i] = new DraftGarrison(path, key, units);
+            }
+
+            return rows;
+        }
+
+        private static ScenarioGarrison[] ResolveGarrisons(Draft draft, ScenarioDerived derived)
+        {
+            DraftGarrison[] rows = draft.Garrisons;
+            ScenarioGarrison[] garrisons = new ScenarioGarrison[rows.Length];
+            for (int i = 0; i < rows.Length; i++)
+            {
+                bool known = false;
+                for (int t = 0; t < derived.Territories.Length; t++)
+                {
+                    if (derived.Territories[t].MapStableKey == rows[i].Key)
+                    {
+                        known = true;
+                        int tier = TierIndex(derived.Territories[t].SeatTier);
+                        int places = PlaceCount(derived.Territories[t].Places, tier);
+                        if (places < 1)
+                        {
+                            throw ScenarioErrors.At(rows[i].Path, "holding tier is not in places.");
+                        }
+
+                        break;
+                    }
+                }
+
+                if (!known)
+                {
+                    throw ScenarioErrors.At(rows[i].Path + ".territoryKey", "unknown territory.");
+                }
+
+                ScenarioUnitCount[] units = new ScenarioUnitCount[rows[i].Units.Length];
+                for (int u = 0; u < units.Length; u++)
+                {
+                    units[u] = new ScenarioUnitCount(rows[i].Units[u].Id, rows[i].Units[u].Count);
+                }
+
+                garrisons[i] = new ScenarioGarrison(rows[i].Key, units);
+            }
+
+            return garrisons;
+        }
+
+        private static int TierIndex(string tier)
+        {
+            if (tier == "hamlet")
+            {
+                return 0;
+            }
+
+            if (tier == "village")
+            {
+                return 1;
+            }
+
+            if (tier == "town")
+            {
+                return 2;
+            }
+
+            if (tier == "city")
+            {
+                return 3;
+            }
+
+            return -1;
+        }
+
+        private static int PlaceCount(ScenarioPlaceCounts places, int tier)
+        {
+            if (tier == 0)
+            {
+                return places.Hamlet;
+            }
+
+            if (tier == 1)
+            {
+                return places.Village;
+            }
+
+            if (tier == 2)
+            {
+                return places.Town;
+            }
+
+            if (tier == 3)
+            {
+                return places.City;
+            }
+
+            return 0;
         }
 
         private static void HashSeat(ScenarioHasher hash, ScenarioSeat seat)
@@ -1628,6 +1764,7 @@ namespace Wasteland.Sim.Scenario
             public readonly DraftSeat[] Seats;
             public readonly ScenarioMatchRules Rules;
             public readonly DraftDerived Derived;
+            public readonly DraftGarrison[] Garrisons;
 
             public Draft(
                 int dataVersion,
@@ -1638,7 +1775,8 @@ namespace Wasteland.Sim.Scenario
                 byte[] mapSha256,
                 DraftSeat[] seats,
                 ScenarioMatchRules rules,
-                DraftDerived derived)
+                DraftDerived derived,
+                DraftGarrison[] garrisons)
             {
                 DataVersion = dataVersion;
                 Id = id;
@@ -1649,6 +1787,21 @@ namespace Wasteland.Sim.Scenario
                 Seats = seats;
                 Rules = rules;
                 Derived = derived;
+                Garrisons = garrisons;
+            }
+        }
+
+        private readonly struct DraftGarrison
+        {
+            public readonly string Path;
+            public readonly ulong Key;
+            public readonly NamedCount[] Units;
+
+            public DraftGarrison(string path, ulong key, NamedCount[] units)
+            {
+                Path = path;
+                Key = key;
+                Units = units;
             }
         }
     }
