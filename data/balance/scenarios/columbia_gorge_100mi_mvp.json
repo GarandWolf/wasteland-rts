@@ -91,6 +91,14 @@
       ]
     }
   ],
+  "neutralGarrisons": [
+    {
+      "territoryKey": "0x10000000B3787512",
+      "units": {
+        "compact_militia": 2
+      }
+    }
+  ],
   "matchRules": {
     "allowedFactionCount": 2,
     "allowedAiSeats": 1,

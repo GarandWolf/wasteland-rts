@@ -320,6 +320,11 @@ namespace Wasteland.Sim.Ai
                 throw new InvalidOperationException("AiOnTick tick must match the sim tick.");
             }
 
+            if (_world.MatchResult.IsOver)
+            {
+                return;
+            }
+
             SyncCaptureFromSim();
             ConsumePendingIntents();
             AccrueIncome(tick);
@@ -695,6 +700,11 @@ namespace Wasteland.Sim.Ai
                         continue;
                     }
 
+                    if (ev.Kind == SimEventKind.BattalionDestroyed || ev.Kind == SimEventKind.MatchEnded)
+                    {
+                        continue;
+                    }
+
                     if (ev.Kind == SimEventKind.OrderRefunded)
                     {
                         if (ev.AuxId == (int)CommandKind.BuildDepot
@@ -795,6 +805,11 @@ namespace Wasteland.Sim.Ai
             if (kind == AiIssuedKind.RaiseBattalion)
             {
                 return CommandKind.RaiseBattalion;
+            }
+
+            if (kind == AiIssuedKind.Attack)
+            {
+                return CommandKind.Attack;
             }
 
             return CommandKind.Move;
@@ -898,7 +913,7 @@ namespace Wasteland.Sim.Ai
                 return true;
             }
 
-            return battalion.StrengthPpt <= 0;
+            return battalion.Hp <= 0;
         }
 
         private void ExpireDepotBlacklist(int tick)

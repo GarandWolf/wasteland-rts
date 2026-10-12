@@ -42,6 +42,12 @@ namespace Wasteland.Sim.Commands
             return Array.Empty<SimCommand>();
         }
 
+        public void Clear()
+        {
+            _byExecuteTick.Clear();
+            Count = 0;
+        }
+
         public void RemoveTick(int executeTick)
         {
             if (_byExecuteTick.TryGetValue(executeTick, out List<SimCommand> list))

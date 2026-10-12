@@ -89,6 +89,12 @@ namespace Wasteland.Sim.Ai
             return id;
         }
 
+        public int SubmitAttack(int factionId, int battalionId, int targetBattalionId)
+        {
+            Record(factionId, AiIssuedKind.Attack, battalionId, targetBattalionId, 0, 0, string.Empty);
+            return _lastSequence;
+        }
+
         public AiCommandReject RejectOf(int commandId)
         {
             AiCommandReject reject;

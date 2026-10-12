@@ -22,6 +22,7 @@ namespace Wasteland.Sim.Tests
         public void StartingCaps_Are37And39_AndDallesCaptureAdds10()
         {
             SimWorld world = World();
+            ClearNeutralGarrisons(world);
             Assert.True(world.TryGetSeat(Remnant, out SeatView remnant));
             Assert.True(world.TryGetSeat(Compact, out SeatView compact));
             Assert.Equal(37, remnant.PopCap);
@@ -56,6 +57,7 @@ namespace Wasteland.Sim.Tests
         public void ContestPauses_AndDoesNotReset()
         {
             SimWorld world = World();
+            ClearNeutralGarrisons(world);
             TownView dalles = SeatTown(world, Map().TheDallesTownId);
             int attacker = SpawnCapturer(world, Remnant, dalles.XCm, dalles.YCm);
             Step(world, 40);
@@ -84,6 +86,7 @@ namespace Wasteland.Sim.Tests
         public void AbsentHoldThenDecay_NeverResetsProgress()
         {
             SimWorld world = World();
+            ClearNeutralGarrisons(world);
             TownView dalles = SeatTown(world, Map().TheDallesTownId);
             int attacker = SpawnCapturer(world, Remnant, dalles.XCm, dalles.YCm);
             Step(world, 30);
@@ -110,6 +113,7 @@ namespace Wasteland.Sim.Tests
         public void TwoSeats_SecondStartsOnlyAfterMeterReachesZero()
         {
             SimWorld world = World();
+            ClearNeutralGarrisons(world);
             TownView dalles = SeatTown(world, Map().TheDallesTownId);
             int first = SpawnCapturer(world, Remnant, dalles.XCm, dalles.YCm);
             Step(world, 10);
@@ -142,6 +146,7 @@ namespace Wasteland.Sim.Tests
         public void Engineers_DoNotCaptureOrContest()
         {
             SimWorld world = World();
+            ClearNeutralGarrisons(world);
             TownView dalles = SeatTown(world, Map().TheDallesTownId);
             int engineer = SpawnRole(world, Remnant, true, false, false, dalles.XCm, dalles.YCm);
             Assert.True(engineer > 0);
@@ -177,6 +182,7 @@ namespace Wasteland.Sim.Tests
         public void Dallesport_CountsForTheDalles_AndIsNotAZone()
         {
             SimWorld world = World();
+            ClearNeutralGarrisons(world);
             NamedTown dallesport = FindTown("Dallesport");
             Assert.True(world.TryGetTown(dallesport.Id, out TownView minor));
             Assert.False(minor.IsSeatTown);
@@ -209,6 +215,11 @@ namespace Wasteland.Sim.Tests
             for (int i = 0; i < world.BattalionCount; i++)
             {
                 SimBattalion battalion = world.Battalions[i];
+                if (battalion.OwnerId == SimWorld.NeutralOwnerId)
+                {
+                    continue;
+                }
+
                 for (int t = 0; t < _towns.Count; t++)
                 {
                     TownView town = _towns[t];
@@ -411,6 +422,7 @@ namespace Wasteland.Sim.Tests
         public void CapturedTerritory_DestroysReservedStartedAndActive_WithNoRefund()
         {
             SimWorld world = RoadWorld();
+            ClearNeutralGarrisons(world);
             TownView dalles = SeatTown(world, Map().TheDallesTownId);
             SpawnCapturer(world, Remnant, dalles.XCm, dalles.YCm);
             int needed = dalles.CaptureNeededTicks;
@@ -1104,6 +1116,18 @@ namespace Wasteland.Sim.Tests
             x = 0;
             y = 0;
             return false;
+        }
+
+        private static void ClearNeutralGarrisons(SimWorld world)
+        {
+            for (int i = 0; i < world.BattalionCount; i++)
+            {
+                SimBattalion battalion = world.Battalions[i];
+                if (battalion.OwnerId == SimWorld.NeutralOwnerId)
+                {
+                    world.SetBattalionStrength(battalion.Id, 0);
+                }
+            }
         }
 
         private static void Step(SimWorld world, int ticks)

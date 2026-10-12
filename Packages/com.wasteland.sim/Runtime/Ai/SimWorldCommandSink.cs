@@ -45,6 +45,11 @@ namespace Wasteland.Sim.Ai
             get { return _world.Tick; }
         }
 
+        public MatchResultView MatchResult
+        {
+            get { return _world.MatchResult; }
+        }
+
         public int CommandDelayTicks
         {
             get { return _world.CommandDelayTicks; }
@@ -281,8 +286,47 @@ namespace Wasteland.Sim.Ai
                 throw new ArgumentNullException(nameof(into));
             }
 
-            // Fog-honest: no vision / LoS hook on main yet. Never leak live enemies.
             into.Clear();
+            IReadOnlyList<SimBattalion> battalions = _world.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.Hp <= 0 || battalion.OwnerId == factionId)
+                {
+                    continue;
+                }
+
+                into.Add(battalion.Id);
+            }
+        }
+
+        public void CopyCombatants(int factionId, List<AiCombatantView> into)
+        {
+            if (into == null)
+            {
+                throw new ArgumentNullException(nameof(into));
+            }
+
+            into.Clear();
+            IReadOnlyList<SimBattalion> battalions = _world.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.Hp <= 0 || battalion.OwnerId == factionId)
+                {
+                    continue;
+                }
+
+                int nodeId = GetNearestNodeId(battalion.PositionXCm, battalion.PositionYCm);
+                into.Add(new AiCombatantView(
+                    battalion.Id,
+                    battalion.OwnerId,
+                    battalion.PositionXCm,
+                    battalion.PositionYCm,
+                    nodeId,
+                    battalion.Hp,
+                    battalion.MaxHp));
+            }
         }
 
         public CaptureZoneOccupancyResult OccupancyOf(int xCm, int yCm, int radiusCm)

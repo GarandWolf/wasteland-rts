@@ -78,6 +78,22 @@ namespace Wasteland.Sim.Scenario
         }
     }
 
+    /// <summary>
+    /// Neutral garrison authored for one holding. The sim spawns
+    /// <see cref="Units"/> at that holding's seat town. Looked up by territory key.
+    /// </summary>
+    public readonly struct ScenarioGarrison
+    {
+        public readonly ulong TerritoryKey;
+        public readonly ScenarioUnitCount[] Units;
+
+        internal ScenarioGarrison(ulong territoryKey, ScenarioUnitCount[] units)
+        {
+            TerritoryKey = territoryKey;
+            Units = units;
+        }
+    }
+
     public readonly struct ScenarioHolding
     {
         public readonly ulong TerritoryKey;

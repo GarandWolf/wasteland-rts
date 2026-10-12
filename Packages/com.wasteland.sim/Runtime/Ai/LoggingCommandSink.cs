@@ -31,6 +31,11 @@ namespace Wasteland.Sim.Ai
             get { return _inner.Tick; }
         }
 
+        public MatchResultView MatchResult
+        {
+            get { return _inner.MatchResult; }
+        }
+
         public int CommandDelayTicks
         {
             get { return _inner.CommandDelayTicks; }
@@ -195,6 +200,11 @@ namespace Wasteland.Sim.Ai
         public void CopyVisibleEnemyBattalionIds(int factionId, List<int> into)
         {
             _inner.CopyVisibleEnemyBattalionIds(factionId, into);
+        }
+
+        public void CopyCombatants(int factionId, List<AiCombatantView> into)
+        {
+            _inner.CopyCombatants(factionId, into);
         }
 
         public CaptureZoneOccupancyResult OccupancyOf(int xCm, int yCm, int radiusCm)

@@ -23,6 +23,13 @@ namespace Wasteland.Sim.Commands
         /// Reserve a supply depot on a road node. Arg0 is the node id.
         /// Arg1 and Arg2 stay 0.
         /// </summary>
-        BuildDepot = 6
+        BuildDepot = 6,
+
+        /// <summary>
+        /// Fire on a battalion. Arg0 is the target battalion id.
+        /// Arg1 and Arg2 stay 0. Out of range, the attacker paths in
+        /// and then stops to fire.
+        /// </summary>
+        Attack = 7
     }
 }

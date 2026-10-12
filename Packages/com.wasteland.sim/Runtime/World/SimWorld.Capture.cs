@@ -213,6 +213,9 @@ namespace Wasteland.Sim.World
                 town.CaptureNeededTicks = tier >= 0 ? rules.CaptureTicks(tier, 0) : 0;
                 town.CaptureAbsentTicks = 0;
                 town.Contested = false;
+                town.FightNoted = false;
+                town.ContestSeatA = 0;
+                town.ContestSeatB = 0;
                 _towns.Add(town);
             }
 
@@ -227,6 +230,7 @@ namespace Wasteland.Sim.World
             _territories.AddRange(territories);
             ValidatePlaceCounts(scenario, rules);
             ApplySeatHoldings(scenario, rules);
+            SpawnNeutralGarrisons(scenario);
             RecomputePopCaps();
             _ownersChanged = false;
             _holdingsBound = true;
@@ -262,7 +266,22 @@ namespace Wasteland.Sim.World
         {
             int index = BattalionIndexOf(id);
             SimBattalion battalion = _battalions[index];
-            battalion.StrengthPpt = strengthPpt;
+            if (strengthPpt <= 0 || battalion.MaxHp <= 0)
+            {
+                battalion.Hp = 0;
+                battalion.StrengthPpt = 0;
+            }
+            else
+            {
+                battalion.Hp = (int)((long)battalion.MaxHp * strengthPpt / 1000);
+                if (battalion.Hp < 1)
+                {
+                    battalion.Hp = 1;
+                }
+
+                battalion.StrengthPpt = CombatMath.StrengthFromHp(battalion.Hp, battalion.MaxHp);
+            }
+
             _battalions[index] = battalion;
         }
 
@@ -287,16 +306,27 @@ namespace Wasteland.Sim.World
                 Array.Clear(_seatCapture, 0, _seats.Count);
                 Array.Clear(_seatCombat, 0, _seats.Count);
                 long radiusSq = (long)town.ZoneRadiusCm * town.ZoneRadiusCm;
+                bool garrison = false;
                 for (int b = 0; b < _battalions.Count; b++)
                 {
                     SimBattalion battalion = _battalions[b];
-                    if (battalion.StrengthPpt <= 0 || battalion.UnitIndex < 0)
+                    if (battalion.Hp <= 0 || battalion.UnitIndex < 0)
                     {
                         continue;
                     }
 
                     if (!InsideSq(battalion.PositionXCm, battalion.PositionYCm, town.XCm, town.YCm, radiusSq))
                     {
+                        continue;
+                    }
+
+                    if (battalion.OwnerId == NeutralOwnerId)
+                    {
+                        if (_catalog.UnitCanContestAt(battalion.UnitIndex))
+                        {
+                            garrison = true;
+                        }
+
                         continue;
                     }
 
@@ -336,27 +366,34 @@ namespace Wasteland.Sim.World
                     }
                 }
 
-                bool zoneContested = combatCount >= 2;
+                bool zoneContested = combatCount >= 2 || (garrison && combatCount >= 1);
                 bool meterContested = zoneContested && town.CaptureFactionId != 0;
-                if (!town.Contested && meterContested)
+                int seatA;
+                int seatB;
+                ContestPair(garrison, out seatA, out seatB);
+                if (zoneContested && seatA != seatB)
                 {
-                    Emit(
-                        SimEventKind.TownContestStarted,
-                        town.TownId,
-                        town.CaptureFactionId,
-                        town.CaptureProgressTicks,
-                        town.OwnerFactionId,
-                        town.TerritoryKey);
+                    if (!town.FightNoted)
+                    {
+                        EmitContest(SimEventKind.TownContestStarted, town, seatA, seatB);
+                        town.FightNoted = true;
+                        town.ContestSeatA = seatA;
+                        town.ContestSeatB = seatB;
+                    }
+                    else if (town.ContestSeatA != seatA || town.ContestSeatB != seatB)
+                    {
+                        EmitContest(SimEventKind.TownContestEnded, town, town.ContestSeatA, town.ContestSeatB);
+                        EmitContest(SimEventKind.TownContestStarted, town, seatA, seatB);
+                        town.ContestSeatA = seatA;
+                        town.ContestSeatB = seatB;
+                    }
                 }
-                else if (town.Contested && !meterContested)
+                else if (town.FightNoted)
                 {
-                    Emit(
-                        SimEventKind.TownContestEnded,
-                        town.TownId,
-                        town.CaptureFactionId,
-                        town.CaptureProgressTicks,
-                        town.OwnerFactionId,
-                        town.TerritoryKey);
+                    EmitContest(SimEventKind.TownContestEnded, town, town.ContestSeatA, town.ContestSeatB);
+                    town.FightNoted = false;
+                    town.ContestSeatA = 0;
+                    town.ContestSeatB = 0;
                 }
 
                 town.Contested = meterContested;
@@ -691,7 +728,7 @@ namespace Wasteland.Sim.World
                 return;
             }
 
-            if (battalion.StrengthPpt <= 0)
+            if (battalion.Hp <= 0)
             {
                 Reject(command, CommandRejectReason.UnknownBattalion, 0, 0);
                 return;
@@ -758,6 +795,9 @@ namespace Wasteland.Sim.World
                 hash.AddInt(town.CaptureNeededTicks);
                 hash.AddInt(town.CaptureAbsentTicks);
                 hash.AddBool(town.Contested);
+                hash.AddBool(town.FightNoted);
+                hash.AddInt(town.ContestSeatA);
+                hash.AddInt(town.ContestSeatB);
             }
 
             hash.AddInt(_territories.Count);
@@ -793,6 +833,110 @@ namespace Wasteland.Sim.World
                 town.CaptureNeededTicks,
                 town.CaptureAbsentTicks,
                 town.Contested);
+        }
+
+        private void EmitContest(SimEventKind kind, TownState town, int seatA, int seatB)
+        {
+            Emit(kind, town.TownId, seatA, seatB, town.OwnerFactionId, town.TerritoryKey);
+        }
+
+        private void ContestPair(bool garrison, out int seatA, out int seatB)
+        {
+            int low = 0;
+            int high = 0;
+            int count = 0;
+            if (garrison)
+            {
+                low = NeutralOwnerId;
+                high = NeutralOwnerId;
+                count = 1;
+            }
+
+            for (int s = 0; s < _seats.Count; s++)
+            {
+                if (!_seatCombat[s])
+                {
+                    continue;
+                }
+
+                int id = _seats[s].FactionId;
+                if (count == 0 || id < low)
+                {
+                    low = id;
+                }
+
+                if (count == 0 || id > high)
+                {
+                    high = id;
+                }
+
+                count++;
+            }
+
+            if (count < 2)
+            {
+                seatA = 0;
+                seatB = 0;
+                return;
+            }
+
+            seatA = low;
+            seatB = high;
+        }
+
+        private void SpawnNeutralGarrisons(SimScenario scenario)
+        {
+            ScenarioGarrison[] garrisons = scenario.Garrisons;
+            if (garrisons == null || garrisons.Length == 0 || _catalog == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < garrisons.Length; i++)
+            {
+                ScenarioGarrison garrison = garrisons[i];
+                int territoryIndex = -1;
+                for (int t = 0; t < _territories.Count; t++)
+                {
+                    if (_territories[t].Key == garrison.TerritoryKey)
+                    {
+                        territoryIndex = t;
+                        break;
+                    }
+                }
+
+                if (territoryIndex < 0)
+                {
+                    throw new InvalidOperationException("Garrison holding is not on the map.");
+                }
+
+                int seatTownId = _territories[territoryIndex].SeatTownId;
+                int townIndex = IndexOfTown(seatTownId);
+                if (townIndex < 0)
+                {
+                    throw new InvalidOperationException("Garrison holding has no seat town.");
+                }
+
+                TownState town = _towns[townIndex];
+                ScenarioUnitCount[] units = garrison.Units;
+                for (int u = 0; u < units.Length; u++)
+                {
+                    if (!_catalog.TryGetUnitIndex(units[u].UnitId, out int unitIndex))
+                    {
+                        throw new InvalidOperationException("Garrison unit is not in the catalog.");
+                    }
+
+                    for (int n = 0; n < units[u].Count; n++)
+                    {
+                        InsertCatalogBattalion(
+                            AllocateBattalionId(),
+                            NeutralOwnerId,
+                            town.XCm,
+                            town.YCm,
+                            unitIndex);
+                    }
+                }
+            }
         }
 
         private int IndexOfTown(int townId)
@@ -878,6 +1022,9 @@ namespace Wasteland.Sim.World
             public int CaptureNeededTicks;
             public int CaptureAbsentTicks;
             public bool Contested;
+            public bool FightNoted;
+            public int ContestSeatA;
+            public int ContestSeatB;
         }
 
         private struct TerritoryState

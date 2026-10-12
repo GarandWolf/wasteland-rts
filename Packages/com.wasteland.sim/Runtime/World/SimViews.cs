@@ -227,8 +227,20 @@ namespace Wasteland.Sim.World
         public readonly int YCm;
         public readonly string UnitId;
         public readonly int StrengthPpt;
+        public readonly int Hp;
+        public readonly int MaxHp;
+        public readonly int AttackTargetId;
 
-        public BattalionView(int id, int ownerId, int xCm, int yCm, string unitId, int strengthPpt)
+        public BattalionView(
+            int id,
+            int ownerId,
+            int xCm,
+            int yCm,
+            string unitId,
+            int strengthPpt,
+            int hp,
+            int maxHp,
+            int attackTargetId)
         {
             Id = id;
             OwnerId = ownerId;
@@ -236,6 +248,9 @@ namespace Wasteland.Sim.World
             YCm = yCm;
             UnitId = unitId ?? string.Empty;
             StrengthPpt = strengthPpt;
+            Hp = hp;
+            MaxHp = maxHp;
+            AttackTargetId = attackTargetId;
         }
     }
 
@@ -384,16 +399,27 @@ namespace Wasteland.Sim.World
         }
     }
 
-    /// <summary>
-    /// Win/loss is reserved. <see cref="IsOver"/> stays false until that pass lands.
-    /// </summary>
+    /// <summary>HQ result. <see cref="WinnerSeat"/> is -1 on a draw.</summary>
     public readonly struct MatchResultView
     {
         public readonly bool IsOver;
+        public readonly int WinnerSeat;
+        public readonly int Reason;
+        public readonly int LoserSeat;
+        public readonly int EndTick;
 
         public MatchResultView(bool isOver)
+            : this(isOver, -1, 0, -1, -1)
+        {
+        }
+
+        public MatchResultView(bool isOver, int winnerSeat, int reason, int loserSeat, int endTick)
         {
             IsOver = isOver;
+            WinnerSeat = winnerSeat;
+            Reason = reason;
+            LoserSeat = loserSeat;
+            EndTick = endTick;
         }
     }
 }

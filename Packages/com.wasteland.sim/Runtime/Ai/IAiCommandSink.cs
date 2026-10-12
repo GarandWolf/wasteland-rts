@@ -11,7 +11,8 @@ namespace Wasteland.Sim.Ai
         Move = 1,
         ClaimTown = 2,
         RaiseBattalion = 3,
-        BuildDepot = 4
+        BuildDepot = 4,
+        Attack = 5
     }
 
     /// <summary>
@@ -111,6 +112,12 @@ namespace Wasteland.Sim.Ai
         int SubmitRaiseBattalion(int factionId, string unitId, int xCm, int yCm);
 
         int SubmitBuildDepot(int factionId, int battalionId, int nodeId);
+
+        /// <summary>
+        /// Enqueue Attack. The return value is the submit sequence, so a
+        /// rejection is read with <c>(issuer &lt;&lt; 32) | sequence</c>.
+        /// </summary>
+        int SubmitAttack(int factionId, int battalionId, int targetBattalionId);
 
         /// <summary>
         /// Sequence stamped on the last forwarded command. Pairs with

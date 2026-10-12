@@ -19,7 +19,7 @@ namespace Wasteland.Sim.Tests
     {
         private const int Remnant = AiConstants.DefaultAiFactionA;
         private const int Compact = AiConstants.DefaultAiFactionB;
-        private const int MaxTicks = 25000;
+        private const int MaxTicks = 45000;
 
         [Fact]
         public void ScriptedCapture_MatchesAcrossRuns_AndSaveResume()
@@ -114,25 +114,58 @@ namespace Wasteland.Sim.Tests
                 TownView town = Town(host.World, dallesId);
                 if (phase == Phase.Claim)
                 {
-                    Submit(host, SimCommand.ClaimTown(host.Tick, Remnant, remnant, dallesId));
-                    Submit(host, SimCommand.ClaimTown(host.Tick, Compact, compact, dallesId));
-                    phase = Phase.WaitContest;
+                    for (int i = 0; i < host.World.BattalionCount; i++)
+                    {
+                        SimBattalion battalion = host.World.Battalions[i];
+                        if (battalion.OwnerId != Remnant || battalion.UnitIndex < 0)
+                        {
+                            continue;
+                        }
+
+                        if (!catalog.UnitCanCaptureAt(battalion.UnitIndex) || catalog.UnitCanBuildAt(battalion.UnitIndex))
+                        {
+                            continue;
+                        }
+
+                        Submit(host, SimCommand.ClaimTown(host.Tick, Remnant, battalion.Id, dallesId));
+                    }
+
+                    phase = Phase.WaitGarrison;
+                }
+                else if (phase == Phase.WaitGarrison)
+                {
+                    if (!NeutralAlive(host.World) && town.CaptureFactionId == Remnant)
+                    {
+                        meter = Remnant;
+                        phase = Phase.WaitOwner;
+                    }
                 }
                 else if (phase == Phase.WaitContest)
                 {
-                    if (town.Contested)
+                    if (town.Contested && town.CaptureFactionId != 0)
                     {
                         phase = Phase.PullIntruder;
                     }
                 }
                 else if (phase == Phase.PullIntruder)
                 {
-                    meter = town.CaptureFactionId;
-                    int intruderFaction = meter == Remnant ? Compact : Remnant;
-                    int intruder = intruderFaction == Remnant ? remnant : compact;
-                    SeatView home = intruderFaction == Remnant ? remnantSeat : compactSeat;
-                    Submit(host, SimCommand.Move(host.Tick, intruderFaction, intruder, home.HqXCm, home.HqYCm));
-                    phase = Phase.WaitOwner;
+                    for (int i = 0; i < host.World.BattalionCount; i++)
+                    {
+                        SimBattalion battalion = host.World.Battalions[i];
+                        if (battalion.OwnerId != Remnant || battalion.UnitIndex < 0)
+                        {
+                            continue;
+                        }
+
+                        if (!catalog.UnitCanContestAt(battalion.UnitIndex))
+                        {
+                            continue;
+                        }
+
+                        Submit(host, SimCommand.Move(host.Tick, Remnant, battalion.Id, remnantSeat.HqXCm, remnantSeat.HqYCm));
+                    }
+
+                    phase = Phase.WaitDepotLoss;
                 }
                 else if (phase == Phase.WaitOwner)
                 {
@@ -152,13 +185,54 @@ namespace Wasteland.Sim.Tests
                 {
                     if (DepotCount(host.World) > 0)
                     {
-                        int defender = meter == Remnant ? remnant : compact;
-                        SeatView home = meter == Remnant ? remnantSeat : compactSeat;
-                        Submit(host, SimCommand.Move(host.Tick, meter, defender, home.HqXCm, home.HqYCm));
-                        int attacker = meter == Remnant ? Compact : Remnant;
-                        int attackerUnit = meter == Remnant ? compact : remnant;
-                        Submit(host, SimCommand.ClaimTown(host.Tick, attacker, attackerUnit, dallesId));
-                        phase = Phase.WaitDepotLoss;
+                        for (int i = 0; i < host.World.BattalionCount; i++)
+                        {
+                            SimBattalion battalion = host.World.Battalions[i];
+                            if (battalion.OwnerId != Remnant || battalion.Hp <= 0 || battalion.UnitIndex < 0)
+                            {
+                                continue;
+                            }
+
+                            if (!catalog.UnitCanContestAt(battalion.UnitIndex))
+                            {
+                                continue;
+                            }
+
+                            Submit(host, SimCommand.Move(host.Tick, Remnant, battalion.Id, remnantSeat.HqXCm, remnantSeat.HqYCm));
+                        }
+
+                        phase = Phase.WaitDefenderLeft;
+                    }
+                }
+                else if (phase == Phase.WaitDefenderLeft)
+                {
+                    if (!FactionInZone(host.World, catalog, Remnant, town))
+                    {
+                        for (int i = 0; i < host.World.BattalionCount; i++)
+                        {
+                            SimBattalion battalion = host.World.Battalions[i];
+                            if (battalion.OwnerId != Compact || battalion.Hp <= 0 || battalion.UnitIndex < 0)
+                            {
+                                continue;
+                            }
+
+                            if (!catalog.UnitCanCaptureAt(battalion.UnitIndex) || catalog.UnitCanBuildAt(battalion.UnitIndex))
+                            {
+                                continue;
+                            }
+
+                            Submit(host, SimCommand.ClaimTown(host.Tick, Compact, battalion.Id, dallesId));
+                        }
+
+                        phase = Phase.WaitCompactMeter;
+                    }
+                }
+                else if (phase == Phase.WaitCompactMeter)
+                {
+                    if (town.CaptureFactionId == Compact)
+                    {
+                        Submit(host, SimCommand.Move(host.Tick, Remnant, remnant, town.XCm, town.YCm));
+                        phase = Phase.WaitContest;
                     }
                 }
                 else if (phase == Phase.WaitDepotLoss)
@@ -280,6 +354,57 @@ namespace Wasteland.Sim.Tests
             throw new InvalidOperationException("No engineer for faction " + factionId + ".");
         }
 
+        private static bool FactionInZone(SimWorld world, BalanceCatalog catalog, int factionId, TownView town)
+        {
+            for (int i = 0; i < world.BattalionCount; i++)
+            {
+                SimBattalion battalion = world.Battalions[i];
+                if (battalion.OwnerId != factionId || battalion.Hp <= 0 || battalion.UnitIndex < 0)
+                {
+                    continue;
+                }
+
+                if (!catalog.UnitCanContestAt(battalion.UnitIndex))
+                {
+                    continue;
+                }
+
+                if (InsideZone(world, battalion.Id, town))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool NeutralAlive(SimWorld world)
+        {
+            for (int i = 0; i < world.BattalionCount; i++)
+            {
+                SimBattalion battalion = world.Battalions[i];
+                if (battalion.OwnerId == SimWorld.NeutralOwnerId && battalion.Hp > 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool InsideZone(SimWorld world, int battalionId, TownView town)
+        {
+            if (!world.TryGetBattalionView(battalionId, out BattalionView view))
+            {
+                return false;
+            }
+
+            long dx = (long)view.XCm - town.XCm;
+            long dy = (long)view.YCm - town.YCm;
+            long radius = town.ZoneRadiusCm;
+            return (dx * dx) + (dy * dy) <= radius * radius;
+        }
+
         private static TownView Town(SimWorld world, int townId)
         {
             Assert.True(world.TryGetTown(townId, out TownView town));
@@ -350,11 +475,14 @@ namespace Wasteland.Sim.Tests
         private enum Phase
         {
             Claim,
+            WaitGarrison,
             WaitContest,
             PullIntruder,
             WaitOwner,
             BuildDepot,
             ClearDefender,
+            WaitDefenderLeft,
+            WaitCompactMeter,
             WaitDepotLoss,
             Done
         }

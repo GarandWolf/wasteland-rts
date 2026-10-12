@@ -2508,7 +2508,7 @@ namespace Wasteland.Sim.Ai
             }
 
             if (!_world.TryGetOwnBattalion(faction.FactionId, builderId, out SimBattalion battalion)
-                || battalion.StrengthPpt <= 0)
+                || battalion.Hp <= 0)
             {
                 return;
             }
@@ -2694,6 +2694,11 @@ namespace Wasteland.Sim.Ai
             if (kind == AiIssuedKind.RaiseBattalion)
             {
                 return CommandKind.RaiseBattalion;
+            }
+
+            if (kind == AiIssuedKind.Attack)
+            {
+                return CommandKind.Attack;
             }
 
             return CommandKind.Move;

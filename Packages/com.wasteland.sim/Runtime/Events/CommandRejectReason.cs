@@ -73,6 +73,18 @@ namespace Wasteland.Sim.Events
         DepotCapReached = 25,
 
         /// <summary>The town is not a territory seat. Param0 = town id.</summary>
-        NotSeatTown = 26
+        NotSeatTown = 26,
+
+        /// <summary>Attack target is not a living battalion. Param0 = target id. Depots and walls use this too.</summary>
+        UnknownTarget = 27,
+
+        /// <summary>Target exists but is not an enemy. Param0 = target id, Param1 = target owner.</summary>
+        TargetNotEnemy = 28,
+
+        /// <summary>The attacker has no weapon. Param0 = catalog unit index.</summary>
+        NotArmed = 29,
+
+        /// <summary>The attacker and the target are the same battalion. Param0 = target id.</summary>
+        TargetIsSelf = 30
     }
 }

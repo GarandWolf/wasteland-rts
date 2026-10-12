@@ -83,7 +83,7 @@ namespace Wasteland.Sim.Tests
                 AiBalanceTablesTests.LoadBalance());
 
             Assert.Equal(0, host.Tick);
-            Assert.Equal(RemnantIds.Length + CompactIds.Length, host.World.BattalionCount);
+            Assert.Equal(RemnantIds.Length + CompactIds.Length + GarrisonCount(scenario), host.World.BattalionCount);
             AssertHostSeat(host, scenario.SeatAt(0), Remnant, RemnantIds);
             AssertHostSeat(host, scenario.SeatAt(1), Compact, CompactIds);
             host.Shutdown();
@@ -268,6 +268,21 @@ namespace Wasteland.Sim.Tests
             }
 
             return manpower;
+        }
+
+        private static int GarrisonCount(SimScenario scenario)
+        {
+            int count = 0;
+            for (int i = 0; i < scenario.Garrisons.Length; i++)
+            {
+                ScenarioUnitCount[] units = scenario.Garrisons[i].Units;
+                for (int u = 0; u < units.Length; u++)
+                {
+                    count += units[u].Count;
+                }
+            }
+
+            return count;
         }
 
         private static AiTownRecord Town(AiMapSnapshot map, int townId)
