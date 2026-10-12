@@ -420,6 +420,87 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void HumanSeats_CannotBeCastBackToAnArray()
+        {
+            AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
+            int[] factions = { AiConstants.DefaultAiFactionB };
+            AiMatchHost host = StartHost(balance, factions);
+            try
+            {
+                Assert.IsNotType<int[]>(host.HumanSeats);
+                Assert.Null(host.HumanSeats as int[]);
+                Assert.Equal(new[] { AiConstants.DefaultAiFactionA }, host.HumanSeats);
+
+                byte[] blob = host.Ai.Save();
+                AiMatchHost replay = AiMatchHost.ReplayTo(
+                    MatchConfig.Default(AiVsAiGorgeTests.MatchSeed),
+                    AiSeamsTests.LoadGorgeV1Bytes(),
+                    factions,
+                    AiConstants.DifficultyNormal,
+                    balance,
+                    host.CommandLog,
+                    blob,
+                    host.Tick);
+                try
+                {
+                    Assert.IsNotType<int[]>(replay.HumanSeats);
+                    Assert.Null(replay.HumanSeats as int[]);
+                    Assert.Equal(host.HumanSeats, replay.HumanSeats);
+                }
+                finally
+                {
+                    replay.Shutdown();
+                }
+            }
+            finally
+            {
+                host.Shutdown();
+            }
+        }
+
+        [Fact]
+        public void FactionWithNoBindingAndNoSeat_ThrowsAtSetup()
+        {
+            AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
+            int[] factions =
+            {
+                AiConstants.DefaultAiFactionA,
+                AiConstants.DefaultAiFactionB,
+                99
+            };
+            InvalidOperationException started = Assert.Throws<InvalidOperationException>(() =>
+                StartHost(balance, factions));
+            Assert.Contains("99", started.Message);
+            Assert.Contains("ai_personalities.json", started.Message);
+            Assert.Contains("no scenario seat", started.Message);
+            Assert.Contains("cannot start", started.Message);
+
+            AiMatchHost host = StartHost();
+            try
+            {
+                byte[] blob = host.Ai.Save();
+                InvalidOperationException replayed = Assert.Throws<InvalidOperationException>(() =>
+                    AiMatchHost.ReplayTo(
+                        MatchConfig.Default(AiVsAiGorgeTests.MatchSeed),
+                        AiSeamsTests.LoadGorgeV1Bytes(),
+                        factions,
+                        AiConstants.DifficultyNormal,
+                        balance,
+                        host.CommandLog,
+                        blob,
+                        0));
+                Assert.Contains("99", replayed.Message);
+                Assert.Contains("ai_personalities.json", replayed.Message);
+                Assert.Contains("no scenario seat", replayed.Message);
+                Assert.Contains("cannot start", replayed.Message);
+            }
+            finally
+            {
+                host.Shutdown();
+            }
+        }
+
+        [Fact]
         public void AiCommandReject_DoesNotShareSimRejectNumbers()
         {
             Assert.Equal(8, (int)AiCommandReject.InsufficientMaterials);

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.Movement;
@@ -62,7 +63,7 @@ namespace Wasteland.Sim.Ai
         private readonly List<AiHashSample> _hashes = new List<AiHashSample>();
         private readonly List<AiTownHoldSample> _holdSamples = new List<AiTownHoldSample>();
         private readonly int[] _factionIds;
-        private readonly int[] _humanSeats;
+        private readonly ReadOnlyCollection<int> _humanSeats;
         private readonly List<string> _seatBindWarnings;
 
         private const string MvpScenarioId = "columbia_gorge_100mi_mvp";
@@ -73,7 +74,7 @@ namespace Wasteland.Sim.Ai
             EnemyAi ai,
             LoggingCommandSink sink,
             int[] factionIds,
-            int[] humanSeats,
+            ReadOnlyCollection<int> humanSeats,
             List<string> seatBindWarnings)
         {
             _world = world;
@@ -127,7 +128,7 @@ namespace Wasteland.Sim.Ai
         /// </summary>
         public bool IsHumanSeat(int seat)
         {
-            for (int i = 0; i < _humanSeats.Length; i++)
+            for (int i = 0; i < _humanSeats.Count; i++)
             {
                 if (_humanSeats[i] == seat)
                 {
@@ -190,7 +191,7 @@ namespace Wasteland.Sim.Ai
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, playable, difficultyId, balance, sink, sink, bound);
             List<string> seatBindWarnings = BindMvpSeats(world, ai, balance, requested, out int[] humanSeats);
             BindMvpRoads(world);
-            return new AiMatchHost(world, ai, sink, playable, humanSeats, seatBindWarnings);
+            return new AiMatchHost(world, ai, sink, playable, Array.AsReadOnly(humanSeats), seatBindWarnings);
         }
 
         public static AiMatchHost ReplayTo(
@@ -268,7 +269,7 @@ namespace Wasteland.Sim.Ai
                     "AI overflowed the command log or reaction queue; replay cannot continue.");
             }
 
-            return new AiMatchHost(world, ai, sink, playable, humanSeats, seatBindWarnings);
+            return new AiMatchHost(world, ai, sink, playable, Array.AsReadOnly(humanSeats), seatBindWarnings);
         }
 
         /// <summary>
@@ -343,6 +344,13 @@ namespace Wasteland.Sim.Ai
                 resolvedIds[resolvedCount] = factionId;
                 resolvedSeats[resolvedCount] = scenarioSeat;
                 resolvedCount++;
+            }
+
+            if (unboundCursor < unboundAi.Length)
+            {
+                throw new InvalidOperationException(
+                    "Faction " + unboundAi[unboundCursor]
+                    + " has no faction binding in ai_personalities.json and no scenario seat. The match cannot start.");
             }
 
             if (resolvedCount < 1)
