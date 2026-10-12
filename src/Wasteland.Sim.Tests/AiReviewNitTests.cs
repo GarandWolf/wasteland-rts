@@ -222,6 +222,9 @@ namespace Wasteland.Sim.Tests
             AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
             AiMatchHost host = StartHost();
             Assert.Empty(host.SeatBindWarnings);
+            Assert.Empty(host.HumanSeats);
+            Assert.False(host.IsHumanSeat(AiConstants.DefaultAiFactionA));
+            Assert.False(host.IsHumanSeat(AiConstants.DefaultAiFactionB));
             Assert.True(balance.BindingCount >= 2);
             for (int i = 0; i < balance.BindingCount; i++)
             {
@@ -294,10 +297,10 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void UnboundHumanSeat_ThrowsAtMatchSetup()
+        public void HumanRemnant_Unbound_ThrowsAtMatchSetup()
         {
             AiBalanceTables balance = AiBalanceTablesTests.LoadBalance()
-                .WithoutFactionBinding(AiConstants.DefaultAiFactionA);
+                .WithoutFactionBindingForTests(AiConstants.DefaultAiFactionA);
             InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() =>
                 StartHost(balance, new[] { AiConstants.DefaultAiFactionB }));
             Assert.Contains("Human seat", ex.Message);
@@ -307,19 +310,189 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
-        public void UnboundAiFaction_LogsWarningAndSkipsSeat()
+        public void HumanCompact_Unbound_ThrowsAtMatchSetup()
         {
             AiBalanceTables balance = AiBalanceTablesTests.LoadBalance()
-                .WithoutFactionBinding(AiConstants.DefaultAiFactionB);
-            AiMatchHost host = StartHost(balance, new[] { AiConstants.DefaultAiFactionA });
+                .WithoutFactionBindingForTests(AiConstants.DefaultAiFactionB);
+            InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() =>
+                StartHost(balance, new[] { AiConstants.DefaultAiFactionA }));
+            Assert.Contains("Human seat", ex.Message);
+            Assert.Contains("homestead_compact", ex.Message);
+            Assert.Contains("ai_personalities.json", ex.Message);
+            Assert.Contains("cannot start", ex.Message);
+        }
+
+        [Fact]
+        public void AiVsAi_UnboundRemnant_WarnsAndSkips()
+        {
+            AiBalanceTables balance = AiBalanceTablesTests.LoadBalance()
+                .WithoutFactionBindingForTests(AiConstants.DefaultAiFactionA);
+            AiMatchHost host = StartHost(
+                balance,
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB });
             try
             {
-                Assert.True(host.World.TryGetSeat(AiConstants.DefaultAiFactionA, out SeatView human));
-                Assert.Equal(0, human.Slot);
-                Assert.False(host.World.TryGetSeat(AiConstants.DefaultAiFactionB, out _));
+                Assert.False(host.World.TryGetSeat(AiConstants.DefaultAiFactionA, out _));
+                Assert.True(host.World.TryGetSeat(AiConstants.DefaultAiFactionB, out SeatView compact));
+                Assert.Equal(1, compact.Slot);
+                Assert.Empty(host.HumanSeats);
+                Assert.False(host.IsHumanSeat(AiConstants.DefaultAiFactionA));
+                Assert.False(host.IsHumanSeat(AiConstants.DefaultAiFactionB));
                 Assert.Equal(
-                    "warning unbound AI faction skipped faction=homestead_compact slot=1",
+                    "warning unbound AI faction skipped faction=remnant_command slot=0",
                     Assert.Single(host.SeatBindWarnings));
+            }
+            finally
+            {
+                host.Shutdown();
+            }
+        }
+
+        [Fact]
+        public void HumanRemnant_DefaultBindings_Starts()
+        {
+            AiMatchHost host = StartHost(
+                AiBalanceTablesTests.LoadBalance(),
+                new[] { AiConstants.DefaultAiFactionB });
+            try
+            {
+                Assert.Empty(host.SeatBindWarnings);
+                Assert.True(host.World.TryGetSeat(AiConstants.DefaultAiFactionA, out SeatView remnant));
+                Assert.Equal(AiConstants.DefaultAiFactionA, remnant.FactionId);
+                Assert.Equal(0, remnant.Slot);
+                Assert.True(host.World.TryGetSeat(AiConstants.DefaultAiFactionB, out SeatView compact));
+                Assert.Equal(AiConstants.DefaultAiFactionB, compact.FactionId);
+                Assert.Equal(1, compact.Slot);
+                Assert.Equal(new[] { AiConstants.DefaultAiFactionA }, host.HumanSeats);
+                Assert.True(host.IsHumanSeat(AiConstants.DefaultAiFactionA));
+                Assert.False(host.IsHumanSeat(AiConstants.DefaultAiFactionB));
+                Assert.False(host.IsHumanSeat(0));
+            }
+            finally
+            {
+                host.Shutdown();
+            }
+        }
+
+        [Fact]
+        public void AiVsAi_SaveReplay_KeepsHashAndEmptyHumanSeats()
+        {
+            AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
+            int[] factions =
+            {
+                AiConstants.DefaultAiFactionA,
+                AiConstants.DefaultAiFactionB
+            };
+            AiMatchHost host = StartHost(balance, factions);
+            try
+            {
+                Assert.Equal(11, AiConstants.StateSchemaVersion);
+                Assert.Empty(host.HumanSeats);
+                ulong hash = host.HashWorld();
+                byte[] blob = host.Ai.Save();
+                AiMatchHost replay = AiMatchHost.ReplayTo(
+                    MatchConfig.Default(AiVsAiGorgeTests.MatchSeed),
+                    AiSeamsTests.LoadGorgeV1Bytes(),
+                    factions,
+                    AiConstants.DifficultyNormal,
+                    balance,
+                    host.CommandLog,
+                    blob,
+                    host.Tick);
+                try
+                {
+                    Assert.Empty(replay.HumanSeats);
+                    Assert.False(replay.IsHumanSeat(AiConstants.DefaultAiFactionA));
+                    Assert.False(replay.IsHumanSeat(AiConstants.DefaultAiFactionB));
+                    Assert.Empty(replay.SeatBindWarnings);
+                    Assert.Equal(hash, replay.HashWorld());
+                    Assert.Equal(host.Tick, replay.Tick);
+                }
+                finally
+                {
+                    replay.Shutdown();
+                }
+            }
+            finally
+            {
+                host.Shutdown();
+            }
+        }
+
+        [Fact]
+        public void HumanSeats_CannotBeCastBackToAnArray()
+        {
+            AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
+            int[] factions = { AiConstants.DefaultAiFactionB };
+            AiMatchHost host = StartHost(balance, factions);
+            try
+            {
+                Assert.IsNotType<int[]>(host.HumanSeats);
+                Assert.Null(host.HumanSeats as int[]);
+                Assert.Equal(new[] { AiConstants.DefaultAiFactionA }, host.HumanSeats);
+
+                byte[] blob = host.Ai.Save();
+                AiMatchHost replay = AiMatchHost.ReplayTo(
+                    MatchConfig.Default(AiVsAiGorgeTests.MatchSeed),
+                    AiSeamsTests.LoadGorgeV1Bytes(),
+                    factions,
+                    AiConstants.DifficultyNormal,
+                    balance,
+                    host.CommandLog,
+                    blob,
+                    host.Tick);
+                try
+                {
+                    Assert.IsNotType<int[]>(replay.HumanSeats);
+                    Assert.Null(replay.HumanSeats as int[]);
+                    Assert.Equal(host.HumanSeats, replay.HumanSeats);
+                }
+                finally
+                {
+                    replay.Shutdown();
+                }
+            }
+            finally
+            {
+                host.Shutdown();
+            }
+        }
+
+        [Fact]
+        public void FactionWithNoBindingAndNoSeat_ThrowsAtSetup()
+        {
+            AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
+            int[] factions =
+            {
+                AiConstants.DefaultAiFactionA,
+                AiConstants.DefaultAiFactionB,
+                99
+            };
+            InvalidOperationException started = Assert.Throws<InvalidOperationException>(() =>
+                StartHost(balance, factions));
+            Assert.Contains("99", started.Message);
+            Assert.Contains("ai_personalities.json", started.Message);
+            Assert.Contains("no scenario seat", started.Message);
+            Assert.Contains("cannot start", started.Message);
+
+            AiMatchHost host = StartHost();
+            try
+            {
+                byte[] blob = host.Ai.Save();
+                InvalidOperationException replayed = Assert.Throws<InvalidOperationException>(() =>
+                    AiMatchHost.ReplayTo(
+                        MatchConfig.Default(AiVsAiGorgeTests.MatchSeed),
+                        AiSeamsTests.LoadGorgeV1Bytes(),
+                        factions,
+                        AiConstants.DifficultyNormal,
+                        balance,
+                        host.CommandLog,
+                        blob,
+                        0));
+                Assert.Contains("99", replayed.Message);
+                Assert.Contains("ai_personalities.json", replayed.Message);
+                Assert.Contains("no scenario seat", replayed.Message);
+                Assert.Contains("cannot start", replayed.Message);
             }
             finally
             {

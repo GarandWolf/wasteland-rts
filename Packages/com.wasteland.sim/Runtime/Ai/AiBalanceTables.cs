@@ -295,11 +295,14 @@ namespace Wasteland.Sim.Ai
         }
 
         /// <summary>
-        /// Copy these tables with one factionBindings row removed. Personalities,
-        /// rules, catalogs, and the balance key stay. Used so match setup can be
-        /// proven against a missing binding without editing data files.
+        /// Test-only. Production match setup does not call this.
+        /// <c>InternalsVisibleTo(&quot;Wasteland.Sim.Tests&quot;)</c> is why it
+        /// lives here: the copy constructor is private, so the test project
+        /// cannot build the copy itself. Removes one factionBindings row.
+        /// Personalities, rules, catalogs, and the balance key stay, so a test
+        /// can prove a missing binding without editing data files.
         /// </summary>
-        internal AiBalanceTables WithoutFactionBinding(int factionId)
+        internal AiBalanceTables WithoutFactionBindingForTests(int factionId)
         {
             int keep = 0;
             for (int i = 0; i < _bindingFactionIds.Length; i++)

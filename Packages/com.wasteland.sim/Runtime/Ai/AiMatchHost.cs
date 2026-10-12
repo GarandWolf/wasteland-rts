@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.IO;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.Movement;
@@ -62,6 +63,7 @@ namespace Wasteland.Sim.Ai
         private readonly List<AiHashSample> _hashes = new List<AiHashSample>();
         private readonly List<AiTownHoldSample> _holdSamples = new List<AiTownHoldSample>();
         private readonly int[] _factionIds;
+        private readonly ReadOnlyCollection<int> _humanSeats;
         private readonly List<string> _seatBindWarnings;
 
         private const string MvpScenarioId = "columbia_gorge_100mi_mvp";
@@ -72,12 +74,14 @@ namespace Wasteland.Sim.Ai
             EnemyAi ai,
             LoggingCommandSink sink,
             int[] factionIds,
+            ReadOnlyCollection<int> humanSeats,
             List<string> seatBindWarnings)
         {
             _world = world;
             _ai = ai;
             _sink = sink;
             _factionIds = factionIds;
+            _humanSeats = humanSeats;
             _seatBindWarnings = seatBindWarnings;
             RecordHash();
             RecordHolds();
@@ -106,6 +110,33 @@ namespace Wasteland.Sim.Ai
         public IReadOnlyList<string> SeatBindWarnings
         {
             get { return _seatBindWarnings; }
+        }
+
+        /// <summary>
+        /// Faction ids seated for a human, in ascending order. A seat is human
+        /// when its faction id was not among the ids passed to <see cref="Start"/>
+        /// or <see cref="ReplayTo"/>. Empty when every seated faction was in
+        /// that list, including an AI versus AI match.
+        /// </summary>
+        public IReadOnlyList<int> HumanSeats
+        {
+            get { return _humanSeats; }
+        }
+
+        /// <summary>
+        /// True when <paramref name="seat"/> is a faction id in <see cref="HumanSeats"/>.
+        /// </summary>
+        public bool IsHumanSeat(int seat)
+        {
+            for (int i = 0; i < _humanSeats.Count; i++)
+            {
+                if (_humanSeats[i] == seat)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         public IReadOnlyList<AiHashSample> Hashes
@@ -146,21 +177,21 @@ namespace Wasteland.Sim.Ai
             AiBalanceTables balance,
             IAiScenarioSeats? seats)
         {
-            if (factionIds == null)
+            int[] requested = SortedFactionIds(factionIds);
+            int[] playable = FactionIdsWithBindings(requested, balance);
+            if (playable.Length < 1)
             {
-                throw new ArgumentNullException(nameof(factionIds));
+                throw new ArgumentException("At least one AI faction is required.", nameof(factionIds));
             }
 
-            int[] copy = (int[])factionIds.Clone();
-            SortIds(copy);
             MatchConfig withKeys = BindKeys(match, mapBlob, balance);
             SimWorld world = new SimWorld(withKeys);
             LoggingCommandSink sink = new LoggingCommandSink(world);
             IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
-            EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
-            List<string> seatBindWarnings = BindMvpSeats(world, ai, balance);
+            EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, playable, difficultyId, balance, sink, sink, bound);
+            List<string> seatBindWarnings = BindMvpSeats(world, ai, balance, requested, out int[] humanSeats);
             BindMvpRoads(world);
-            return new AiMatchHost(world, ai, sink, copy, seatBindWarnings);
+            return new AiMatchHost(world, ai, sink, playable, Array.AsReadOnly(humanSeats), seatBindWarnings);
         }
 
         public static AiMatchHost ReplayTo(
@@ -197,14 +228,19 @@ namespace Wasteland.Sim.Ai
                 throw new ArgumentNullException(nameof(aiBlob));
             }
 
-            int[] copy = (int[])factionIds.Clone();
-            SortIds(copy);
+            int[] requested = SortedFactionIds(factionIds);
+            int[] playable = FactionIdsWithBindings(requested, balance);
+            if (playable.Length < 1)
+            {
+                throw new ArgumentException("At least one AI faction is required.", nameof(factionIds));
+            }
+
             MatchConfig withKeys = BindKeys(match, mapBlob, balance);
             SimWorld world = new SimWorld(withKeys);
             LoggingCommandSink sink = new LoggingCommandSink(world);
             IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
-            EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
-            List<string> seatBindWarnings = BindMvpSeats(world, ai, balance);
+            EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, playable, difficultyId, balance, sink, sink, bound);
+            List<string> seatBindWarnings = BindMvpSeats(world, ai, balance, requested, out int[] humanSeats);
             BindMvpRoads(world);
             ForwardingAiCommandSink? forwarding = ai.AiCommands as ForwardingAiCommandSink;
             if (forwarding != null)
@@ -233,7 +269,7 @@ namespace Wasteland.Sim.Ai
                     "AI overflowed the command log or reaction queue; replay cannot continue.");
             }
 
-            return new AiMatchHost(world, ai, sink, copy, seatBindWarnings);
+            return new AiMatchHost(world, ai, sink, playable, Array.AsReadOnly(humanSeats), seatBindWarnings);
         }
 
         /// <summary>
@@ -242,11 +278,22 @@ namespace Wasteland.Sim.Ai
         /// by the personality economy faction. HQ is the seat town the map already
         /// assigned to that faction, not the origin.
         /// </summary>
-        private static List<string> BindMvpSeats(SimWorld world, EnemyAi ai, AiBalanceTables balance)
+        private static List<string> BindMvpSeats(
+            SimWorld world,
+            EnemyAi ai,
+            AiBalanceTables balance,
+            int[] aiFactionIds,
+            out int[] humanSeats)
         {
+            humanSeats = Array.Empty<int>();
             if (balance == null)
             {
                 throw new ArgumentNullException(nameof(balance));
+            }
+
+            if (aiFactionIds == null)
+            {
+                throw new ArgumentNullException(nameof(aiFactionIds));
             }
 
             string balanceDir = FindBalanceDirectory();
@@ -264,19 +311,33 @@ namespace Wasteland.Sim.Ai
                 MvpScenarioId);
             world.BindCatalog(catalog);
             List<string> warnings = new List<string>();
+            // A seat with no binding has no faction id. AI faction ids from
+            // Start or ReplayTo that also have no binding are those seats:
+            // scenario order against ascending id order. An unbound seat
+            // with no such id is human.
+            int[] unboundAi = UnboundAiFactionIds(aiFactionIds, balance);
+            int unboundCursor = 0;
+            int[] resolvedIds = new int[scenario.SeatCount];
+            ScenarioSeat[] resolvedSeats = new ScenarioSeat[scenario.SeatCount];
+            int resolvedCount = 0;
             for (int s = 0; s < scenario.SeatCount; s++)
             {
-                TryMvpSeat(balance, scenario.SeatAt(s), warnings, out _);
-            }
-
-            int[] resolvedIds = new int[balance.BindingCount];
-            ScenarioSeat[] resolvedSeats = new ScenarioSeat[balance.BindingCount];
-            int resolvedCount = 0;
-            for (int i = 0; i < balance.BindingCount; i++)
-            {
-                int factionId = balance.BindingFactionIdAt(i);
-                if (!TryScenarioSeatForFaction(balance, scenario, factionId, out ScenarioSeat scenarioSeat))
+                ScenarioSeat scenarioSeat = scenario.SeatAt(s);
+                int offer = unboundCursor < unboundAi.Length ? unboundAi[unboundCursor] : 0;
+                if (!TryMvpSeat(
+                    balance,
+                    scenarioSeat,
+                    aiFactionIds,
+                    offer,
+                    warnings,
+                    out int factionId,
+                    out bool consumedUnboundAi))
                 {
+                    if (consumedUnboundAi)
+                    {
+                        unboundCursor++;
+                    }
+
                     continue;
                 }
 
@@ -285,9 +346,36 @@ namespace Wasteland.Sim.Ai
                 resolvedCount++;
             }
 
+            if (unboundCursor < unboundAi.Length)
+            {
+                throw new InvalidOperationException(
+                    "Faction " + unboundAi[unboundCursor]
+                    + " has no faction binding in ai_personalities.json and no scenario seat. The match cannot start.");
+            }
+
             if (resolvedCount < 1)
             {
                 throw new InvalidOperationException("No scenario seat matched a bound faction.");
+            }
+
+            SortResolvedSeats(resolvedIds, resolvedSeats, resolvedCount);
+            int humanCount = 0;
+            for (int i = 0; i < resolvedCount; i++)
+            {
+                if (IsHumanSeat(resolvedIds[i], aiFactionIds))
+                {
+                    humanCount++;
+                }
+            }
+
+            humanSeats = new int[humanCount];
+            int humanWrite = 0;
+            for (int i = 0; i < resolvedCount; i++)
+            {
+                if (IsHumanSeat(resolvedIds[i], aiFactionIds))
+                {
+                    humanSeats[humanWrite++] = resolvedIds[i];
+                }
             }
 
             int[] worldFactions = new int[resolvedCount];
@@ -342,20 +430,30 @@ namespace Wasteland.Sim.Ai
 
         /// <summary>
         /// Resolve one scenario seat against <c>ai_personalities.json</c>
-        /// faction bindings. A human seat (player controller) with no binding
-        /// throws, and the match must not start. An AI seat with no binding
-        /// appends one deterministic warning and returns false so the caller
-        /// skips it. A bound seat returns its faction id and does not warn.
+        /// faction bindings. The lookup runs once; the caller binds that
+        /// faction id. A human seat with no binding throws, and the match
+        /// must not start. An AI seat with no binding appends one
+        /// deterministic warning and returns false so the caller skips it.
+        /// Human means <see cref="IsHumanSeat(int, int[])"/>, the faction id
+        /// is not in the list passed to <see cref="Start"/> or <see cref="ReplayTo"/>.
         /// </summary>
         internal static bool TryMvpSeat(
             AiBalanceTables balance,
             ScenarioSeat seat,
+            int[] aiFactionIds,
+            int unboundAiFactionId,
             List<string> warnings,
-            out int factionId)
+            out int factionId,
+            out bool consumedUnboundAi)
         {
             if (balance == null)
             {
                 throw new ArgumentNullException(nameof(balance));
+            }
+
+            if (aiFactionIds == null)
+            {
+                throw new ArgumentNullException(nameof(aiFactionIds));
             }
 
             if (warnings == null)
@@ -363,12 +461,15 @@ namespace Wasteland.Sim.Ai
                 throw new ArgumentNullException(nameof(warnings));
             }
 
+            consumedUnboundAi = false;
             if (TryBoundFactionId(balance, seat.Faction, out factionId))
             {
                 return true;
             }
 
-            if (seat.Controller == ScenarioController.Player)
+            consumedUnboundAi = unboundAiFactionId != 0;
+            factionId = unboundAiFactionId;
+            if (IsHumanSeat(factionId, aiFactionIds))
             {
                 throw new InvalidOperationException(
                     "Human seat '" + seat.Faction
@@ -380,6 +481,24 @@ namespace Wasteland.Sim.Ai
                 "warning unbound AI faction skipped faction=" + seat.Faction + " slot=" + seat.Slot);
             factionId = 0;
             return false;
+        }
+
+        /// <summary>
+        /// A faction is human when it is absent from the AI faction ids passed
+        /// to <see cref="Start"/> or <see cref="ReplayTo"/>. The scenario
+        /// controller is not consulted.
+        /// </summary>
+        private static bool IsHumanSeat(int seat, int[] aiFactionIds)
+        {
+            for (int i = 0; i < aiFactionIds.Length; i++)
+            {
+                if (aiFactionIds[i] == seat)
+                {
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         private static bool TryBoundFactionId(AiBalanceTables balance, string factionKey, out int factionId)
@@ -630,6 +749,90 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < _factionIds.Length; i++)
             {
                 _headlessLogs.Add(_ai.CaptureHeadlessSnapshot(tick, _factionIds[i]).FormatLine());
+            }
+        }
+
+        private static int[] SortedFactionIds(int[] factionIds)
+        {
+            if (factionIds == null)
+            {
+                throw new ArgumentNullException(nameof(factionIds));
+            }
+
+            int[] copy = (int[])factionIds.Clone();
+            SortIds(copy);
+            return copy;
+        }
+
+        private static int[] FactionIdsWithBindings(int[] aiFactionIds, AiBalanceTables balance)
+        {
+            int count = 0;
+            for (int i = 0; i < aiFactionIds.Length; i++)
+            {
+                if (balance.TryGetBoundPersonalityId(aiFactionIds[i], out _))
+                {
+                    count++;
+                }
+            }
+
+            if (count == aiFactionIds.Length)
+            {
+                return aiFactionIds;
+            }
+
+            int[] ids = new int[count];
+            int write = 0;
+            for (int i = 0; i < aiFactionIds.Length; i++)
+            {
+                if (balance.TryGetBoundPersonalityId(aiFactionIds[i], out _))
+                {
+                    ids[write++] = aiFactionIds[i];
+                }
+            }
+
+            return ids;
+        }
+
+        private static int[] UnboundAiFactionIds(int[] aiFactionIds, AiBalanceTables balance)
+        {
+            int count = 0;
+            for (int i = 0; i < aiFactionIds.Length; i++)
+            {
+                if (!balance.TryGetBoundPersonalityId(aiFactionIds[i], out _))
+                {
+                    count++;
+                }
+            }
+
+            int[] ids = new int[count];
+            int write = 0;
+            for (int i = 0; i < aiFactionIds.Length; i++)
+            {
+                if (!balance.TryGetBoundPersonalityId(aiFactionIds[i], out _))
+                {
+                    ids[write++] = aiFactionIds[i];
+                }
+            }
+
+            return ids;
+        }
+
+        private static void SortResolvedSeats(int[] factionIds, ScenarioSeat[] seats, int count)
+        {
+            for (int i = 1; i < count; i++)
+            {
+                int factionId = factionIds[i];
+                ScenarioSeat seat = seats[i];
+                int j = i - 1;
+                while (j >= 0 && factionIds[j] > factionId)
+                {
+                    factionIds[j + 1] = factionIds[j];
+                    seats[j + 1] = seats[j];
+                    j--;
+                }
+
+                factionIds[j + 1] = factionId;
+                seats[j + 1] = seat;
             }
         }
 
