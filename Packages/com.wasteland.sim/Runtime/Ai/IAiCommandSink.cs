@@ -14,6 +14,13 @@ namespace Wasteland.Sim.Ai
         BuildDepot = 4
     }
 
+    /// <summary>
+    /// AI rejection codes. These numbers are not the sim
+    /// <see cref="Wasteland.Sim.Events.CommandRejectReason"/> values.
+    /// <see cref="InsufficientMaterials"/> is 8 here and 11 on the sim enum.
+    /// Never cast one enum to the other. Convert only through the explicit
+    /// mapping in <see cref="ForwardingAiCommandSink.MapReject"/>.
+    /// </summary>
     public enum AiCommandReject : byte
     {
         None = 0,

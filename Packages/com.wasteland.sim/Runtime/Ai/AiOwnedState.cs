@@ -229,6 +229,19 @@ namespace Wasteland.Sim.Ai
             ScoutRng = scoutRng;
         }
 
+        /// <summary>
+        /// Record a pending intent. A duplicate sequence, or the same kind,
+        /// battalion, and target, is ignored.
+        /// Moves stop at <see cref="AiConstants.MoveIntentCapacity"/> and
+        /// replace the oldest Move. They never evict ClaimTown or BuildDepot.
+        /// When the table is full and a Move row exists, ClaimTown or
+        /// BuildDepot takes that Move's slot.
+        /// When all <see cref="AiConstants.PendingIntentCapacity"/> slots
+        /// already hold ClaimTown or BuildDepot, a newer intent replaces the
+        /// oldest of those rows. An intent that is not newer than the oldest
+        /// is dropped. An <see cref="AiPendingIntent.InsertSeq"/> below 1 is
+        /// assigned here, so a fresh intent is newer than every stored row.
+        /// </summary>
         public void EnqueueIntent(AiPendingIntent intent)
         {
             for (int i = 0; i < IntentCount; i++)
@@ -276,6 +289,8 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
+            // Every slot is ClaimTown or BuildDepot. Replace the oldest when
+            // the incoming intent is newer. Otherwise drop the incoming intent.
             int worst = 0;
             for (int i = 1; i < IntentCount; i++)
             {
@@ -297,7 +312,8 @@ namespace Wasteland.Sim.Ai
         /// <summary>
         /// Moves may use only <see cref="AiConstants.MoveIntentCapacity"/> rows.
         /// A full Move set replaces the oldest Move. It never evicts ClaimTown
-        /// or BuildDepot, so those orders keep <see cref="AiConstants.ReservedNonMoveIntentSlots"/>.
+        /// or BuildDepot. <see cref="AiConstants.MoveExcludedIntentSlots"/> only
+        /// keeps that many slots out of Move occupancy.
         /// </summary>
         private void EnqueueMoveIntent(AiPendingIntent intent)
         {

@@ -11,17 +11,17 @@ namespace Wasteland.Sim.Ai
         public const int PendingIntentCapacity = 32;
 
         /// <summary>
-        /// Slots in the pending-intent table that <see cref="AiIssuedKind.Move"/>
-        /// cannot occupy. ClaimTown and BuildDepot keep this many entries when
-        /// Moves flood the table.
+        /// Slots <see cref="AiIssuedKind.Move"/> cannot occupy. This only holds
+        /// space against Moves. It does not reserve the rows for ClaimTown or
+        /// BuildDepot, and those orders can fill the whole table.
         /// </summary>
-        public const int ReservedNonMoveIntentSlots = 8;
+        public const int MoveExcludedIntentSlots = 8;
 
         /// <summary>
-        /// Move intents stop at this count. The remaining
-        /// <see cref="ReservedNonMoveIntentSlots"/> stay available for other orders.
+        /// Move intents stop at this count. The other
+        /// <see cref="MoveExcludedIntentSlots"/> stay out of Move occupancy.
         /// </summary>
-        public const int MoveIntentCapacity = PendingIntentCapacity - ReservedNonMoveIntentSlots;
+        public const int MoveIntentCapacity = PendingIntentCapacity - MoveExcludedIntentSlots;
         /// <summary>
         /// Shared 128-slot depot-node blacklist for every seat, keyed by
         /// (node, seat). Seats do not own separate lists.

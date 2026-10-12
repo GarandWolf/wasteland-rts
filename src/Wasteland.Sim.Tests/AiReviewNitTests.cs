@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Commands;
@@ -19,7 +20,7 @@ namespace Wasteland.Sim.Tests
             AiFactionState faction = owned.GetFaction(1);
             int moveCap = AiConstants.MoveIntentCapacity;
             Assert.True(moveCap < AiConstants.PendingIntentCapacity);
-            Assert.Equal(AiConstants.ReservedNonMoveIntentSlots, AiConstants.PendingIntentCapacity - moveCap);
+            Assert.Equal(AiConstants.MoveExcludedIntentSlots, AiConstants.PendingIntentCapacity - moveCap);
 
             for (int i = 0; i < moveCap + 4; i++)
             {
@@ -220,6 +221,7 @@ namespace Wasteland.Sim.Tests
 
             AiBalanceTables balance = AiBalanceTablesTests.LoadBalance();
             AiMatchHost host = StartHost();
+            Assert.Empty(host.SeatBindWarnings);
             Assert.True(balance.BindingCount >= 2);
             for (int i = 0; i < balance.BindingCount; i++)
             {
@@ -231,6 +233,111 @@ namespace Wasteland.Sim.Tests
             }
 
             host.Shutdown();
+        }
+
+        [Fact]
+        public void FullClaimTownAndBuildDepotTable_ReplacesOldestIntent()
+        {
+            AiOwnedState owned = Owned(1);
+            AiFactionState faction = owned.GetFaction(1);
+            int cap = AiConstants.PendingIntentCapacity;
+            for (int i = 0; i < cap; i++)
+            {
+                AiIssuedKind kind = (i % 2) == 0 ? AiIssuedKind.ClaimTown : AiIssuedKind.BuildDepot;
+                owned.EnqueueIntent(1, new AiPendingIntent
+                {
+                    Sequence = i + 1,
+                    Kind = kind,
+                    BattalionId = 1000 + i,
+                    TargetId = 2000 + i,
+                    IssuedTick = 0
+                });
+            }
+
+            Assert.Equal(cap, faction.IntentCount);
+            Assert.Equal(0, CountKind(faction, AiIssuedKind.Move));
+            Assert.Equal(cap / 2, CountKind(faction, AiIssuedKind.ClaimTown));
+            Assert.Equal(cap / 2, CountKind(faction, AiIssuedKind.BuildDepot));
+            Assert.Equal(1, OldestSequence(faction));
+
+            owned.EnqueueIntent(1, new AiPendingIntent
+            {
+                Sequence = 9000,
+                Kind = AiIssuedKind.ClaimTown,
+                BattalionId = 9000,
+                TargetId = 9000,
+                IssuedTick = 0
+            });
+
+            Assert.Equal(cap, faction.IntentCount);
+            Assert.False(HasIntent(faction, 1));
+            Assert.True(HasIntent(faction, 2));
+            Assert.True(HasIntent(faction, 9000));
+            Assert.Equal(2, OldestSequence(faction));
+            int oldestInsert = MinInsertSeq(faction);
+            Assert.True(oldestInsert > 1);
+
+            owned.EnqueueIntent(1, new AiPendingIntent
+            {
+                Sequence = 8000,
+                Kind = AiIssuedKind.BuildDepot,
+                BattalionId = 8000,
+                TargetId = 8000,
+                IssuedTick = 0,
+                InsertSeq = oldestInsert - 1
+            });
+
+            Assert.Equal(cap, faction.IntentCount);
+            Assert.False(HasIntent(faction, 8000));
+            Assert.True(HasIntent(faction, 2));
+            Assert.True(HasIntent(faction, 9000));
+        }
+
+        [Fact]
+        public void UnboundHumanSeat_ThrowsAtMatchSetup()
+        {
+            AiBalanceTables balance = AiBalanceTablesTests.LoadBalance()
+                .WithoutFactionBinding(AiConstants.DefaultAiFactionA);
+            InvalidOperationException ex = Assert.Throws<InvalidOperationException>(() =>
+                StartHost(balance, new[] { AiConstants.DefaultAiFactionB }));
+            Assert.Contains("Human seat", ex.Message);
+            Assert.Contains("remnant_command", ex.Message);
+            Assert.Contains("ai_personalities.json", ex.Message);
+            Assert.Contains("cannot start", ex.Message);
+        }
+
+        [Fact]
+        public void UnboundAiFaction_LogsWarningAndSkipsSeat()
+        {
+            AiBalanceTables balance = AiBalanceTablesTests.LoadBalance()
+                .WithoutFactionBinding(AiConstants.DefaultAiFactionB);
+            AiMatchHost host = StartHost(balance, new[] { AiConstants.DefaultAiFactionA });
+            try
+            {
+                Assert.True(host.World.TryGetSeat(AiConstants.DefaultAiFactionA, out SeatView human));
+                Assert.Equal(0, human.Slot);
+                Assert.False(host.World.TryGetSeat(AiConstants.DefaultAiFactionB, out _));
+                Assert.Equal(
+                    "warning unbound AI faction skipped faction=homestead_compact slot=1",
+                    Assert.Single(host.SeatBindWarnings));
+            }
+            finally
+            {
+                host.Shutdown();
+            }
+        }
+
+        [Fact]
+        public void AiCommandReject_DoesNotShareSimRejectNumbers()
+        {
+            Assert.Equal(8, (int)AiCommandReject.InsufficientMaterials);
+            Assert.Equal(11, (int)CommandRejectReason.InsufficientMaterials);
+            Assert.NotEqual(
+                (int)AiCommandReject.InsufficientManpower,
+                (int)CommandRejectReason.InsufficientManpower);
+            Assert.NotEqual(
+                (int)AiCommandReject.InsufficientFuel,
+                (int)CommandRejectReason.InsufficientFuel);
         }
 
         private static void AssertKeyedBackoffSkipped(AiCommandReject reject)
@@ -311,6 +418,38 @@ namespace Wasteland.Sim.Tests
             }
 
             return count;
+        }
+
+        private static int OldestSequence(AiFactionState faction)
+        {
+            int oldest = 0;
+            int bestInsert = int.MaxValue;
+            for (int i = 0; i < faction.IntentCount; i++)
+            {
+                AiPendingIntent intent = faction.Intents[i];
+                if (intent.InsertSeq < bestInsert
+                    || (intent.InsertSeq == bestInsert && intent.Sequence < oldest))
+                {
+                    bestInsert = intent.InsertSeq;
+                    oldest = intent.Sequence;
+                }
+            }
+
+            return oldest;
+        }
+
+        private static int MinInsertSeq(AiFactionState faction)
+        {
+            int best = int.MaxValue;
+            for (int i = 0; i < faction.IntentCount; i++)
+            {
+                if (faction.Intents[i].InsertSeq < best)
+                {
+                    best = faction.Intents[i].InsertSeq;
+                }
+            }
+
+            return best;
         }
 
         private static bool HasIntent(AiFactionState faction, int sequence)
@@ -420,12 +559,19 @@ namespace Wasteland.Sim.Tests
 
         private static AiMatchHost StartHost()
         {
+            return StartHost(
+                AiBalanceTablesTests.LoadBalance(),
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB });
+        }
+
+        private static AiMatchHost StartHost(AiBalanceTables balance, int[] factionIds)
+        {
             return AiMatchHost.Start(
                 MatchConfig.Default(AiVsAiGorgeTests.MatchSeed),
                 AiSeamsTests.LoadGorgeV1Bytes(),
-                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                factionIds,
                 AiConstants.DifficultyNormal,
-                AiBalanceTablesTests.LoadBalance());
+                balance);
         }
 
         private static SimScenario LoadMvp()

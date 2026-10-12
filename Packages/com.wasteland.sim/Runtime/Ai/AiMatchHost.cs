@@ -62,16 +62,23 @@ namespace Wasteland.Sim.Ai
         private readonly List<AiHashSample> _hashes = new List<AiHashSample>();
         private readonly List<AiTownHoldSample> _holdSamples = new List<AiTownHoldSample>();
         private readonly int[] _factionIds;
+        private readonly List<string> _seatBindWarnings;
 
         private const string MvpScenarioId = "columbia_gorge_100mi_mvp";
         private const string MvpMapFileId = "golden_ci_columbia_gorge_100_v1_marsh";
 
-        private AiMatchHost(SimWorld world, EnemyAi ai, LoggingCommandSink sink, int[] factionIds)
+        private AiMatchHost(
+            SimWorld world,
+            EnemyAi ai,
+            LoggingCommandSink sink,
+            int[] factionIds,
+            List<string> seatBindWarnings)
         {
             _world = world;
             _ai = ai;
             _sink = sink;
             _factionIds = factionIds;
+            _seatBindWarnings = seatBindWarnings;
             RecordHash();
             RecordHolds();
         }
@@ -89,6 +96,16 @@ namespace Wasteland.Sim.Ai
         public IReadOnlyList<string> HeadlessLogs
         {
             get { return _headlessLogs; }
+        }
+
+        /// <summary>
+        /// Deterministic setup lines for scenario seats that were not bound.
+        /// Same policy as <see cref="HeadlessLogs"/>: not part of the world hash.
+        /// Empty when every scenario seat had a faction binding.
+        /// </summary>
+        public IReadOnlyList<string> SeatBindWarnings
+        {
+            get { return _seatBindWarnings; }
         }
 
         public IReadOnlyList<AiHashSample> Hashes
@@ -141,9 +158,9 @@ namespace Wasteland.Sim.Ai
             LoggingCommandSink sink = new LoggingCommandSink(world);
             IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
-            BindMvpSeats(world, ai, balance);
+            List<string> seatBindWarnings = BindMvpSeats(world, ai, balance);
             BindMvpRoads(world);
-            return new AiMatchHost(world, ai, sink, copy);
+            return new AiMatchHost(world, ai, sink, copy, seatBindWarnings);
         }
 
         public static AiMatchHost ReplayTo(
@@ -187,7 +204,7 @@ namespace Wasteland.Sim.Ai
             LoggingCommandSink sink = new LoggingCommandSink(world);
             IAiScenarioSeats bound = seats ?? LaunchSeats(mapBlob, balance);
             EnemyAi ai = EnemyAi.MatchInit(withKeys, mapBlob, copy, difficultyId, balance, sink, sink, bound);
-            BindMvpSeats(world, ai, balance);
+            List<string> seatBindWarnings = BindMvpSeats(world, ai, balance);
             BindMvpRoads(world);
             ForwardingAiCommandSink? forwarding = ai.AiCommands as ForwardingAiCommandSink;
             if (forwarding != null)
@@ -216,7 +233,7 @@ namespace Wasteland.Sim.Ai
                     "AI overflowed the command log or reaction queue; replay cannot continue.");
             }
 
-            return new AiMatchHost(world, ai, sink, copy);
+            return new AiMatchHost(world, ai, sink, copy, seatBindWarnings);
         }
 
         /// <summary>
@@ -225,7 +242,7 @@ namespace Wasteland.Sim.Ai
         /// by the personality economy faction. HQ is the seat town the map already
         /// assigned to that faction, not the origin.
         /// </summary>
-        private static void BindMvpSeats(SimWorld world, EnemyAi ai, AiBalanceTables balance)
+        private static List<string> BindMvpSeats(SimWorld world, EnemyAi ai, AiBalanceTables balance)
         {
             if (balance == null)
             {
@@ -246,6 +263,12 @@ namespace Wasteland.Sim.Ai
                 mapName,
                 MvpScenarioId);
             world.BindCatalog(catalog);
+            List<string> warnings = new List<string>();
+            for (int s = 0; s < scenario.SeatCount; s++)
+            {
+                TryMvpSeat(balance, scenario.SeatAt(s), warnings, out _);
+            }
+
             int[] resolvedIds = new int[balance.BindingCount];
             ScenarioSeat[] resolvedSeats = new ScenarioSeat[balance.BindingCount];
             int resolvedCount = 0;
@@ -314,6 +337,76 @@ namespace Wasteland.Sim.Ai
             }
 
             world.BindHoldings(scenario, ai.Map);
+            return warnings;
+        }
+
+        /// <summary>
+        /// Resolve one scenario seat against <c>ai_personalities.json</c>
+        /// faction bindings. A human seat (player controller) with no binding
+        /// throws, and the match must not start. An AI seat with no binding
+        /// appends one deterministic warning and returns false so the caller
+        /// skips it. A bound seat returns its faction id and does not warn.
+        /// </summary>
+        internal static bool TryMvpSeat(
+            AiBalanceTables balance,
+            ScenarioSeat seat,
+            List<string> warnings,
+            out int factionId)
+        {
+            if (balance == null)
+            {
+                throw new ArgumentNullException(nameof(balance));
+            }
+
+            if (warnings == null)
+            {
+                throw new ArgumentNullException(nameof(warnings));
+            }
+
+            if (TryBoundFactionId(balance, seat.Faction, out factionId))
+            {
+                return true;
+            }
+
+            if (seat.Controller == ScenarioController.Player)
+            {
+                throw new InvalidOperationException(
+                    "Human seat '" + seat.Faction
+                    + "' (slot " + seat.Slot
+                    + ") has no faction binding in ai_personalities.json. The match cannot start.");
+            }
+
+            warnings.Add(
+                "warning unbound AI faction skipped faction=" + seat.Faction + " slot=" + seat.Slot);
+            factionId = 0;
+            return false;
+        }
+
+        private static bool TryBoundFactionId(AiBalanceTables balance, string factionKey, out int factionId)
+        {
+            factionId = 0;
+            if (string.IsNullOrEmpty(factionKey))
+            {
+                return false;
+            }
+
+            for (int i = 0; i < balance.BindingCount; i++)
+            {
+                int id = balance.BindingFactionIdAt(i);
+                if (!balance.TryGetBoundPersonalityId(id, out string personalityId))
+                {
+                    continue;
+                }
+
+                AiPersonalityProfile personality = balance.GetPersonality(personalityId);
+                if (personality.EconomyFactionId == factionKey)
+                {
+                    factionId = id;
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         /// <summary>
