@@ -45,7 +45,7 @@ namespace Wasteland.Sim.Ai
     /// <summary>
     /// A ClaimTown or BuildDepot still in the world queue. <see cref="Sequence"/>
     /// is the value <see cref="ISimCommandSink.LastSequence"/> returned at enqueue
-    /// and matches CommandRejected.Key = (issuer << 32) | sequence.
+    /// and matches CommandRejected.Key = (issuer &lt;&lt; 32) | sequence.
     /// </summary>
     public struct AiPendingIntent
     {
