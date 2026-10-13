@@ -54,7 +54,10 @@ namespace Wasteland.Sim.Ai
     /// <summary>
     /// Attack the nearest enemy town, preferring the enemy HQ once it is in
     /// supply. Place a forward depot with an engineer first when the target is
-    /// beyond supply reach. Defend own HQ first; defence outranks attack.
+    /// beyond supply reach. When that depot cannot be paid for, switch to an
+    /// in-supply town or march to the supply edge. A seat that is too weak
+    /// keeps raising combat units while it can pay; idle engineers do not
+    /// block that. Defend own HQ first; defence outranks attack.
     /// </summary>
     internal sealed class AiAttackDefend
     {
@@ -82,6 +85,17 @@ namespace Wasteland.Sim.Ai
         private readonly List<DepotView> _depotScratch = new List<DepotView>();
         private readonly List<AiCombatantView> _combatScratch = new List<AiCombatantView>();
         private readonly List<int> _marchedScratch = new List<int>();
+        private readonly int[] _waypointTown = new int[8];
+        private readonly int[] _waypointSites = new int[8];
+        private readonly int[] _waypointCached = new int[8];
+        private readonly int[] _hqOutSites = new int[8];
+        private readonly int[] _hqOutCached = new int[8];
+        private readonly int[] _hqOutValue = new int[8];
+        private readonly int[] _edgeCached = new int[8];
+        private readonly int[] _edgeSites = new int[8];
+        private readonly int[] _edgeNode = new int[8];
+        private readonly int[] _edgeX = new int[8];
+        private readonly int[] _edgeY = new int[8];
         private int[] _rankId = Array.Empty<int>();
         private int[] _rankDist = Array.Empty<int>();
         private int[] _rankCommit = Array.Empty<int>();
@@ -314,8 +328,18 @@ namespace Wasteland.Sim.Ai
             int networkCount,
             int supplyReachCm,
             ulong prizeTerritoryKey,
-            int prizeTargetBonusPpt)
+            int prizeTargetBonusPpt,
+            bool inSupplyOnly = false)
         {
+            if (inSupplyOnly)
+            {
+                AiSupplyResult filled = _roads.FillFromSources(graph, networkNodeIds, networkCount, faction);
+                if (DeferIfExhausted(filled))
+                {
+                    return 0;
+                }
+            }
+
             int nearestId = 0;
             int nearestDist = AiConstants.UnreachableCm;
             bool nearestPrize = false;
@@ -346,6 +370,19 @@ namespace Wasteland.Sim.Ai
                 if (readback.OwnerFactionId == 0 && !isPrize)
                 {
                     continue;
+                }
+
+                if (inSupplyOnly)
+                {
+                    if (!graph.TryGetNodeIndex(town.NodeId, out int townIndex))
+                    {
+                        continue;
+                    }
+
+                    if (_roads.NetworkDistanceAt(townIndex) > supplyReachCm)
+                    {
+                        continue;
+                    }
                 }
 
                 AiSupplyResult dist = _roads.DistanceCm(graph, fromNodeId, town.NodeId, faction);
@@ -768,39 +805,191 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            if (!StrengthAllowsAttack(own, defender, attackStrengthRatioPpt))
+            AiAttackTownInfo enemyHq = default;
+            bool haveEnemyHq = TryFindEnemyHq(
+                faction,
+                towns,
+                townCount,
+                prizeTerritoryKey,
+                out enemyHq);
+            bool hqOutOfSupply = haveEnemyHq
+                && (graph.NodeCount > 512
+                    ? target.Id == enemyHq.Id
+                    : HqOutOfSupply(
+                        faction,
+                        graph,
+                        enemyHq.NodeId,
+                        networkNodeIds,
+                        networkCount,
+                        supplyReachCm));
+            bool canExtendSupply = SupplyExtensionPendingOrAffordable(tick, faction, seat);
+            if (hqOutOfSupply && canExtendSupply)
             {
-                if (CountMarchIdle(battalions, battalionCount, false) < 1)
+                if (!AdoptAttackTown(
+                    faction,
+                    enemyHq,
+                    battalions,
+                    battalionCount,
+                    out target,
+                    out own,
+                    out defender))
                 {
-                    string raiseId = SelectRaiseUnit(
-                        seat,
-                        _catalog,
-                        _seatView,
-                        battalions,
-                        battalionCount,
-                        _lineUnitsPerAntiArmour,
-                        false,
-                        GarrisonShort(faction, towns, townCount),
-                        _queuedUnitIds,
-                        _queuedCount,
-                        _pendingUnitIds,
-                        _pendingCount);
-                    int raiseX;
-                    int raiseY;
-                    RallyForRaise(
-                        false,
-                        true,
-                        raiseId,
-                        towns,
-                        townCount,
-                        faction.HomeTownId,
-                        target.XCm,
-                        target.YCm,
-                        out raiseX,
-                        out raiseY);
-                    TryRaise(tick, faction, seat, raiseId, raiseX, raiseY);
+                    return;
+                }
+            }
+            else if (hqOutOfSupply)
+            {
+                ReserveDepotSavings();
+                int stepId = CachedRouteWaypoint(
+                    faction,
+                    towns,
+                    townCount,
+                    graph,
+                    fromNode,
+                    enemyHq,
+                    networkNodeIds,
+                    networkCount,
+                    supplyReachCm,
+                    prizeTerritoryKey,
+                    prizeTargetBonusPpt);
+                if (_budgetDeferred)
+                {
+                    return;
                 }
 
+                if (stepId != 0
+                    && TryFindAttackTown(towns, townCount, stepId, out AiAttackTownInfo step))
+                {
+                    if (!AdoptAttackTown(
+                        faction,
+                        step,
+                        battalions,
+                        battalionCount,
+                        out target,
+                        out own,
+                        out defender))
+                    {
+                        return;
+                    }
+                }
+                else if (graph.NodeCount <= 512)
+                {
+                    MarchToSupplyEdge(
+                        tick,
+                        faction,
+                        battalions,
+                        battalionCount,
+                        graph,
+                        networkNodeIds,
+                        networkCount,
+                        enemyHq.NodeId,
+                        supplyReachCm);
+                    RaiseWhileOutmatched(
+                        tick,
+                        faction,
+                        seat,
+                        towns,
+                        townCount,
+                        battalions,
+                        battalionCount,
+                        enemyHq);
+                    return;
+                }
+                else
+                {
+                    RaiseWhileOutmatched(
+                        tick,
+                        faction,
+                        seat,
+                        towns,
+                        townCount,
+                        battalions,
+                        battalionCount,
+                        enemyHq);
+                    return;
+                }
+            }
+            else if (!canExtendSupply
+                && TargetOutOfSupply(
+                    graph,
+                    target.NodeId,
+                    networkNodeIds,
+                    networkCount,
+                    faction,
+                    supplyReachCm))
+            {
+                int suppliedId = PickAttackTarget(
+                    faction,
+                    towns,
+                    townCount,
+                    graph,
+                    fromNode,
+                    networkNodeIds,
+                    networkCount,
+                    supplyReachCm,
+                    prizeTerritoryKey,
+                    prizeTargetBonusPpt,
+                    true);
+                if (_budgetDeferred)
+                {
+                    return;
+                }
+
+                if (suppliedId != 0 && suppliedId != target.Id)
+                {
+                    if (!TryFindAttackTown(towns, townCount, suppliedId, out AiAttackTownInfo supplied))
+                    {
+                        return;
+                    }
+
+                    if (!AdoptAttackTown(
+                        faction,
+                        supplied,
+                        battalions,
+                        battalionCount,
+                        out target,
+                        out own,
+                        out defender))
+                    {
+                        return;
+                    }
+                }
+                else if (suppliedId == 0)
+                {
+                    MarchToSupplyEdge(
+                        tick,
+                        faction,
+                        battalions,
+                        battalionCount,
+                        graph,
+                        networkNodeIds,
+                        networkCount,
+                        target.NodeId,
+                        supplyReachCm);
+                    RaiseWhileOutmatched(
+                        tick,
+                        faction,
+                        seat,
+                        towns,
+                        townCount,
+                        battalions,
+                        battalionCount,
+                        target);
+                    return;
+                }
+            }
+
+            if (!StrengthAllowsAttack(own, defender, attackStrengthRatioPpt))
+            {
+                RaiseWhileOutmatched(
+                    tick,
+                    faction,
+                    seat,
+                    towns,
+                    townCount,
+                    battalions,
+                    battalionCount,
+                    target);
                 return;
             }
 
@@ -845,19 +1034,11 @@ namespace Wasteland.Sim.Ai
 
             if (battalionId == 0)
             {
-                string raiseId = SelectRaiseUnit(
+                string raiseId = AffordableCombatUnit(
                     seat,
-                    _catalog,
-                    _seatView,
                     battalions,
                     battalionCount,
-                    _lineUnitsPerAntiArmour,
-                    false,
-                    GarrisonShort(faction, towns, townCount),
-                    _queuedUnitIds,
-                    _queuedCount,
-                    _pendingUnitIds,
-                    _pendingCount);
+                    GarrisonShort(faction, towns, townCount));
                 int raiseX;
                 int raiseY;
                 RallyForRaise(
@@ -878,7 +1059,683 @@ namespace Wasteland.Sim.Ai
             if (IssueClaimMarch(tick, faction, battalionId, FindPin(battalions, battalionCount, battalionId).UnitId, target))
             {
                 NoteMarched(battalionId);
+                RaiseWhileOutmatched(
+                    tick,
+                    faction,
+                    seat,
+                    towns,
+                    townCount,
+                    battalions,
+                    battalionCount,
+                    target);
             }
+        }
+
+        private bool AdoptAttackTown(
+            AiFactionState faction,
+            AiAttackTownInfo town,
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            out AiAttackTownInfo target,
+            out int own,
+            out int defender)
+        {
+            target = town;
+            faction.AttackTargetTownId = town.Id;
+            if (!_towns.TryGet(town.Id, out AiTownReadback readback))
+            {
+                own = 0;
+                defender = 0;
+                return false;
+            }
+
+            own = CountIdle(battalions, battalionCount) + readback.StrengthOf(faction.FactionId);
+            defender = readback.StrengthOf(readback.OwnerFactionId);
+            return true;
+        }
+
+        private void ReserveDepotSavings()
+        {
+            ReservedSeatView? reserved = _seatView as ReservedSeatView;
+            if (reserved == null)
+            {
+                return;
+            }
+
+            int manpower;
+            int materiel;
+            int fuel;
+            if (!_buildings.TryGetBuildCost(
+                AiConstants.BuildingIdSupplyDepot,
+                out manpower,
+                out materiel,
+                out fuel))
+            {
+                return;
+            }
+
+            int fuelReserve = reserved.FuelEnabled ? fuel : 0;
+            int keepMateriel = 0;
+            int keepFuel = 0;
+            _catalog.TryGetMaterielCost("remnant_motor_rifles", out keepMateriel);
+            if (reserved.FuelEnabled)
+            {
+                _catalog.TryGetFuelCost("remnant_motor_rifles", out keepFuel);
+            }
+
+            int materielRoom = reserved.Materials - keepMateriel;
+            int fuelRoom = reserved.Fuel - keepFuel;
+            if (materielRoom < 0)
+            {
+                materielRoom = 0;
+            }
+
+            if (fuelRoom < 0)
+            {
+                fuelRoom = 0;
+            }
+
+            if (materiel > materielRoom)
+            {
+                materiel = materielRoom;
+            }
+
+            if (fuelReserve > fuelRoom)
+            {
+                fuelReserve = fuelRoom;
+            }
+
+            reserved.Add(0, 0, materiel, fuelReserve);
+        }
+
+        private bool HqOutOfSupply(
+            AiFactionState faction,
+            Wasteland.Sim.Movement.RoadGraph graph,
+            int hqNodeId,
+            int[] networkNodeIds,
+            int networkCount,
+            int supplyReachCm)
+        {
+            int factionId = faction.FactionId;
+            int sites = _depots.CountSites(factionId);
+            if (factionId > 0 && factionId < _hqOutCached.Length && _hqOutCached[factionId] != 0
+                && _hqOutSites[factionId] == sites)
+            {
+                return _hqOutValue[factionId] != 0;
+            }
+
+            bool outOfSupply = TargetOutOfSupply(
+                graph,
+                hqNodeId,
+                networkNodeIds,
+                networkCount,
+                faction,
+                supplyReachCm);
+            if (factionId > 0 && factionId < _hqOutCached.Length && !_budgetDeferred)
+            {
+                _hqOutCached[factionId] = 1;
+                _hqOutSites[factionId] = sites;
+                _hqOutValue[factionId] = outOfSupply ? 1 : 0;
+            }
+
+            return outOfSupply;
+        }
+
+        private bool TryFindEnemyHq(
+            AiFactionState faction,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            ulong prizeTerritoryKey,
+            out AiAttackTownInfo hq)
+        {
+            hq = default;
+            int bestId = 0;
+            bool seatZonesPresent = TownListHasSeatZones(towns, townCount);
+            for (int i = 0; i < townCount; i++)
+            {
+                AiAttackTownInfo town = towns[i];
+                if (!town.IsHq)
+                {
+                    continue;
+                }
+
+                if (!_towns.TryGet(town.Id, out AiTownReadback readback))
+                {
+                    continue;
+                }
+
+                if (readback.OwnerFactionId == faction.FactionId)
+                {
+                    continue;
+                }
+
+                bool isPrize = prizeTerritoryKey != 0UL && town.TerritoryStableKey == prizeTerritoryKey;
+                if (!IsAttackableTown(town, isPrize, seatZonesPresent))
+                {
+                    continue;
+                }
+
+                if (readback.OwnerFactionId == 0 && !isPrize)
+                {
+                    continue;
+                }
+
+                if (bestId != 0 && town.Id >= bestId)
+                {
+                    continue;
+                }
+
+                bestId = town.Id;
+                hq = town;
+            }
+
+            return bestId != 0;
+        }
+
+        private int CachedRouteWaypoint(
+            AiFactionState faction,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            Wasteland.Sim.Movement.RoadGraph graph,
+            int fromNodeId,
+            AiAttackTownInfo hq,
+            int[] networkNodeIds,
+            int networkCount,
+            int supplyReachCm,
+            ulong prizeTerritoryKey,
+            int prizeTargetBonusPpt)
+        {
+            int factionId = faction.FactionId;
+            int sites = _depots.CountSites(factionId);
+            if (factionId > 0 && factionId < _waypointCached.Length && _waypointCached[factionId] != 0
+                && _waypointSites[factionId] == sites)
+            {
+                int cached = _waypointTown[factionId];
+                if (cached == 0 || WaypointStillHeldByEnemy(faction, towns, townCount, cached))
+                {
+                    return cached;
+                }
+            }
+
+            int stepId = 0;
+            if (!_budgetDeferred && graph.NodeCount > 512)
+            {
+                stepId = PickAttackTarget(
+                    faction,
+                    towns,
+                    townCount,
+                    graph,
+                    fromNodeId,
+                    networkNodeIds,
+                    networkCount,
+                    supplyReachCm,
+                    prizeTerritoryKey,
+                    prizeTargetBonusPpt,
+                    true);
+            }
+            else if (!_budgetDeferred)
+            {
+                stepId = PickRouteWaypoint(
+                    faction,
+                    towns,
+                    townCount,
+                    graph,
+                    fromNodeId,
+                    hq,
+                    networkNodeIds,
+                    networkCount,
+                    supplyReachCm,
+                    prizeTerritoryKey);
+            }
+
+            if (factionId > 0 && factionId < _waypointCached.Length)
+            {
+                _waypointCached[factionId] = 1;
+                _waypointSites[factionId] = sites;
+                _waypointTown[factionId] = _budgetDeferred ? 0 : stepId;
+            }
+
+            return _budgetDeferred ? 0 : stepId;
+        }
+
+        private bool WaypointStillHeldByEnemy(
+            AiFactionState faction,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            int townId)
+        {
+            if (!TryFindAttackTown(towns, townCount, townId, out _))
+            {
+                return false;
+            }
+
+            if (!_towns.TryGet(townId, out AiTownReadback readback))
+            {
+                return false;
+            }
+
+            return readback.OwnerFactionId != faction.FactionId && readback.OwnerFactionId != 0;
+        }
+
+        private int PickRouteWaypoint(
+            AiFactionState faction,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            Wasteland.Sim.Movement.RoadGraph graph,
+            int fromNodeId,
+            AiAttackTownInfo hq,
+            int[] networkNodeIds,
+            int networkCount,
+            int supplyReachCm,
+            ulong prizeTerritoryKey)
+        {
+            AiSupplyResult filled = _roads.FillFromSources(graph, networkNodeIds, networkCount, faction);
+            if (DeferIfExhausted(filled))
+            {
+                return 0;
+            }
+
+            AiSupplyResult fromSeat = _roads.FillFromNode(graph, fromNodeId, faction);
+            if (DeferIfExhausted(fromSeat))
+            {
+                return 0;
+            }
+
+            int nodeCount = graph.NodeCount;
+            int[] fromSeatDist = new int[nodeCount];
+            for (int n = 0; n < nodeCount; n++)
+            {
+                fromSeatDist[n] = _roads.TargetDistanceAt(n);
+            }
+
+            if (!graph.TryGetNodeIndex(hq.NodeId, out int hqIndex))
+            {
+                return 0;
+            }
+
+            int fullDist = fromSeatDist[hqIndex];
+            if (fullDist >= AiConstants.UnreachableCm)
+            {
+                return 0;
+            }
+
+            AiSupplyResult fromHq = _roads.FillFromNode(graph, hq.NodeId, faction);
+            if (DeferIfExhausted(fromHq))
+            {
+                return 0;
+            }
+
+            int bestId = 0;
+            int bestAlong = -1;
+            bool seatZonesPresent = TownListHasSeatZones(towns, townCount);
+            for (int i = 0; i < townCount; i++)
+            {
+                AiAttackTownInfo town = towns[i];
+                if (town.Id == hq.Id)
+                {
+                    continue;
+                }
+
+                if (!_towns.TryGet(town.Id, out AiTownReadback readback))
+                {
+                    continue;
+                }
+
+                if (readback.OwnerFactionId == faction.FactionId)
+                {
+                    continue;
+                }
+
+                bool isPrize = prizeTerritoryKey != 0UL && town.TerritoryStableKey == prizeTerritoryKey;
+                if (!IsAttackableTown(town, isPrize, seatZonesPresent))
+                {
+                    continue;
+                }
+
+                if (readback.OwnerFactionId == 0 && !isPrize)
+                {
+                    continue;
+                }
+
+                if (!graph.TryGetNodeIndex(town.NodeId, out int townIndex))
+                {
+                    continue;
+                }
+
+                if (_roads.NetworkDistanceAt(townIndex) > supplyReachCm)
+                {
+                    continue;
+                }
+
+                int toward = fromSeatDist[townIndex];
+                int rest = _roads.TargetDistanceAt(townIndex);
+                if (toward >= AiConstants.UnreachableCm || rest >= AiConstants.UnreachableCm)
+                {
+                    continue;
+                }
+
+                if ((long)toward + rest != fullDist)
+                {
+                    continue;
+                }
+
+                if (toward <= bestAlong)
+                {
+                    continue;
+                }
+
+                bestAlong = toward;
+                bestId = town.Id;
+            }
+
+            return bestId;
+        }
+
+        private string AffordableCombatUnit(
+            AiScenarioSeatView seat,
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            bool garrisonShort)
+        {
+            string preferred = SelectRaiseUnit(
+                seat,
+                _catalog,
+                _seatView,
+                battalions,
+                battalionCount,
+                _lineUnitsPerAntiArmour,
+                false,
+                garrisonShort,
+                _queuedUnitIds,
+                _queuedCount,
+                _pendingUnitIds,
+                _pendingCount);
+            if (CanAfford(_seatView, _catalog, preferred))
+            {
+                return preferred;
+            }
+
+            string[] ids = seat.RaisableUnits;
+            if (ids == null)
+            {
+                return string.Empty;
+            }
+
+            int tier = _seatView.CurrentTier;
+            for (int i = 0; i < ids.Length; i++)
+            {
+                string id = ids[i];
+                if (!seat.AllowsUnitForTier(id, tier, _catalog))
+                {
+                    continue;
+                }
+
+                if (!_catalog.TryGetRole(id, out string role))
+                {
+                    continue;
+                }
+
+                if (role == AiConstants.RoleEngineer || role == "supply")
+                {
+                    continue;
+                }
+
+                if (!CanAfford(_seatView, _catalog, id))
+                {
+                    continue;
+                }
+
+                return id;
+            }
+
+            return string.Empty;
+        }
+
+        private void RaiseWhileOutmatched(
+            int tick,
+            AiFactionState faction,
+            AiScenarioSeatView seat,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            AiAttackTownInfo target)
+        {
+            string raiseId = AffordableCombatUnit(
+                seat,
+                battalions,
+                battalionCount,
+                GarrisonShort(faction, towns, townCount));
+            int raiseX;
+            int raiseY;
+            RallyForRaise(
+                false,
+                true,
+                raiseId,
+                towns,
+                townCount,
+                faction.HomeTownId,
+                target.XCm,
+                target.YCm,
+                out raiseX,
+                out raiseY);
+            TryRaise(tick, faction, seat, raiseId, raiseX, raiseY);
+        }
+
+        private bool SupplyExtensionPendingOrAffordable(
+            int tick,
+            AiFactionState faction,
+            AiScenarioSeatView seat)
+        {
+            if (!CanBuildDepot(seat, _buildings))
+            {
+                return false;
+            }
+
+            if (HasPendingDepotIntent(faction))
+            {
+                return true;
+            }
+
+            int inFlightNode = _depots.InFlightNodeId(faction.FactionId, tick);
+            if (inFlightNode != 0 && !IsNodeBlacklisted(faction, inFlightNode))
+            {
+                return true;
+            }
+
+            int cap = faction.Depots.Length;
+            if (cap > 0 && _depots.CountSites(faction.FactionId) >= cap)
+            {
+                return true;
+            }
+
+            return CanAffordDepot(_seatView, _buildings);
+        }
+
+        private static bool TryFindAttackTown(
+            AiAttackTownInfo[] towns,
+            int townCount,
+            int townId,
+            out AiAttackTownInfo town)
+        {
+            for (int i = 0; i < townCount; i++)
+            {
+                if (towns[i].Id == townId)
+                {
+                    town = towns[i];
+                    return true;
+                }
+            }
+
+            town = default;
+            return false;
+        }
+
+        private void MarchToSupplyEdge(
+            int tick,
+            AiFactionState faction,
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            Wasteland.Sim.Movement.RoadGraph graph,
+            int[] networkNodeIds,
+            int networkCount,
+            int targetNodeId,
+            int supplyReachCm)
+        {
+            int edgeX;
+            int edgeY;
+            int edgeNode;
+            int factionId = faction.FactionId;
+            int sites = _depots.CountSites(factionId);
+            bool cachedEdge = factionId > 0 && factionId < _edgeCached.Length && _edgeCached[factionId] != 0
+                && _edgeSites[factionId] == sites;
+            if (cachedEdge)
+            {
+                edgeNode = _edgeNode[factionId];
+                edgeX = _edgeX[factionId];
+                edgeY = _edgeY[factionId];
+                if (edgeNode == 0)
+                {
+                    return;
+                }
+            }
+            else if (!TryFindSupplyEdge(
+                graph,
+                networkNodeIds,
+                networkCount,
+                faction,
+                targetNodeId,
+                supplyReachCm,
+                out edgeNode,
+                out edgeX,
+                out edgeY))
+            {
+                if (factionId > 0 && factionId < _edgeCached.Length)
+                {
+                    _edgeCached[factionId] = 1;
+                    _edgeSites[factionId] = sites;
+                    _edgeNode[factionId] = 0;
+                }
+
+                return;
+            }
+            else if (factionId > 0 && factionId < _edgeCached.Length && !_budgetDeferred)
+            {
+                _edgeCached[factionId] = 1;
+                _edgeSites[factionId] = sites;
+                _edgeNode[factionId] = edgeNode;
+                _edgeX[factionId] = edgeX;
+                _edgeY[factionId] = edgeY;
+            }
+
+            int battalionId = NearestIdle(
+                faction,
+                graph,
+                edgeNode,
+                battalions,
+                battalionCount,
+                string.Empty,
+                false,
+                true,
+                0);
+            if (_budgetDeferred || battalionId == 0)
+            {
+                return;
+            }
+
+            if (AlreadyOnTheWay(faction.FactionId, battalionId, edgeX, edgeY)
+                || AlreadyMarching(faction.FactionId, battalionId))
+            {
+                return;
+            }
+
+            if (MoveBlocked(faction, battalionId, CommandKind.Move, edgeNode, tick))
+            {
+                return;
+            }
+
+            Issue(tick, faction, _commands.SubmitMove(faction.FactionId, battalionId, edgeX, edgeY));
+        }
+
+        private bool TryFindSupplyEdge(
+            Wasteland.Sim.Movement.RoadGraph graph,
+            int[] networkNodeIds,
+            int networkCount,
+            AiFactionState faction,
+            int targetNodeId,
+            int supplyReachCm,
+            out int nodeId,
+            out int xCm,
+            out int yCm)
+        {
+            nodeId = 0;
+            xCm = 0;
+            yCm = 0;
+            AiSupplyResult fromNet = _roads.FillFromSources(graph, networkNodeIds, networkCount, faction);
+            if (DeferIfExhausted(fromNet))
+            {
+                return false;
+            }
+
+            if (!graph.TryGetNodeIndex(targetNodeId, out _))
+            {
+                return false;
+            }
+
+            AiSupplyResult fromTarget = _roads.FillFromNode(graph, targetNodeId, faction);
+            if (DeferIfExhausted(fromTarget))
+            {
+                return false;
+            }
+
+            int bestNode = 0;
+            int bestX = 0;
+            int bestY = 0;
+            int bestRemain = int.MaxValue;
+            for (int i = 0; i < graph.NodeCount; i++)
+            {
+                int candidate = graph.GetNodeId(i);
+                int netDist = _roads.NetworkDistanceAt(i);
+                if (netDist > supplyReachCm)
+                {
+                    continue;
+                }
+
+                int remain = _roads.TargetDistanceAt(i);
+                if (remain >= AiConstants.UnreachableCm)
+                {
+                    continue;
+                }
+
+                if (bestNode != 0)
+                {
+                    int cmp = remain.CompareTo(bestRemain);
+                    if (cmp > 0)
+                    {
+                        continue;
+                    }
+
+                    if (cmp == 0 && candidate >= bestNode)
+                    {
+                        continue;
+                    }
+                }
+
+                bestRemain = remain;
+                bestNode = candidate;
+                bestX = graph.GetNodeXCm(i);
+                bestY = graph.GetNodeYCm(i);
+            }
+
+            if (bestNode == 0)
+            {
+                return false;
+            }
+
+            nodeId = bestNode;
+            xCm = bestX;
+            yCm = bestY;
+            return true;
         }
 
         private void TryPlaceForwardDepot(
@@ -1975,28 +2832,6 @@ namespace Wasteland.Sim.Ai
             return idle;
         }
 
-        private int CountMarchIdle(AiBattalionPin[] battalions, int battalionCount, bool prizeMarch)
-        {
-            int idle = 0;
-            for (int i = 0; i < battalionCount; i++)
-            {
-                AiBattalionPin pin = battalions[i];
-                if (pin.Assigned)
-                {
-                    continue;
-                }
-
-                if (prizeMarch && IsFootUnit(pin.UnitId))
-                {
-                    continue;
-                }
-
-                idle++;
-            }
-
-            return idle;
-        }
-
         private bool IsFootUnit(string unitId)
         {
             return IsFootUnit(_catalog, unitId);
@@ -2445,6 +3280,7 @@ namespace Wasteland.Sim.Ai
             }
 
             if (!AlreadyOnTheWay(faction.FactionId, battalionId, target.XCm, target.YCm)
+                && !AlreadyMarching(faction.FactionId, battalionId)
                 && !BattalionOccupiesClaim(faction, battalionId, target))
             {
                 int moveId = _commands.SubmitMove(faction.FactionId, battalionId, target.XCm, target.YCm);
@@ -2621,6 +3457,21 @@ namespace Wasteland.Sim.Ai
             Issue(tick, faction, moveId);
         }
 
+        private bool AlreadyMarching(int factionId, int battalionId)
+        {
+            if (_world == null || battalionId == 0)
+            {
+                return false;
+            }
+
+            if (!_world.TryGetOwnBattalion(factionId, battalionId, out SimBattalion battalion))
+            {
+                return false;
+            }
+
+            return battalion.HasTarget;
+        }
+
         private bool AlreadyOnTheWay(int factionId, int battalionId, int xCm, int yCm)
         {
             if (_world == null || battalionId == 0)
@@ -2644,7 +3495,7 @@ namespace Wasteland.Sim.Ai
         {
             if (!battalion.HasTarget)
             {
-                return false;
+                return battalion.TargetXCm == xCm && battalion.TargetYCm == yCm;
             }
 
             if (battalion.PathCount > 0)

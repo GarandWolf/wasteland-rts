@@ -33,6 +33,7 @@ namespace Wasteland.Sim.Tests
             Assert.NotEqual((int)AiCommandReject.NotArmed, (int)CommandRejectReason.NotArmed);
             Assert.NotEqual((int)AiCommandReject.TargetIsSelf, (int)CommandRejectReason.TargetIsSelf);
             Assert.Equal(12, AiConstants.StateSchemaVersion);
+            Assert.Equal(SimWorld.WorldStateSchema, WorldSchemaOf(new SimWorld(new MatchConfig(1UL, 0)).Save()));
         }
 
         [Fact]
@@ -441,6 +442,11 @@ namespace Wasteland.Sim.Tests
             }
 
             Assert.Equal(0, CountHolds(board.Faction));
+        }
+
+        private static int WorldSchemaOf(byte[] blob)
+        {
+            return blob[0] | (blob[1] << 8) | (blob[2] << 16) | (blob[3] << 24);
         }
 
         private static int CountKind(RecordingAiCommandSink sink, AiIssuedKind kind)

@@ -16,7 +16,7 @@ namespace Wasteland.Sim.Tests
         /// does not move this pin. Not the
         /// <see cref="AiBalanceTablesTests.ExpectedAiOwnedBalanceKey"/> data hash.
         /// </summary>
-        public const ulong ExpectedCompactReplayKey = 0x9B9FBF4797CFF1D1UL;
+        public const ulong ExpectedCompactReplayKey = 0x54E7C602054A62A1UL;
 
         public const int ReplayTicks = 12;
         public const int ArmourFlipTick = 6;

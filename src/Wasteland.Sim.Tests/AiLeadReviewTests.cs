@@ -213,7 +213,7 @@ namespace Wasteland.Sim.Tests
                 }
             }
 
-            Assert.Equal(0, raises);
+            Assert.True(raises > 0);
         }
 
         [Fact]
