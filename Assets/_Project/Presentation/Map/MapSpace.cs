@@ -59,6 +59,74 @@ namespace Wasteland.Presentation
             return row * width + col;
         }
 
+        /// <summary>Nearest centimetre. Presentation clicks are metres; the sim stays in integers.</summary>
+        public static int ToCentimetres(double metres)
+        {
+            if (double.IsNaN(metres) || double.IsInfinity(metres))
+            {
+                return 0;
+            }
+
+            double scaled = metres * CentimetresPerMetre;
+            if (scaled >= int.MaxValue)
+            {
+                return int.MaxValue;
+            }
+
+            if (scaled <= int.MinValue)
+            {
+                return int.MinValue;
+            }
+
+            if (scaled >= 0.0)
+            {
+                return (int)(scaled + 0.5);
+            }
+
+            return (int)(scaled - 0.5);
+        }
+
+        /// <summary>Clamp a centimetre into <c>[origin, origin + extent]</c>.</summary>
+        public static int ClampCm(int valueCm, int originCm, int extentCm)
+        {
+            int end = originCm + extentCm;
+            if (valueCm < originCm)
+            {
+                return originCm;
+            }
+
+            if (valueCm > end)
+            {
+                return end;
+            }
+
+            return valueCm;
+        }
+
+        /// <summary>
+        /// Click-to-ground. Metres become centimetres, the point is clamped to the
+        /// map, and the cell is <see cref="Column"/> (same lookup, edges clamp).
+        /// </summary>
+        public static void PickGround(
+            double eastMetres,
+            double northMetres,
+            int originXCm,
+            int originYCm,
+            int width,
+            int height,
+            int extentXCm,
+            int extentYCm,
+            out int xCm,
+            out int yCm,
+            out int column,
+            out int row)
+        {
+            xCm = ClampCm(ToCentimetres(eastMetres), originXCm, extentXCm);
+            yCm = ClampCm(ToCentimetres(northMetres), originYCm, extentYCm);
+            column = Column(xCm, originXCm, width, extentXCm);
+            row = Column(yCm, originYCm, height, extentYCm);
+        }
+
         /// <summary>Cell centre, <c>((2*col+1) * extent) / (2 * cells)</c>.</summary>
         public static int CellCenterCm(int column, int originCm, int cells, int extentCm)
         {

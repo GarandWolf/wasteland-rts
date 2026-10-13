@@ -35,6 +35,16 @@ namespace Wasteland.Presentation
         int _selectedTown = -1;
         int _selectedUnit = -1;
         bool _closed;
+        SimWorld _world;
+        PlayerOrderSession _orders;
+        BalanceCatalog _catalog;
+        SoundPlayer _sounds;
+        string[] _raisable = System.Array.Empty<string>();
+        int _humanSeat;
+        bool _hasHuman;
+        int _groundX;
+        int _groundY;
+        bool _groundSet;
 
         public bool BedActive
         {
@@ -73,6 +83,20 @@ namespace Wasteland.Presentation
 
             loops.SetListener(camera.transform);
             view.Build(map, camera.Camera);
+        }
+
+        /// <summary>
+        /// Human seat for orders. An AI-versus-AI match passes <paramref name="hasHuman"/> false
+        /// and no order click is played.
+        /// </summary>
+        public void BindPlayer(int humanSeat, bool hasHuman, string[] raisableUnitIds, BalanceCatalog catalog, SoundPlayer sounds)
+        {
+            _humanSeat = humanSeat;
+            _hasHuman = hasHuman;
+            _raisable = raisableUnitIds ?? System.Array.Empty<string>();
+            _catalog = catalog;
+            _sounds = sounds;
+            _orders = null;
         }
 
         public void BeginTick(int tick)
@@ -140,9 +164,18 @@ namespace Wasteland.Presentation
                 return;
             }
 
+            _world = world;
+            EnsureOrders(world);
+            string polled = _orders.PollRejection();
+            if (!string.IsNullOrEmpty(polled))
+            {
+                ApplyNotice(new PlayerOrderNotice(false, polled, OrderClick.ForHumanSeat(_hasHuman), true, default(Wasteland.Sim.Commands.SimCommand)));
+            }
+
             world.CopyTowns(_townViews);
             PaintWash(world);
             Pick(world);
+            _view.SetOrderLines(_orders.Lines());
             List<TownMarker> towns = new List<TownMarker>(_townViews.Count);
             for (int i = 0; i < _townViews.Count; i++)
             {
@@ -245,6 +278,72 @@ namespace Wasteland.Presentation
             }
 
             _view.SetMarkers(towns.ToArray(), units);
+        }
+
+        void Update()
+        {
+            Vector2 screen;
+            if (_orders == null || _camera == null || _map == null || _world == null || !_camera.TryConsumeOrderClick(out screen))
+            {
+                return;
+            }
+
+            if (screen.x < 440f && screen.y > Screen.height - 360f && screen.y < Screen.height - 100f)
+            {
+                return;
+            }
+
+            IssueAt(screen);
+        }
+
+        void OnGUI()
+        {
+            if (_orders == null)
+            {
+                return;
+            }
+
+            GUILayout.BeginArea(new Rect(12f, 108f, 420f, 240f));
+            if (!_orders.HasHuman)
+            {
+                GUILayout.Label("No human seat. Player orders are not sent.");
+            }
+
+            string research = PlayerOrderSession.TierTwoLabel(_catalog);
+            if (GUILayout.Button(research))
+            {
+                ApplyNotice(_orders.ResearchTierTwo());
+            }
+
+            if (GUILayout.Button("Build depot"))
+            {
+                int fromX;
+                int fromY;
+                int x;
+                int y;
+                SelectedPoint(out fromX, out fromY);
+                GroundOrSelection(out x, out y);
+                ApplyNotice(_orders.BuildDepot(fromX, fromY, x, y, FactionRgb(_humanSeat)));
+            }
+
+            for (int i = 0; i < _raisable.Length; i++)
+            {
+                string unitId = _raisable[i];
+                if (string.IsNullOrEmpty(unitId))
+                {
+                    continue;
+                }
+
+                if (GUILayout.Button("Raise " + unitId))
+                {
+                    int x;
+                    int y;
+                    GroundOrSelection(out x, out y);
+                    ApplyNotice(_orders.Raise(unitId, x, y, FactionRgb(_humanSeat)));
+                }
+            }
+
+            GUILayout.EndArea();
         }
 
         void LateUpdate()
@@ -370,6 +469,11 @@ namespace Wasteland.Presentation
                     _selectedTown = -1;
                 }
             }
+
+            if (_orders != null)
+            {
+                _orders.SelectBattalion(_selectedUnit > 0 ? _selectedUnit : 0);
+            }
         }
 
         static bool Closer(Camera cam, int xCm, int yCm, Vector2 screen, float radius2, ref float best)
@@ -391,6 +495,197 @@ namespace Wasteland.Presentation
 
             best = dist;
             return true;
+        }
+
+        void EnsureOrders(SimWorld world)
+        {
+            if (_orders != null || _map == null || world == null)
+            {
+                return;
+            }
+
+            _orders = new PlayerOrderSession(
+                new SimPlayerCommandStream(world),
+                _humanSeat,
+                _hasHuman,
+                _map.Map.Roads);
+        }
+
+        void IssueAt(Vector2 screen)
+        {
+            Camera cam = _camera.Camera;
+            if (cam == null || _world == null)
+            {
+                return;
+            }
+
+            Vector3 ground = TacticalCamera.GroundPoint(cam, screen);
+            int xCm;
+            int yCm;
+            int column;
+            int row;
+            MapSpace.PickGround(
+                ground.x,
+                ground.z,
+                _map.OriginXCm,
+                _map.OriginYCm,
+                _map.Width,
+                _map.Height,
+                _map.ExtentXCm,
+                _map.ExtentYCm,
+                out xCm,
+                out yCm,
+                out column,
+                out row);
+            if (column < 0 || row < 0 || column >= _map.Width || row >= _map.Height)
+            {
+                return;
+            }
+
+            _groundX = xCm;
+            _groundY = yCm;
+            _groundSet = true;
+
+            float best = 18f * 18f;
+            int battalionId = 0;
+            int battalionX = 0;
+            int battalionY = 0;
+            for (int i = 0; i < _world.Battalions.Count; i++)
+            {
+                SimBattalion battalion = _world.Battalions[i];
+                if (battalion.Hp <= 0)
+                {
+                    continue;
+                }
+
+                if (Closer(cam, battalion.PositionXCm, battalion.PositionYCm, screen, 16f * 16f, ref best))
+                {
+                    battalionId = battalion.Id;
+                    battalionX = battalion.PositionXCm;
+                    battalionY = battalion.PositionYCm;
+                }
+            }
+
+            int fromX;
+            int fromY;
+            SelectedPoint(out fromX, out fromY);
+            Rgb color = FactionRgb(_humanSeat);
+            if (battalionId != 0)
+            {
+                ApplyNotice(_orders.Attack(fromX, fromY, battalionId, battalionX, battalionY, color));
+                return;
+            }
+
+            best = 18f * 18f;
+            int townId = 0;
+            int townX = 0;
+            int townY = 0;
+            for (int i = 0; i < _townViews.Count; i++)
+            {
+                MapTown placed;
+                if (!_towns.TryGetValue(_townViews[i].TownId, out placed))
+                {
+                    continue;
+                }
+
+                float radius = MarkerArt.TownDiameterPx(placed.PopulationClass) * 0.5f + 4f;
+                if (Closer(cam, placed.XCm, placed.YCm, screen, radius * radius, ref best))
+                {
+                    townId = placed.Id;
+                    townX = placed.XCm;
+                    townY = placed.YCm;
+                }
+            }
+
+            if (townId != 0)
+            {
+                ApplyNotice(_orders.ClaimTown(fromX, fromY, townId, townX, townY, color));
+                return;
+            }
+
+            ApplyNotice(_orders.Move(fromX, fromY, xCm, yCm, color));
+        }
+
+        void SelectedPoint(out int xCm, out int yCm)
+        {
+            xCm = _groundX;
+            yCm = _groundY;
+            if (_world == null || _orders == null || _orders.SelectedBattalionId == 0)
+            {
+                return;
+            }
+
+            for (int i = 0; i < _world.Battalions.Count; i++)
+            {
+                SimBattalion battalion = _world.Battalions[i];
+                if (battalion.Id == _orders.SelectedBattalionId)
+                {
+                    xCm = battalion.PositionXCm;
+                    yCm = battalion.PositionYCm;
+                    return;
+                }
+            }
+        }
+
+        void GroundOrSelection(out int xCm, out int yCm)
+        {
+            if (_groundSet)
+            {
+                xCm = _groundX;
+                yCm = _groundY;
+                return;
+            }
+
+            if (_map != null && _map.Map.Roads.NodeCount > 0)
+            {
+                int node = _map.Map.Roads.NearestNodeId(_map.OriginXCm, _map.OriginYCm);
+                int index;
+                if (node != 0 && _map.Map.Roads.TryGetNodeIndex(node, out index))
+                {
+                    xCm = _map.Map.Roads.GetNodeXCm(index);
+                    yCm = _map.Map.Roads.GetNodeYCm(index);
+                    return;
+                }
+            }
+
+            xCm = _map != null ? _map.OriginXCm : 0;
+            yCm = _map != null ? _map.OriginYCm : 0;
+        }
+
+        Rgb FactionRgb(int factionId)
+        {
+            return MarkerArt.OwnerColor(factionId, FactionKey(_world, factionId));
+        }
+
+        void ApplyNotice(PlayerOrderNotice notice)
+        {
+            if (_view != null)
+            {
+                _view.SetRejectReason(notice.Reason);
+                if (_orders != null)
+                {
+                    _view.SetOrderLines(_orders.Lines());
+                }
+            }
+
+            if (!notice.PlayClick || _sounds == null)
+            {
+                return;
+            }
+
+            if (SoundCues.FileName(SoundCue.UiClick) != OrderClick.KenneyFileName)
+            {
+                return;
+            }
+
+            if (notice.LowVolume)
+            {
+                _sounds.PlayLow(SoundCue.UiClick);
+            }
+            else
+            {
+                _sounds.Play(SoundCue.UiClick);
+            }
         }
 
         string FactionKey(SimWorld world, int factionId)
