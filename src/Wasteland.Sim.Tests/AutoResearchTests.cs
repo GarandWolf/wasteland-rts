@@ -280,7 +280,7 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(reachedTick, started.Param1);
             // The 60th interval pays one more materiel, then research charges.
             Assert.Equal(catalog.StartingMateriel + 50 - materielCost, SeatOf(world, remnant.Slot).Materials);
-            Assert.Equal(catalog.StartingFuel + 45, world.FuelOf(remnant.Slot));
+            Assert.Equal(catalog.StartingFuel, world.FuelOf(remnant.Slot));
             Assert.Equal(remnant.StartingManpower + 10, SeatOf(world, remnant.Slot).Manpower);
             Assert.Equal(catalog.StartingMateriel + 50, SeatOf(world, compact.Slot).Materials);
             Assert.Equal(0, Count(world, SimEventKind.TierResearchStarted, compact.Slot));

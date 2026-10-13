@@ -16,6 +16,12 @@ namespace Wasteland.Sim.Tests
         private const int Remnant = AiConstants.DefaultAiFactionA;
         private const int Compact = AiConstants.DefaultAiFactionB;
 
+        /// <summary>
+        /// <see cref="SimWorld.HashState"/> after the Gorge seats run 2400 ticks.
+        /// Income has been paid many times. Fuel stays disabled, so fuel does not accrue.
+        /// </summary>
+        public const ulong ExpectedGorgeIncomeWorldKey = 0xAF30F2EFD002EFF4UL;
+
         [Fact]
         public void Income_PaysOnTheAccrualInterval_AndNotBetween()
         {
@@ -48,6 +54,38 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void GorgeIncomeRun_MatchesPinnedWorldHash()
+        {
+            Ensure();
+            ulong first = RunGorgeIncome(out int tick);
+            ulong second = RunGorgeIncome(out int again);
+            Assert.Equal(2400, tick);
+            Assert.Equal(tick, again);
+            Assert.Equal(first, second);
+            Assert.Equal(ExpectedGorgeIncomeWorldKey, first);
+        }
+
+        private static ulong RunGorgeIncome(out int tick)
+        {
+            SimWorld world = World();
+            int manpower = Seat(world, Remnant).Manpower;
+            int fuel = world.FuelOf(Remnant);
+            for (int i = 0; i < 2400; i++)
+            {
+                world.Step();
+            }
+
+            tick = world.Tick;
+            Assert.True(Seat(world, Remnant).Manpower > manpower);
+            Assert.Equal(fuel, world.FuelOf(Remnant));
+            Assert.Equal(0, Carry(world, Remnant).Fuel);
+            Assert.Equal(0, Carry(world, Compact).Fuel);
+            Assert.False(world.FuelEnabledOf(Remnant));
+            Assert.False(world.FuelEnabledOf(Compact));
+            return world.HashState();
+        }
+
+        [Fact]
         public void Income_SumsHqAndPlaceTiers_ForBothSeats()
         {
             Ensure();
@@ -74,6 +112,7 @@ namespace Wasteland.Sim.Tests
             int remnantManpower = ManpowerPerMinute(world, Remnant);
             int compactManpower = ManpowerPerMinute(world, Compact);
             int remnantMateriel = MaterielPerMinute(world, Remnant);
+            int compactMateriel = MaterielPerMinute(world, Compact);
             int remnantFuel = FuelPerMinute(world, Remnant);
             int compactFuel = FuelPerMinute(world, Compact);
             Assert.Equal(32, remnantManpower);
@@ -94,10 +133,12 @@ namespace Wasteland.Sim.Tests
 
             Assert.Equal(remnantStart.Manpower + remnantManpower, Seat(world, Remnant).Manpower);
             Assert.Equal(remnantStart.Materials + remnantMateriel, Seat(world, Remnant).Materials);
-            Assert.Equal(remnantFuelStart + remnantFuel, world.FuelOf(Remnant));
+            Assert.Equal(remnantFuelStart, world.FuelOf(Remnant));
             Assert.Equal(compactStart.Manpower + compactManpower, Seat(world, Compact).Manpower);
-            Assert.Equal(compactStart.Materials + remnantMateriel, Seat(world, Compact).Materials);
-            Assert.Equal(compactFuelStart + compactFuel, world.FuelOf(Compact));
+            Assert.Equal(compactStart.Materials + compactMateriel, Seat(world, Compact).Materials);
+            Assert.Equal(compactFuelStart, world.FuelOf(Compact));
+            Assert.Equal(0, Carry(world, Remnant).Fuel);
+            Assert.Equal(0, Carry(world, Compact).Fuel);
             Assert.Equal(0, Carry(world, Remnant).Manpower);
             Assert.Equal(0, Carry(world, Compact).Materiel);
             Assert.False(world.FuelEnabledOf(Remnant));

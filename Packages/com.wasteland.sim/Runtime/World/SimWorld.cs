@@ -1445,7 +1445,10 @@ namespace Wasteland.Sim.World
                 SeatIncomePerMinute(seat, rules, contestedPays, out manpower, out materiel, out fuel);
                 PayResource(ref seat.Manpower, ref seat.ManpowerCarry, manpower, periods);
                 PayResource(ref seat.Materials, ref seat.MaterielCarry, materiel, periods);
-                PayResource(ref seat.Fuel, ref seat.FuelCarry, fuel, periods);
+                if (seat.FuelEnabled)
+                {
+                    PayResource(ref seat.Fuel, ref seat.FuelCarry, fuel, periods);
+                }
                 _seats[s] = seat;
             }
         }
