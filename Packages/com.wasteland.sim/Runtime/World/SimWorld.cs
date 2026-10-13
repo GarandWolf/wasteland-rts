@@ -249,9 +249,13 @@ namespace Wasteland.Sim.World
                 seat.AutoResearchNotBefore[i] = setup.AutoResearch[i].NotBeforeTick;
             }
 
+            seat.EconomyFactionId = setup.FactionKey;
             seat.Manpower = setup.Manpower;
             seat.Materials = setup.Materials;
             seat.Fuel = setup.Fuel;
+            seat.ManpowerCarry = 0;
+            seat.MaterielCarry = 0;
+            seat.FuelCarry = 0;
             seat.FuelEnabled = setup.FuelEnabled;
             seat.PopCap = setup.PopCap;
             seat.Raisable = raisable;
@@ -303,6 +307,29 @@ namespace Wasteland.Sim.World
             }
 
             return _seats[index].Fuel;
+        }
+
+        internal bool FuelEnabledOf(int factionId)
+        {
+            int index = FindSeat(factionId);
+            return index >= 0 && _seats[index].FuelEnabled;
+        }
+
+        internal void CopyIncomeCarry(int factionId, out int manpower, out int materiel, out int fuel)
+        {
+            int index = FindSeat(factionId);
+            if (index < 0)
+            {
+                manpower = 0;
+                materiel = 0;
+                fuel = 0;
+                return;
+            }
+
+            SeatState seat = _seats[index];
+            manpower = seat.ManpowerCarry;
+            materiel = seat.MaterielCarry;
+            fuel = seat.FuelCarry;
         }
 
         public bool TryGetSeat(int factionId, out SeatView view)
@@ -441,6 +468,7 @@ namespace Wasteland.Sim.World
                 return HashState();
             }
 
+            AccrueSeatIncome();
             ProcessQueue();
             IntegrateMovement();
             StartDepotBuilds();
@@ -544,6 +572,9 @@ namespace Wasteland.Sim.World
                 hash.AddInt(seat.Manpower);
                 hash.AddInt(seat.Materials);
                 hash.AddInt(seat.Fuel);
+                hash.AddInt(seat.ManpowerCarry);
+                hash.AddInt(seat.MaterielCarry);
+                hash.AddInt(seat.FuelCarry);
                 hash.AddBool(seat.FuelEnabled);
                 hash.AddInt(seat.PopUsed);
                 hash.AddInt(seat.PopCap);
@@ -1377,6 +1408,127 @@ namespace Wasteland.Sim.World
             return Submit(SimCommand.ResearchTech(Tick, factionId, techIndex));
         }
 
+        /// <summary>
+        /// Pay HQ income plus owned holding-tier income on
+        /// <c>incomeAccrual.intervalTicks</c>, before commands.
+        /// The tier is the sim band checked against
+        /// <c>derived.territories[].places</c>, not map population class.
+        /// Remainder carry uses integer ppt only.
+        /// </summary>
+        private void AccrueSeatIncome()
+        {
+            if (_catalog == null)
+            {
+                return;
+            }
+
+            CaptureBalance rules = _catalog.Capture;
+            int interval = rules.AccrualIntervalTicks;
+            if (Tick < 1 || interval < 1 || (Tick % interval) != 0)
+            {
+                return;
+            }
+
+            int periods = rules.AccrualIntervalsPerMinute;
+            if (periods < 1)
+            {
+                return;
+            }
+
+            bool contestedPays = rules.ContestedHoldingPaysIncome;
+            for (int s = 0; s < _seats.Count; s++)
+            {
+                SeatState seat = _seats[s];
+                int manpower;
+                int materiel;
+                int fuel;
+                SeatIncomePerMinute(seat, rules, contestedPays, out manpower, out materiel, out fuel);
+                PayResource(ref seat.Manpower, ref seat.ManpowerCarry, manpower, periods);
+                PayResource(ref seat.Materials, ref seat.MaterielCarry, materiel, periods);
+                if (seat.FuelEnabled)
+                {
+                    PayResource(ref seat.Fuel, ref seat.FuelCarry, fuel, periods);
+                }
+                _seats[s] = seat;
+            }
+        }
+
+        private void SeatIncomePerMinute(
+            SeatState seat,
+            CaptureBalance rules,
+            bool contestedPays,
+            out int manpower,
+            out int materiel,
+            out int fuel)
+        {
+            int hqManpower;
+            int hqMateriel;
+            int hqFuel;
+            int manpowerPpt;
+            int materielPpt;
+            int fuelPpt;
+            rules.TryHqIncome(
+                seat.EconomyFactionId,
+                out hqManpower,
+                out hqMateriel,
+                out hqFuel,
+                out manpowerPpt,
+                out materielPpt,
+                out fuelPpt);
+            manpower = hqManpower;
+            materiel = hqMateriel;
+            fuel = hqFuel;
+            for (int i = 0; i < _towns.Count; i++)
+            {
+                TownState town = _towns[i];
+                if (town.OwnerFactionId != seat.FactionId || town.Tier < 0)
+                {
+                    continue;
+                }
+
+                if (!contestedPays && town.Contested)
+                {
+                    continue;
+                }
+
+                manpower += rules.HoldingManpowerPerMin(town.Tier);
+                materiel += rules.HoldingMaterielPerMin(town.Tier);
+                fuel += rules.HoldingFuelPerMin(town.Tier);
+            }
+
+            manpower = ApplyIncomePpt(manpower, manpowerPpt);
+            materiel = ApplyIncomePpt(materiel, materielPpt);
+            fuel = ApplyIncomePpt(fuel, fuelPpt);
+        }
+
+        private static int ApplyIncomePpt(int value, int ppt)
+        {
+            if (ppt == SimConfig.PptScale)
+            {
+                return value;
+            }
+
+            return (int)(((long)value * ppt) / SimConfig.PptScale);
+        }
+
+        private static void PayResource(ref int stock, ref int carry, int perMinute, int periods)
+        {
+            if (perMinute == 0)
+            {
+                return;
+            }
+
+            carry = checked(carry + perMinute);
+            int gained = carry / periods;
+            if (gained == 0)
+            {
+                return;
+            }
+
+            stock = checked(stock + gained);
+            carry -= gained * periods;
+        }
+
         internal void AddResources(int factionId, int manpower, int materials, int fuel)
         {
             if (manpower < 0 || materials < 0 || fuel < 0)
@@ -1672,9 +1824,13 @@ namespace Wasteland.Sim.World
             public int AutoResearchCursor;
             public int[] AutoResearchTech;
             public int[] AutoResearchNotBefore;
+            public string EconomyFactionId;
             public int Manpower;
             public int Materials;
             public int Fuel;
+            public int ManpowerCarry;
+            public int MaterielCarry;
+            public int FuelCarry;
             public bool FuelEnabled;
             public int PopUsed;
             public int PopCap;

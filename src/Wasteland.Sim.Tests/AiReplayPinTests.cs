@@ -11,9 +11,10 @@ namespace Wasteland.Sim.Tests
     {
         /// <summary>
         /// xxHash64 (seed 0) of the Compact raise-replay command buffer from
-        /// <see cref="HashLog"/>. This is not <c>SimWorld.HashState</c> — #24
-        /// widening HashState (seats, paths, pending queue) does not move this pin.
-        /// Behaviour pin; not the <see cref="AiBalanceTablesTests.ExpectedAiOwnedBalanceKey"/> data hash.
+        /// <see cref="HashLog"/>. This is not <c>SimWorld.HashState</c>. The
+        /// replay is 12 ticks and income first pays at tick 20, so accrual
+        /// does not move this pin. Not the
+        /// <see cref="AiBalanceTablesTests.ExpectedAiOwnedBalanceKey"/> data hash.
         /// </summary>
         public const ulong ExpectedCompactReplayKey = 0x9B9FBF4797CFF1D1UL;
 

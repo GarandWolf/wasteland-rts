@@ -189,8 +189,9 @@ namespace Wasteland.Sim.Tests
             Assert.True(world.TryGetSeat(Faction, out SeatView seat));
             Assert.Equal(1, seat.CurrentTier);
             Assert.Equal(-1, seat.TierResearchCompleteTick);
-            Assert.Equal(1000 - 70, seat.Manpower);
-            Assert.Equal(1000 - 40, seat.Materials);
+            // Tick 601 includes 30 HQ accruals: 5 manpower and 25 materiel.
+            Assert.Equal(1000 - 70 + 5, seat.Manpower);
+            Assert.Equal(1000 - 40 + 25, seat.Materials);
             Assert.Equal(1, seat.PopUsed);
             Assert.Equal(4, seat.PopCap);
             Assert.Equal(1000, seat.VisibleStrength);

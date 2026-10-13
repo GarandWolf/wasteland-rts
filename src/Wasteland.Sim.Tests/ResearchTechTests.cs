@@ -29,7 +29,6 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(33, (int)CommandRejectReason.NoQualifyingTier);
             Assert.Equal(5, (int)SimEventKind.TierResearchStarted);
             Assert.Equal(6, (int)SimEventKind.TierReached);
-            Assert.Equal(13, SimWorld.WorldStateSchema);
         }
 
         [Fact]

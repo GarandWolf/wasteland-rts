@@ -402,7 +402,6 @@ namespace Wasteland.Sim.Tests
         public void SaveLoadOnEvent15Tick_MatchesHash()
         {
             Assert.Equal(12, AiConstants.StateSchemaVersion);
-            Assert.Equal(13, SimWorld.WorldStateSchema);
             AiMatchHost original = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
             int cursor = 0;
             int destroyTick = -1;

@@ -148,7 +148,15 @@ namespace Wasteland.Sim.Tests
             string[] pending = new string[8];
             int pendingCount = AiAttackDefend.CopyPendingRaiseUnitIds(sink, world.Tick, Faction, pending);
             Assert.Equal(0, pendingCount);
-            AiAttackDefend.SumPendingRaises(sink, world.Tick, Faction, BalanceLoad.Tables().UnitCatalog, out int mp, out int pop);
+            AiAttackDefend.SumPendingRaises(
+                sink,
+                world.Tick,
+                Faction,
+                BalanceLoad.Tables().UnitCatalog,
+                out int mp,
+                out int pop,
+                out _,
+                out _);
             Assert.Equal(0, mp);
             Assert.Equal(0, pop);
         }

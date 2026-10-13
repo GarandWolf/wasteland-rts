@@ -241,6 +241,8 @@ namespace Wasteland.Sim.Tests
             Assert.True(lineCost > 0);
 
             FixtureAiSeatView view = new FixtureAiSeatView();
+            view.Materials = 100000;
+            view.Fuel = 100000;
             view.Manpower = lineCost - 1;
             Assert.Equal(
                 AiConstants.RoleGarrisonInfantry,
@@ -330,6 +332,8 @@ namespace Wasteland.Sim.Tests
                 FixtureAiScenarioSeats.DefaultBuildableBuildings,
                 Array.Empty<AiAutoResearch>());
             FixtureAiSeatView view = new FixtureAiSeatView();
+            view.Materials = 100000;
+            view.Fuel = 100000;
             view.Manpower = 300;
             string picked = AiAttackDefend.SelectRaiseUnit(
                 seat,
