@@ -3,6 +3,8 @@ Shader "Wasteland/Tactical Mark"
     Properties
     {
         _WorldPerPixel ("WorldPerPixel", Float) = 1
+        _BonePx ("BonePx", Float) = 2
+        _InkPx ("InkPx", Float) = 1
     }
     SubShader
     {
@@ -21,6 +23,8 @@ Shader "Wasteland/Tactical Mark"
 
             CBUFFER_START(UnityPerMaterial)
                 float _WorldPerPixel;
+                float _BonePx;
+                float _InkPx;
             CBUFFER_END
 
             struct Attributes
@@ -224,27 +228,30 @@ Shader "Wasteland/Tactical Mark"
                     return input.color;
                 }
 
+                float bonePx = _BonePx < 0.5 ? 2.0 : _BonePx;
+                float inkPx = _InkPx < 0.5 ? 1.0 : _InkPx;
+                float band = bonePx + inkPx;
                 float rect = input.shape.w;
                 if (rect > 0.5)
                 {
                     float2 halfSize = float2(widthPx, heightPx) * 0.5;
                     float outside = max(abs(p.x) - halfSize.x, abs(p.y) - halfSize.y);
-                    if (outside < 0.0 || outside > 3.0)
+                    if (outside < 0.0 || outside > band)
                     {
                         discard;
                     }
 
-                    return outside > 2.0 ? ink : bone;
+                    return outside > bonePx ? ink : bone;
                 }
 
                 float radius = widthPx * 0.5;
                 float dist = length(p);
-                if (dist < radius || dist > radius + 3.0)
+                if (dist < radius || dist > radius + band)
                 {
                     discard;
                 }
 
-                return dist > radius + 2.0 ? ink : bone;
+                return dist > radius + bonePx ? ink : bone;
             }
             ENDHLSL
         }

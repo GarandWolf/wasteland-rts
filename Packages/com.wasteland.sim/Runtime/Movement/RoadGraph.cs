@@ -109,6 +109,37 @@ namespace Wasteland.Sim.Movement
             return NodeYCm[index];
         }
 
+        /// <summary>
+        /// Nearest node to a point, or 0 when the graph has no nodes.
+        /// Ties break to the lower node id. The id comes from this graph.
+        /// </summary>
+        public int NearestNodeId(int xCm, int yCm)
+        {
+            if (NodeCount < 1)
+            {
+                return 0;
+            }
+
+            int bestIndex = 0;
+            int bestId = NodeId[0];
+            long bestDist = long.MaxValue;
+            for (int i = 0; i < NodeCount; i++)
+            {
+                long dx = (long)NodeXCm[i] - xCm;
+                long dy = (long)NodeYCm[i] - yCm;
+                long dist = (dx * dx) + (dy * dy);
+                int id = NodeId[i];
+                if (dist < bestDist || (dist == bestDist && id < bestId))
+                {
+                    bestDist = dist;
+                    bestId = id;
+                    bestIndex = i;
+                }
+            }
+
+            return NodeId[bestIndex];
+        }
+
         public RoadNodeFlags GetNodeFlags(int index)
         {
             return (RoadNodeFlags)NodeFlags[index];

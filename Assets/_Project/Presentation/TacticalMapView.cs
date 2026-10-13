@@ -53,6 +53,10 @@ namespace Wasteland.Presentation
         Mesh _towns;
         Mesh _units;
         Mesh _selection;
+        Mesh _orders;
+        Material _selectionMaterial;
+        Material _orderMaterial;
+        string _reject = string.Empty;
         TownMarker[] _townMarkers = System.Array.Empty<TownMarker>();
         BattalionMarker[] _unitMarkers = System.Array.Empty<BattalionMarker>();
         GUIStyle _label;
@@ -77,14 +81,27 @@ namespace Wasteland.Presentation
             _selection = new Mesh { name = "Selection", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
             AddMesh("Town markers", _towns, _marks);
             AddMesh("Battalion tokens", _units, _marks);
-            Material selection = _marks != null ? new Material(_marks) : null;
-            if (selection != null)
+            _selectionMaterial = _marks != null ? new Material(_marks) : null;
+            if (_selectionMaterial != null)
             {
-                selection.renderQueue = 2500;
-                _strokes.Add(selection);
+                _selectionMaterial.renderQueue = 2500;
+                _selectionMaterial.SetFloat("_BonePx", SelectionOutline.BonePx);
+                _selectionMaterial.SetFloat("_InkPx", SelectionOutline.InkPx);
+                _strokes.Add(_selectionMaterial);
             }
 
-            AddMesh("Selection", _selection, selection);
+            AddMesh("Selection", _selection, _selectionMaterial);
+            _orders = new Mesh { name = "Orders", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+            _orderMaterial = MakeMaterial("Wasteland/Tactical Stroke", 2300);
+            if (_orderMaterial != null)
+            {
+                _orderMaterial.SetFloat("_WidthPx", SelectionOutline.BonePx);
+                _orderMaterial.SetFloat("_DashOn", 0f);
+                _orderMaterial.SetFloat("_DashOff", 0f);
+                _orderMaterial.SetColor("_Color", ToColor(SelectionOutline.Ink));
+            }
+
+            AddMesh("Orders", _orders, _orderMaterial);
         }
 
         public void SetTerritoryWash(Color32[] colorByTerritory, bool[] painted)
@@ -126,7 +143,20 @@ namespace Wasteland.Presentation
                 if (town.Selected)
                 {
                     float outer = diameter + (town.Hq ? 8f : 0f);
-                    selection.Quad(Flat(town.XCm, town.YCm, SelectionY), outer * 0.5f + 4f, outer * 0.5f + 4f, outer, outer, 3f, 0f, 0f, 0f, 0f, Color.white, Color.white);
+                    float pad = SelectionOutline.PadPx;
+                    selection.Quad(
+                        Flat(town.XCm, town.YCm, SelectionY),
+                        outer * 0.5f + pad,
+                        outer * 0.5f + pad,
+                        outer,
+                        outer,
+                        3f,
+                        0f,
+                        0f,
+                        0f,
+                        0f,
+                        ToColor(SelectionOutline.Bone),
+                        ToColor(SelectionOutline.Ink));
                 }
             }
 
@@ -148,10 +178,11 @@ namespace Wasteland.Presentation
                     ToColor(unit.Owner));
                 if (unit.Selected)
                 {
+                    float pad = SelectionOutline.PadPx;
                     selection.Quad(
                         Flat(unit.XCm, unit.YCm, SelectionY),
-                        MarkerArt.BattalionWidthPx * 0.5f + 4f,
-                        MarkerArt.BattalionHeightPx * 0.5f + 4f,
+                        MarkerArt.BattalionWidthPx * 0.5f + pad,
+                        MarkerArt.BattalionHeightPx * 0.5f + pad,
                         MarkerArt.BattalionWidthPx,
                         MarkerArt.BattalionHeightPx,
                         3f,
@@ -159,14 +190,57 @@ namespace Wasteland.Presentation
                         0f,
                         0f,
                         0f,
-                        Color.white,
-                        Color.white);
+                        ToColor(SelectionOutline.Bone),
+                        ToColor(SelectionOutline.Ink));
                 }
             }
 
             townsBatch.Upload(_towns);
             unitsBatch.Upload(_units);
             selection.Upload(_selection);
+        }
+
+        public void SetRejectReason(string reason)
+        {
+            _reject = reason ?? string.Empty;
+        }
+
+        public void SetOrderLines(OrderLine[] lines)
+        {
+            if (_orders == null)
+            {
+                return;
+            }
+
+            StrokeBuilder builder = new StrokeBuilder();
+            Rgb color = SelectionOutline.Ink;
+            bool any = false;
+            if (lines != null)
+            {
+                for (int i = 0; i < lines.Length; i++)
+                {
+                    OrderLine line = lines[i];
+                    Rgb drawn = OrderLineColor.Resolve(line.Color);
+                    if (!any)
+                    {
+                        color = drawn;
+                        any = true;
+                    }
+
+                    builder.Add(
+                        (float)MapSpace.Metres(line.FromXCm),
+                        (float)MapSpace.Metres(line.FromYCm),
+                        (float)MapSpace.Metres(line.ToXCm),
+                        (float)MapSpace.Metres(line.ToYCm));
+                }
+            }
+
+            if (_orderMaterial != null)
+            {
+                _orderMaterial.SetColor("_Color", ToColor(color));
+            }
+
+            builder.Upload(_orders, 0.35f);
         }
 
         public void SetWorldPerPixel(float worldPerPixel)
@@ -197,17 +271,25 @@ namespace Wasteland.Presentation
 
         void OnGUI()
         {
-            if (_camera == null || _townMarkers.Length == 0)
-            {
-                return;
-            }
-
             if (_label == null)
             {
                 _label = new GUIStyle(GUI.skin.label);
                 _label.normal.textColor = new Color(0.1176f, 0.1216f, 0.1137f, 1f);
                 _label.fontSize = 13;
                 _label.alignment = TextAnchor.LowerCenter;
+            }
+
+            if (!string.IsNullOrEmpty(_reject))
+            {
+                GUIStyle reason = new GUIStyle(_label);
+                reason.alignment = TextAnchor.MiddleLeft;
+                reason.fontSize = 16;
+                GUI.Label(new Rect(12f, Screen.height - 40f, Screen.width - 24f, 28f), _reject, reason);
+            }
+
+            if (_camera == null || _townMarkers.Length == 0)
+            {
+                return;
             }
 
             for (int i = 0; i < _townMarkers.Length; i++)
@@ -222,6 +304,7 @@ namespace Wasteland.Presentation
                     DrawLabel(_unitMarkers[i].Label, _unitMarkers[i].XCm, _unitMarkers[i].YCm, 12f);
                 }
             }
+
         }
 
         void OnDestroy()
@@ -550,19 +633,31 @@ namespace Wasteland.Presentation
                 return null;
             }
 
+            Mesh mesh = new Mesh { name = name, indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+            Upload(mesh, y);
+            return mesh;
+        }
+
+        public void Upload(Mesh mesh, float y)
+        {
+            mesh.Clear();
+            if (_centers.Count == 0)
+            {
+                return;
+            }
+
             Vector3[] vertices = _centers.ToArray();
             for (int i = 0; i < vertices.Length; i++)
             {
                 vertices[i].y = y;
             }
 
-            Mesh mesh = new Mesh { name = name, indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+            mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
             mesh.vertices = vertices;
             mesh.SetUVs(0, _sideAlong);
             mesh.SetUVs(1, _perp);
             mesh.SetIndices(_indices, MeshTopology.Triangles, 0);
             mesh.RecalculateBounds();
-            return mesh;
         }
 
         void AddVert(float x, float z, float side, float along, float px, float pz)

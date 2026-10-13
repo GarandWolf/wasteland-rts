@@ -208,6 +208,35 @@ namespace Wasteland.Presentation
             }
 
             _bridge.Open(MapDocument.Load(map, terrain), scenario, _loops, tactical, view);
+            int humanSeat = 0;
+            bool hasHuman = _host.HumanSeats.Count > 0;
+            if (hasHuman)
+            {
+                humanSeat = _host.HumanSeats[0];
+            }
+
+            string[] raisable = System.Array.Empty<string>();
+            if (hasHuman && _host.World.TryGetSeat(humanSeat, out SeatView seat))
+            {
+                for (int i = 0; i < scenario.SeatCount; i++)
+                {
+                    ScenarioSeat scenarioSeat = scenario.SeatAt(i);
+                    if (scenarioSeat.HomeTownId == seat.HomeTownId)
+                    {
+                        raisable = scenarioSeat.RaisableUnits;
+                        break;
+                    }
+                }
+            }
+
+            SoundPlayer sounds = gameObject.GetComponent<SoundPlayer>();
+            if (sounds == null)
+            {
+                sounds = gameObject.AddComponent<SoundPlayer>();
+            }
+
+            sounds.UseBank(_loops.Bank);
+            _bridge.BindPlayer(humanSeat, hasHuman, raisable, balance.ScenarioCatalog, sounds);
         }
 
         // World.Events is append-only for the life of the world. SimWorld.Emit only
