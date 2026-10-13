@@ -331,11 +331,118 @@ namespace Wasteland.Sim.Tests
                 }
             }
 
-            Assert.Equal(4343, garrisonClear);
+            List<int> contestTicks = new List<int>();
+            List<int> contestKinds = new List<int>();
+            for (int i = 0; i < events.Count; i++)
+            {
+                SimEvent ev = events[i];
+                if (ev.SubjectId != dalles)
+                {
+                    continue;
+                }
+
+                if (ev.Kind != SimEventKind.TownContestStarted && ev.Kind != SimEventKind.TownContestEnded)
+                {
+                    continue;
+                }
+
+                contestTicks.Add(ev.Tick);
+                contestKinds.Add((int)ev.Kind);
+            }
+
+            int pairs = 0;
+            int open = 0;
+            int shortestGap = -1;
+            for (int i = 0; i < contestKinds.Count; i++)
+            {
+                if (contestKinds[i] == (int)SimEventKind.TownContestStarted)
+                {
+                    open++;
+                }
+                else if (contestKinds[i] == (int)SimEventKind.TownContestEnded && open > 0)
+                {
+                    open--;
+                    pairs++;
+                }
+
+                if (contestKinds[i] != (int)SimEventKind.TownContestEnded)
+                {
+                    continue;
+                }
+
+                for (int j = i + 1; j < contestKinds.Count; j++)
+                {
+                    if (contestKinds[j] != (int)SimEventKind.TownContestStarted)
+                    {
+                        continue;
+                    }
+
+                    int gap = contestTicks[j] - contestTicks[i];
+                    if (shortestGap < 0 || gap < shortestGap)
+                    {
+                        shortestGap = gap;
+                    }
+
+                    break;
+                }
+            }
+
+            Assert.Equal(new[] { 10, 11, 10, 11 }, contestKinds);
+            Assert.Equal(new[] { 3683, 4583, 4583, 8282 }, contestTicks);
+            Assert.Equal(2, pairs);
+            Assert.Equal(0, shortestGap);
+            Assert.Equal(4223, garrisonClear);
             Assert.Equal(3683, dallesFight);
-            Assert.Equal(18925, dallesCapture);
+            Assert.Equal(10682, dallesCapture);
             Assert.Equal(-1, matchEnd);
             host.Shutdown();
+        }
+
+        [Fact]
+        public void SaveLoadOnEvent15Tick_MatchesHash()
+        {
+            Assert.Equal(12, AiConstants.StateSchemaVersion);
+            Assert.Equal(12, SimWorld.WorldStateSchema);
+            AiMatchHost original = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
+            int cursor = 0;
+            int destroyTick = -1;
+            const int limit = 8000;
+            while (original.Tick < limit && destroyTick < 0)
+            {
+                original.Run(1);
+                IReadOnlyList<SimEvent> events = original.World.Events;
+                while (cursor < events.Count)
+                {
+                    if (events[cursor].Kind == SimEventKind.BattalionDestroyed)
+                    {
+                        destroyTick = events[cursor].Tick;
+                        break;
+                    }
+
+                    cursor++;
+                }
+            }
+
+            Assert.True(destroyTick >= 0);
+            if (original.Tick <= destroyTick)
+            {
+                original.Run(destroyTick - original.Tick + 1);
+            }
+
+            ulong atSave = original.HashWorld();
+            byte[] blob = original.Ai.Save();
+            SimCommand[] log = CopyLog(original.CommandLog);
+            AiMatchHost restored = Replay(
+                log,
+                blob,
+                original.Tick);
+            Assert.Equal(original.Tick, restored.Tick);
+            Assert.Equal(atSave, restored.HashWorld());
+            original.Run(1);
+            restored.Run(1);
+            Assert.Equal(original.HashWorld(), restored.HashWorld());
+            restored.Shutdown();
+            original.Shutdown();
         }
 
         [Fact]
@@ -361,6 +468,19 @@ namespace Wasteland.Sim.Tests
             }
 
             return hashes;
+        }
+
+        private static AiMatchHost Replay(SimCommand[] log, byte[] blob, int tick)
+        {
+            return AiMatchHost.ReplayTo(
+                MatchConfig.Default(MatchSeed),
+                AiSeamsTests.LoadGorgeV1Bytes(),
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                AiConstants.DifficultyNormal,
+                AiBalanceTablesTests.LoadBalance(),
+                log,
+                blob,
+                tick);
         }
 
         private static AiMatchHost Start(ulong seed, string difficultyId, AiBalanceTables balance)

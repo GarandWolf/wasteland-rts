@@ -160,6 +160,29 @@ namespace Wasteland.Sim.Ai
                 return AiCommandReject.None;
             }
 
+            // Never cast AiCommandReject to the sim enum (CommandRejectReason).
+            // The two enums do not share numbers, so a cast would select the
+            // wrong reason. Combat rejects 27-30 are named here.
+            if (code == CommandRejectReason.UnknownTarget)
+            {
+                return AiCommandReject.UnknownTarget;
+            }
+
+            if (code == CommandRejectReason.TargetNotEnemy)
+            {
+                return AiCommandReject.TargetNotEnemy;
+            }
+
+            if (code == CommandRejectReason.NotArmed)
+            {
+                return AiCommandReject.NotArmed;
+            }
+
+            if (code == CommandRejectReason.TargetIsSelf)
+            {
+                return AiCommandReject.TargetIsSelf;
+            }
+
             return AiCommandReject.Rejected;
         }
 

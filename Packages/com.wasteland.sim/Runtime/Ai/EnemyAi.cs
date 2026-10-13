@@ -339,6 +339,7 @@ namespace Wasteland.Sim.Ai
                 AiFactionState faction = _owned.FactionAt(i);
                 faction.PathRequestsThisTick = 0;
                 faction.WorkUnitsThisTick = 0;
+                _attackDefend.ExpireAttackOrders(tick, faction);
 
                 if (workUnits >= _balance.WorkUnitsPerTick)
                 {
@@ -700,7 +701,14 @@ namespace Wasteland.Sim.Ai
                         continue;
                     }
 
-                    if (ev.Kind == SimEventKind.BattalionDestroyed || ev.Kind == SimEventKind.MatchEnded)
+                    if (ev.Kind == SimEventKind.BattalionDestroyed)
+                    {
+                        AiAttackDefend.ClearDestroyedBattalion(_owned, ev.SubjectId);
+                        RefreshHqAfterDestroy();
+                        continue;
+                    }
+
+                    if (ev.Kind == SimEventKind.MatchEnded)
                     {
                         continue;
                     }
@@ -849,6 +857,14 @@ namespace Wasteland.Sim.Ai
                 || reason == CommandRejectReason.PopCapReached)
             {
                 return CommandKind.RaiseBattalion;
+            }
+
+            if (reason == CommandRejectReason.UnknownTarget
+                || reason == CommandRejectReason.TargetNotEnemy
+                || reason == CommandRejectReason.NotArmed
+                || reason == CommandRejectReason.TargetIsSelf)
+            {
+                return CommandKind.Attack;
             }
 
             return CommandKind.Move;
@@ -2220,6 +2236,38 @@ namespace Wasteland.Sim.Ai
             }
 
             return a.Id.CompareTo(b.Id);
+        }
+
+        /// <summary>
+        /// Recompute HQ holds in the same turn that consumes
+        /// <see cref="SimEventKind.BattalionDestroyed"/>. The result is faction
+        /// orders, which are saved and hashed. Work spent here is restored so
+        /// the rest of the tick still has its budget.
+        /// </summary>
+        private void RefreshHqAfterDestroy()
+        {
+            for (int f = 0; f < _owned.FactionCount; f++)
+            {
+                AiFactionState faction = _owned.FactionAt(f);
+                int spent = faction.WorkUnitsThisTick;
+                faction.WorkUnitsThisTick = 0;
+                RefreshHqRecall(faction);
+                faction.WorkUnitsThisTick = spent;
+            }
+        }
+
+        private void RefreshHqRecall(AiFactionState faction)
+        {
+            int townCount = FillAttackTowns();
+            int battalionCount = FillAttackBattalions(faction);
+            _attackDefend.SyncHqRecall(
+                _world.Tick,
+                faction,
+                _attackTowns,
+                townCount,
+                _attackBattalions,
+                battalionCount,
+                _map.Roads);
         }
 
         private void RunAttackDefend(AiFactionState faction)

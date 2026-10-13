@@ -80,6 +80,13 @@ namespace Wasteland.Sim.Ai
         private string[]? _pendingUnitIds;
         private int _pendingCount;
         private readonly List<DepotView> _depotScratch = new List<DepotView>();
+        private readonly List<AiCombatantView> _combatScratch = new List<AiCombatantView>();
+        private readonly List<int> _marchedScratch = new List<int>();
+        private int[] _rankId = Array.Empty<int>();
+        private int[] _rankDist = Array.Empty<int>();
+        private int[] _rankCommit = Array.Empty<int>();
+        private int[] _rankStrength = Array.Empty<int>();
+        private int _rankCount;
 
         public AiAttackDefend(IAiCommandSink commands, IAiTownQuery towns, IAiDepotQuery depots)
             : this(commands, towns, depots, null, null)
@@ -190,6 +197,7 @@ namespace Wasteland.Sim.Ai
                 recorded.Tick = tick;
             }
 
+            ExpireAttackOrders(tick, faction);
             PollLateReject(tick, faction);
             if (faction.RejectBackoffUntilTick > 0 && tick < faction.RejectBackoffUntilTick)
             {
@@ -229,9 +237,11 @@ namespace Wasteland.Sim.Ai
             SortTowns(towns, townCount);
             SortBattalions(battalions, battalionCount);
             _budgetDeferred = false;
+            _marchedScratch.Clear();
 
             if (TryDefend(tick, faction, towns, townCount, battalions, battalionCount, graph))
             {
+                SyncHqRecall(tick, faction, towns, townCount, battalions, battalionCount, graph);
                 if (_budgetDeferred)
                 {
                     ClearDecision(faction);
@@ -256,6 +266,12 @@ namespace Wasteland.Sim.Ai
                 prizeTerritoryKey,
                 prizeTargetBonusPpt,
                 seatView);
+            SyncHqRecall(tick, faction, towns, townCount, battalions, battalionCount, graph);
+            if (faction.AttackTargetTownId != 0)
+            {
+                IssueTownCombat(tick, faction, towns, townCount, battalions, battalionCount, 0);
+            }
+
             if (_budgetDeferred)
             {
                 ClearDecision(faction);
@@ -850,7 +866,10 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            IssueClaimMarch(tick, faction, battalionId, FindPin(battalions, battalionCount, battalionId).UnitId, target);
+            if (IssueClaimMarch(tick, faction, battalionId, FindPin(battalions, battalionCount, battalionId).UnitId, target))
+            {
+                NoteMarched(battalionId);
+            }
         }
 
         private void TryPlaceForwardDepot(
@@ -1998,6 +2017,11 @@ namespace Wasteland.Sim.Ai
             AiBattalionPin pin,
             AiAttackTownInfo target)
         {
+            if (IsHeld(faction, pin.Id))
+            {
+                return;
+            }
+
             if (HasPrizeOrder(faction, pin.Id, target.Id))
             {
                 return;
@@ -2008,6 +2032,7 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
+            NoteMarched(pin.Id);
             EnsurePrizeOrder(faction, pin.Id, target.Id, target.TerritoryId);
         }
 
@@ -2711,6 +2736,11 @@ namespace Wasteland.Sim.Ai
                 return cmd.Arg1;
             }
 
+            if (cmd.Kind == AiIssuedKind.Attack)
+            {
+                return cmd.Arg1;
+            }
+
             if (cmd.Kind == AiIssuedKind.Move)
             {
                 return MoveDestinationNode(_world, cmd.Arg1, cmd.Arg2);
@@ -2768,7 +2798,7 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < battalionCount; i++)
             {
                 AiBattalionPin pin = battalions[i];
-                if (pin.Assigned)
+                if (pin.Assigned || IsHeld(faction, pin.Id))
                 {
                     continue;
                 }
@@ -2836,6 +2866,728 @@ namespace Wasteland.Sim.Ai
             }
 
             return default;
+        }
+
+        internal void ExpireAttackOrders(int tick, AiFactionState faction)
+        {
+            if (faction == null || _owned == null)
+            {
+                return;
+            }
+
+            for (int i = faction.IntentCount - 1; i >= 0; i--)
+            {
+                AiPendingIntent intent = faction.Intents[i];
+                if (intent.Kind != AiIssuedKind.Attack)
+                {
+                    continue;
+                }
+
+                if (intent.IssuedTick > tick)
+                {
+                    continue;
+                }
+
+                if (tick - intent.IssuedTick < AiCombatTable.AttackTimeoutTicks)
+                {
+                    continue;
+                }
+
+                int battalionId = intent.BattalionId;
+                int targetId = intent.TargetId;
+                _owned.NoteOrderReject(
+                    faction.FactionId,
+                    battalionId,
+                    CommandKind.Attack,
+                    targetId,
+                    tick);
+                faction.RemoveIntentAt(i);
+                ClearTimedOutAttack(tick, faction, battalionId, targetId);
+            }
+        }
+
+        internal static void ClearDestroyedBattalion(AiOwnedState owned, int battalionId)
+        {
+            if (owned == null || battalionId == 0)
+            {
+                return;
+            }
+
+            owned.ClearBattalionCombatMemory(battalionId);
+            for (int f = 0; f < owned.FactionCount; f++)
+            {
+                AiFactionState faction = owned.FactionAt(f);
+                RemoveOrdersForBattalion(faction, battalionId);
+                for (int i = faction.IntentCount - 1; i >= 0; i--)
+                {
+                    AiPendingIntent intent = faction.Intents[i];
+                    bool drop = intent.BattalionId == battalionId
+                        || (intent.Kind == AiIssuedKind.Attack && intent.TargetId == battalionId);
+                    if (drop)
+                    {
+                        faction.RemoveIntentAt(i);
+                    }
+                }
+            }
+        }
+
+        internal void SyncHqRecall(
+            int tick,
+            AiFactionState faction,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            RoadGraph graph)
+        {
+            if (faction == null || _world == null || graph == null || towns == null)
+            {
+                return;
+            }
+
+            if (!TryTownXy(towns, townCount, faction.HomeTownId, out int hqX, out int hqY))
+            {
+                return;
+            }
+
+            int hqNode = _world.GetNearestNodeId(hqX, hqY);
+            if (hqNode == 0)
+            {
+                return;
+            }
+
+            // A road search that runs out of work units returns before any hold
+            // is released or added, so the previous recall set stays as it was.
+            _world.CopyCombatants(faction.FactionId, _combatScratch);
+            int threatStrength = 0;
+            for (int i = 0; i < _combatScratch.Count; i++)
+            {
+                AiCombatantView combatant = _combatScratch[i];
+                if (combatant.Hp <= 0 || combatant.OwnerSeat <= 0 || combatant.OwnerSeat == faction.FactionId)
+                {
+                    continue;
+                }
+
+                int enemyNode = _world.GetNearestNodeId(combatant.XCm, combatant.YCm);
+                if (enemyNode == 0)
+                {
+                    continue;
+                }
+
+                AiSupplyResult dist = _roads.DistanceCm(graph, hqNode, enemyNode, faction);
+                if (dist.IsBudgetExhausted)
+                {
+                    // Keep the previous turn's holds and retry the scan next turn.
+                    return;
+                }
+
+                if (!dist.IsReached || dist.DistanceCm > AiCombatTable.HqThreatRadiusCm)
+                {
+                    continue;
+                }
+
+                long sum = (long)threatStrength + combatant.Hp;
+                threatStrength = sum > int.MaxValue ? int.MaxValue : (int)sum;
+            }
+
+            if (threatStrength < 1)
+            {
+                ReleaseHqHolds(faction);
+                return;
+            }
+
+            if (!RankRecall(faction, graph, hqNode, battalions, battalionCount))
+            {
+                return;
+            }
+
+            int recall = AiCombatTable.CountToCover(_rankStrength, _rankCount, threatStrength);
+
+            ReleaseHqHolds(faction);
+            for (int i = 0; i < recall; i++)
+            {
+                HoldAtHq(tick, faction, _rankId[i], hqX, hqY, hqNode);
+            }
+        }
+
+        internal void IssueTownCombat(
+            int tick,
+            AiFactionState faction,
+            AiAttackTownInfo[] towns,
+            int townCount,
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            int extraBattalionId)
+        {
+            if (faction == null || _world == null || faction.AttackTargetTownId == 0)
+            {
+                return;
+            }
+
+            AiAttackTownInfo target = default;
+            bool found = false;
+            for (int i = 0; i < townCount; i++)
+            {
+                if (towns[i].Id == faction.AttackTargetTownId)
+                {
+                    target = towns[i];
+                    found = true;
+                    break;
+                }
+            }
+
+            if (!found)
+            {
+                return;
+            }
+
+            int townNode = _world.GetNearestNodeId(target.XCm, target.YCm);
+            _world.CopyCombatants(faction.FactionId, _combatScratch);
+            int garrisonId = 0;
+            int defenderId = 0;
+            for (int i = 0; i < _combatScratch.Count; i++)
+            {
+                AiCombatantView combatant = _combatScratch[i];
+                if (combatant.Hp <= 0 || !AtTown(combatant, target, townNode))
+                {
+                    continue;
+                }
+
+                if (combatant.OwnerSeat == SimWorld.NeutralOwnerId)
+                {
+                    if (garrisonId == 0 || combatant.Id < garrisonId)
+                    {
+                        garrisonId = combatant.Id;
+                    }
+                }
+                else if (combatant.OwnerSeat != faction.FactionId)
+                {
+                    if (defenderId == 0 || combatant.Id < defenderId)
+                    {
+                        defenderId = combatant.Id;
+                    }
+                }
+            }
+
+            int[] order = garrisonId != 0
+                ? new[] { garrisonId, defenderId }
+                : new[] { defenderId };
+            for (int s = 0; s < battalionCount; s++)
+            {
+                AiBattalionPin pin = battalions[s];
+                if (!ShouldShootTown(faction, pin, target, extraBattalionId))
+                {
+                    continue;
+                }
+
+                int chosen = 0;
+                for (int t = 0; t < order.Length; t++)
+                {
+                    int candidate = order[t];
+                    if (candidate == 0)
+                    {
+                        continue;
+                    }
+
+                    if (MoveBlocked(faction, pin.Id, CommandKind.Attack, candidate, tick))
+                    {
+                        continue;
+                    }
+
+                    chosen = candidate;
+                    break;
+                }
+
+                if (chosen == 0)
+                {
+                    continue;
+                }
+
+                if (AlreadyAttacking(faction, pin.Id, chosen, tick))
+                {
+                    continue;
+                }
+
+                IssueAttack(tick, faction, pin.Id, chosen);
+            }
+        }
+
+        internal static int PickTownAttackTarget(
+            AiCombatantView[] combatants,
+            int count,
+            int townNodeId,
+            int townXCm,
+            int townYCm,
+            int zoneRadiusCm)
+        {
+            int garrisonId = 0;
+            int defenderId = 0;
+            AiAttackTownInfo town = new AiAttackTownInfo(
+                0,
+                0,
+                townNodeId,
+                townXCm,
+                townYCm,
+                false,
+                0UL,
+                zoneRadiusCm);
+            for (int i = 0; i < count; i++)
+            {
+                AiCombatantView combatant = combatants[i];
+                if (combatant.Hp <= 0 || !CombatantAtTown(combatant, town, townNodeId))
+                {
+                    continue;
+                }
+
+                if (combatant.OwnerSeat == SimWorld.NeutralOwnerId)
+                {
+                    if (garrisonId == 0 || combatant.Id < garrisonId)
+                    {
+                        garrisonId = combatant.Id;
+                    }
+                }
+                else if (defenderId == 0 || combatant.Id < defenderId)
+                {
+                    defenderId = combatant.Id;
+                }
+            }
+
+            return garrisonId != 0 ? garrisonId : defenderId;
+        }
+
+        private void IssueAttack(int tick, AiFactionState faction, int battalionId, int targetBattalionId)
+        {
+            int sequence = _commands.SubmitAttack(faction.FactionId, battalionId, targetBattalionId);
+            Issue(tick, faction, IssuedIdForSequence(faction.FactionId, sequence));
+        }
+
+        private int IssuedIdForSequence(int factionId, int sequence)
+        {
+            IReadOnlyList<AiIssuedCommand> issued = _commands.IssuedCommands;
+            if (issued == null)
+            {
+                return sequence;
+            }
+
+            for (int i = issued.Count - 1; i >= 0; i--)
+            {
+                if (issued[i].FactionId == factionId && issued[i].Sequence == sequence)
+                {
+                    return issued[i].Id;
+                }
+            }
+
+            return sequence;
+        }
+
+        private bool AlreadyAttacking(AiFactionState faction, int battalionId, int targetId, int tick)
+        {
+            if (_world != null
+                && _world.TryGetOwnBattalion(faction.FactionId, battalionId, out SimBattalion battalion)
+                && battalion.AttackTargetId == targetId)
+            {
+                return true;
+            }
+
+            for (int i = 0; i < faction.IntentCount; i++)
+            {
+                AiPendingIntent intent = faction.Intents[i];
+                if (intent.Kind != AiIssuedKind.Attack
+                    || intent.BattalionId != battalionId
+                    || intent.TargetId != targetId)
+                {
+                    continue;
+                }
+
+                if (intent.IssuedTick <= tick && tick - intent.IssuedTick < AiCombatTable.AttackTimeoutTicks)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void ClearTimedOutAttack(int tick, AiFactionState faction, int battalionId, int targetId)
+        {
+            if (_world == null || faction.AttackTargetTownId == 0)
+            {
+                return;
+            }
+
+            if (!_world.TryGetOwnBattalion(faction.FactionId, battalionId, out SimBattalion battalion))
+            {
+                return;
+            }
+
+            if (battalion.AttackTargetId != targetId)
+            {
+                return;
+            }
+
+            if (!_world.TryGetTown(faction.AttackTargetTownId, out TownView town))
+            {
+                return;
+            }
+
+            if (IsHeld(faction, battalionId))
+            {
+                return;
+            }
+
+            if (IsMarchingTo(battalion, town.XCm, town.YCm))
+            {
+                return;
+            }
+
+            int moveId = _commands.SubmitMove(faction.FactionId, battalionId, town.XCm, town.YCm);
+            Issue(tick, faction, moveId);
+        }
+
+        private bool ShouldShootTown(
+            AiFactionState faction,
+            AiBattalionPin pin,
+            AiAttackTownInfo target,
+            int extraBattalionId)
+        {
+            if (pin.Id == 0 || IsHeld(faction, pin.Id))
+            {
+                return false;
+            }
+
+            if (IsEngineerOrSupply(pin.UnitId))
+            {
+                return false;
+            }
+
+            bool prize = target.TerritoryStableKey != 0UL
+                && faction.AttackTargetTownId == target.Id;
+            if (prize && IsFootUnit(pin.UnitId))
+            {
+                return false;
+            }
+
+            if (pin.Id == extraBattalionId || WasMarched(pin.Id))
+            {
+                return true;
+            }
+
+            return HasPrizeOrder(faction, pin.Id, target.Id);
+        }
+
+        private void NoteMarched(int battalionId)
+        {
+            if (battalionId == 0 || WasMarched(battalionId))
+            {
+                return;
+            }
+
+            _marchedScratch.Add(battalionId);
+        }
+
+        private bool WasMarched(int battalionId)
+        {
+            for (int i = 0; i < _marchedScratch.Count; i++)
+            {
+                if (_marchedScratch[i] == battalionId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private bool IsEngineerOrSupply(string unitId)
+        {
+            if (_catalog == null || string.IsNullOrEmpty(unitId))
+            {
+                return false;
+            }
+
+            if (!_catalog.TryGetRole(unitId, out string role))
+            {
+                return false;
+            }
+
+            return role == AiConstants.RoleEngineer || role == "supply";
+        }
+
+        private bool AtTown(AiCombatantView combatant, AiAttackTownInfo town, int townNodeId)
+        {
+            int nodeId = combatant.NodeId;
+            if (_world != null)
+            {
+                int snapped = _world.GetNearestNodeId(combatant.XCm, combatant.YCm);
+                if (snapped != 0)
+                {
+                    nodeId = snapped;
+                }
+            }
+
+            if (town.ZoneRadiusCm > 0)
+            {
+                long dx = (long)combatant.XCm - town.XCm;
+                long dy = (long)combatant.YCm - town.YCm;
+                long radius = town.ZoneRadiusCm;
+                if ((dx * dx) + (dy * dy) <= radius * radius)
+                {
+                    return true;
+                }
+            }
+
+            return townNodeId != 0 && nodeId == townNodeId;
+        }
+
+        private static bool CombatantAtTown(AiCombatantView combatant, AiAttackTownInfo town, int townNodeId)
+        {
+            if (town.ZoneRadiusCm > 0)
+            {
+                long dx = (long)combatant.XCm - town.XCm;
+                long dy = (long)combatant.YCm - town.YCm;
+                long radius = town.ZoneRadiusCm;
+                if ((dx * dx) + (dy * dy) <= radius * radius)
+                {
+                    return true;
+                }
+            }
+
+            return townNodeId != 0 && combatant.NodeId == townNodeId;
+        }
+
+        private bool RankRecall(
+            AiFactionState faction,
+            RoadGraph graph,
+            int hqNode,
+            AiBattalionPin[] battalions,
+            int battalionCount)
+        {
+            if (battalions == null)
+            {
+                _rankCount = 0;
+                return true;
+            }
+
+            EnsureRank(battalionCount);
+            int count = 0;
+            for (int i = 0; i < battalionCount; i++)
+            {
+                AiBattalionPin pin = battalions[i];
+                if (pin.Id == 0)
+                {
+                    continue;
+                }
+
+                int nodeId = pin.RoadNodeId;
+                if (_world != null)
+                {
+                    int snapped = _world.GetNearestNodeId(pin.XCm, pin.YCm);
+                    if (snapped != 0)
+                    {
+                        nodeId = snapped;
+                    }
+                }
+
+                if (nodeId == 0)
+                {
+                    continue;
+                }
+
+                AiSupplyResult dist = _roads.DistanceCm(graph, hqNode, nodeId, faction);
+                if (dist.IsBudgetExhausted)
+                {
+                    // Keep the previous turn's holds and retry the scan next turn.
+                    return false;
+                }
+
+                int distance = dist.IsReached ? dist.DistanceCm : AiConstants.UnreachableCm;
+                int commit = CommittedToAttack(faction, pin.Id) ? 1 : 0;
+                int strength = OwnHitPoints(faction, pin.Id);
+                int insert = count;
+                while (insert > 0 && RecallBefore(
+                    distance,
+                    commit,
+                    pin.Id,
+                    _rankDist[insert - 1],
+                    _rankCommit[insert - 1],
+                    _rankId[insert - 1]))
+                {
+                    _rankDist[insert] = _rankDist[insert - 1];
+                    _rankCommit[insert] = _rankCommit[insert - 1];
+                    _rankStrength[insert] = _rankStrength[insert - 1];
+                    _rankId[insert] = _rankId[insert - 1];
+                    insert--;
+                }
+
+                _rankDist[insert] = distance;
+                _rankCommit[insert] = commit;
+                _rankStrength[insert] = strength;
+                _rankId[insert] = pin.Id;
+                count++;
+            }
+
+            _rankCount = count;
+            return true;
+        }
+
+        private static bool RecallBefore(int dist, int commit, int id, int bestDist, int bestCommit, int bestId)
+        {
+            int cmp = dist.CompareTo(bestDist);
+            if (cmp != 0)
+            {
+                return cmp < 0;
+            }
+
+            if (commit != bestCommit)
+            {
+                return commit < bestCommit;
+            }
+
+            return id < bestId;
+        }
+
+        private bool CommittedToAttack(AiFactionState faction, int battalionId)
+        {
+            if (faction.AttackTargetTownId == 0)
+            {
+                return false;
+            }
+
+            return HasPrizeOrder(faction, battalionId, faction.AttackTargetTownId);
+        }
+
+        private int OwnHitPoints(AiFactionState faction, int battalionId)
+        {
+            if (_world != null
+                && _world.TryGetOwnBattalion(faction.FactionId, battalionId, out SimBattalion battalion)
+                && battalion.Hp > 0)
+            {
+                return battalion.Hp;
+            }
+
+            return 1;
+        }
+
+        private void EnsureRank(int count)
+        {
+            if (_rankId.Length >= count)
+            {
+                return;
+            }
+
+            int n = count < 8 ? 8 : count;
+            _rankId = new int[n];
+            _rankDist = new int[n];
+            _rankCommit = new int[n];
+            _rankStrength = new int[n];
+        }
+
+        private void HoldAtHq(
+            int tick,
+            AiFactionState faction,
+            int battalionId,
+            int hqX,
+            int hqY,
+            int hqNode)
+        {
+            StripOrdersForBattalion(faction, battalionId);
+            if (faction.OrderCount >= faction.Orders.Length)
+            {
+                return;
+            }
+
+            AiOrder order = default;
+            order.Id = faction.NextOrderId++;
+            order.Type = AiGoalType.DefendTown;
+            order.TargetTownId = faction.HomeTownId;
+            order.TargetTerritoryId = faction.HomeTerritoryId;
+            order.BattalionId = battalionId;
+            order.Score = AiCombatTable.HqHoldScore;
+            faction.Orders[faction.OrderCount++] = order;
+
+            if (_world == null)
+            {
+                return;
+            }
+
+            if (_world.TryGetOwnBattalion(faction.FactionId, battalionId, out SimBattalion battalion))
+            {
+                int atNode = _world.GetNearestNodeId(battalion.PositionXCm, battalion.PositionYCm);
+                if (atNode == hqNode || IsMarchingTo(battalion, hqX, hqY))
+                {
+                    return;
+                }
+            }
+
+            if (MoveBlocked(faction, battalionId, CommandKind.Move, hqNode, tick))
+            {
+                return;
+            }
+
+            int moveId = _commands.SubmitMove(faction.FactionId, battalionId, hqX, hqY);
+            Issue(tick, faction, moveId);
+        }
+
+        private static void ReleaseHqHolds(AiFactionState faction)
+        {
+            int write = 0;
+            for (int i = 0; i < faction.OrderCount; i++)
+            {
+                AiOrder order = faction.Orders[i];
+                if (order.Type == AiGoalType.DefendTown
+                    && order.TargetTownId == faction.HomeTownId
+                    && order.Score == AiCombatTable.HqHoldScore)
+                {
+                    continue;
+                }
+
+                faction.Orders[write++] = order;
+            }
+
+            faction.OrderCount = write;
+        }
+
+        private static void StripOrdersForBattalion(AiFactionState faction, int battalionId)
+        {
+            RemoveOrdersForBattalion(faction, battalionId);
+        }
+
+        private static void RemoveOrdersForBattalion(AiFactionState faction, int battalionId)
+        {
+            int write = 0;
+            for (int i = 0; i < faction.OrderCount; i++)
+            {
+                if (faction.Orders[i].BattalionId == battalionId)
+                {
+                    continue;
+                }
+
+                faction.Orders[write++] = faction.Orders[i];
+            }
+
+            faction.OrderCount = write;
+        }
+
+        private static bool IsHeld(AiFactionState faction, int battalionId)
+        {
+            if (faction == null || battalionId == 0)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < faction.OrderCount; i++)
+            {
+                AiOrder order = faction.Orders[i];
+                if (order.BattalionId == battalionId
+                    && order.Type == AiGoalType.DefendTown
+                    && order.TargetTownId == faction.HomeTownId
+                    && order.Score == AiCombatTable.HqHoldScore)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private static void SortTowns(AiAttackTownInfo[] towns, int count)
