@@ -10,7 +10,6 @@ namespace Wasteland.Presentation.Tests
         const int SearchLimit = 12000;
 
         [UnityTest]
-        [RequiresPlayMode]
         public IEnumerator CombatBed_IsActiveFromFirstContestThroughFirstBattalionLoss()
         {
             GameObject go = new GameObject("Gorge Listening Test");
