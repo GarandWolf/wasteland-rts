@@ -3,7 +3,8 @@
   "rootNamespace": "Wasteland.Presentation",
   "references": [
     "Wasteland.Sim",
-    "Wasteland.Audio"
+    "Wasteland.Audio",
+    "Unity.InputSystem"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],
