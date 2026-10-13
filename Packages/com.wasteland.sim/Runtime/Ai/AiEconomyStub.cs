@@ -83,6 +83,7 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
+                // Planning-only tests. Live play uses TownView.Tier (scenario place bands).
                 baseIncome += _balance.IncomePerMinForClass(town.PopulationClass);
             }
 
