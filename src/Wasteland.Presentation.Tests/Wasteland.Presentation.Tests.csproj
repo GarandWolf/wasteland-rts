@@ -24,5 +24,6 @@
     <Compile Include="..\..\Assets\_Project\Presentation\Orders\*.cs" />
     <Compile Include="..\..\Assets\_Project\Audio\Runtime\CombatBedClock.cs" />
     <Compile Include="..\..\Assets\_Project\Audio\Runtime\CombatContestEvents.cs" />
+    <Compile Include="..\..\Assets\_Project\Audio\Runtime\CombatBedRolloff.cs" />
   </ItemGroup>
 </Project>

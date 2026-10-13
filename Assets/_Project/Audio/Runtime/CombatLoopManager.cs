@@ -109,6 +109,12 @@ namespace Wasteland.Audio
             _listener = null;
         }
 
+        public void SetListener(AudioListener listener)
+        {
+            _listener = listener;
+            _listenerOverride = listener != null ? listener.transform : null;
+        }
+
         public void SetRolloff(float minDistance, float maxDistance)
         {
             if (minDistance > 0f)
@@ -120,6 +126,41 @@ namespace Wasteland.Audio
             {
                 _maxDistance = maxDistance;
             }
+
+            float knee = CombatBedRolloff.NormalizedKnee(_minDistance, _maxDistance);
+            if (_customRolloff == null || !Mathf.Approximately(knee, _customKnee))
+            {
+                _customKnee = knee;
+                _customRolloff = new AnimationCurve(new Keyframe(0f, 1f, 0f, 0f), new Keyframe(knee, 1f, 0f, 0f), new Keyframe(1f, 0f, 0f, 0f));
+                for (int k = 0; k < _customRolloff.length; k++)
+                {
+                    AnimationUtility_SetLinear(_customRolloff, k);
+                }
+            }
+        }
+
+        private AnimationCurve _customRolloff;
+        private float _customKnee = -1f;
+
+        // Runtime-safe linear tangents (UnityEditor.AnimationUtility is editor-only).
+        private static void AnimationUtility_SetLinear(AnimationCurve curve, int index)
+        {
+            Keyframe key = curve[index];
+            if (index > 0)
+            {
+                Keyframe prev = curve[index - 1];
+                float dx = key.time - prev.time;
+                key.inTangent = dx > 0f ? (key.value - prev.value) / dx : 0f;
+            }
+
+            if (index < curve.length - 1)
+            {
+                Keyframe next = curve[index + 1];
+                float dx = next.time - key.time;
+                key.outTangent = dx > 0f ? (next.value - key.value) / dx : 0f;
+            }
+
+            curve.MoveKey(index, key);
         }
 
         /// <summary>
@@ -377,9 +418,17 @@ namespace Wasteland.Audio
             source.spatialBlend = 1f;
             source.dopplerLevel = 0f;
             source.playOnAwake = false;
-            source.rolloffMode = AudioRolloffMode.Logarithmic;
             source.minDistance = _minDistance;
             source.maxDistance = _maxDistance > _minDistance ? _maxDistance : _minDistance;
+            if (_customRolloff != null)
+            {
+                source.rolloffMode = AudioRolloffMode.Custom;
+                source.SetCustomCurve(AudioSourceCurveType.CustomRolloff, _customRolloff);
+            }
+            else
+            {
+                source.rolloffMode = AudioRolloffMode.Logarithmic;
+            }
             if (source.clip != entry.Clip)
             {
                 source.clip = entry.Clip;
