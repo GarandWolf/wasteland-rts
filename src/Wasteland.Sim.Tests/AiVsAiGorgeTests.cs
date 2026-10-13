@@ -494,10 +494,43 @@ namespace Wasteland.Sim.Tests
                 balance);
         }
 
-        [Fact(Skip = "Measured: no Compact contest unit was inside Goldendale's zone by tick 25020.")]
+        /// <summary>
+        /// AI-vs-AI Gorge with seat income. <see cref="SimWorld.HashState"/> at tick 20000,
+        /// after Compact has put a contest unit inside Goldendale.
+        /// </summary>
+        public const ulong ExpectedAiVsAiGorgeIncomeWorldKey = 0x54D683BFEA38C584UL;
+
+        public const int AiVsAiGorgeIncomePinTick = 20000;
+
+        [Fact]
+        public void AiVsAiGorgeIncome_WorldHash_AtTick20000()
+        {
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, BalanceLoad.Tables());
+            host.Run(AiVsAiGorgeIncomePinTick);
+            Assert.Equal(AiVsAiGorgeIncomePinTick, host.Tick);
+            Assert.Equal(ExpectedAiVsAiGorgeIncomeWorldKey, host.World.HashState());
+            host.Shutdown();
+        }
+
+        [Fact]
         public void CompactTaskForce_EntersGoldendaleZone()
         {
-            Assert.Fail("Compact task force never entered Goldendale's zone.");
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, BalanceLoad.Tables());
+            BalanceCatalog catalog = BalanceCatalog.LoadFromDirectory(BalanceLoad.DirectoryPath());
+            int goldendale = host.Ai.Map.GoldendaleTownId;
+            int entered = -1;
+            while (host.Tick < 25020 && entered < 0)
+            {
+                host.Run(1);
+                if (host.World.TryGetTown(goldendale, out TownView town)
+                    && CombatSeatInZone(host, AiConstants.DefaultAiFactionB, catalog, town))
+                {
+                    entered = host.Tick;
+                }
+            }
+
+            Assert.Equal(14638, entered);
+            host.Shutdown();
         }
 
         [Fact]
@@ -523,6 +556,8 @@ namespace Wasteland.Sim.Tests
             List<int> openContests = new List<int>();
             int peakBeds = 0;
             int peakBedTick = -1;
+            int compactEnterTick = -1;
+            int attackTick = -1;
             while (host.Tick < contestBeforeTick)
             {
                 host.Run(1);
@@ -530,6 +565,14 @@ namespace Wasteland.Sim.Tests
                 for (; logCursor < log.Count; logCursor++)
                 {
                     SimCommand cmd = log[logCursor];
+                    if (dallesCapture >= 0
+                        && attackTick < 0
+                        && cmd.IssuedTick > dallesCapture
+                        && cmd.Kind == CommandKind.Attack)
+                    {
+                        attackTick = cmd.IssuedTick;
+                    }
+
                     if (dallesCapture < 0
                         || cmd.IssuedTick <= dallesCapture
                         || cmd.IssuedTick > dallesCapture + followUpWindowTicks)
@@ -537,7 +580,8 @@ namespace Wasteland.Sim.Tests
                         continue;
                     }
 
-                    if (cmd.Kind == CommandKind.Attack || cmd.Kind == CommandKind.ClaimTown)
+                    if (followUpTick < 0
+                        && (cmd.Kind == CommandKind.Attack || cmd.Kind == CommandKind.ClaimTown))
                     {
                         followUpTick = cmd.IssuedTick;
                     }
@@ -587,6 +631,7 @@ namespace Wasteland.Sim.Tests
                     && CombatSeatInZone(host, AiConstants.DefaultAiFactionB, catalog, goldendaleTown))
                 {
                     compactInGoldendale = true;
+                    compactEnterTick = host.Tick;
                 }
             }
 
@@ -607,6 +652,8 @@ namespace Wasteland.Sim.Tests
                 Assert.True(contestTick < contestBeforeTick);
                 Assert.True(contestTown == goldendale || contestTown == hoodRiver);
                 Assert.True(peakBeds >= 1 && peakBedTick >= 0);
+                Assert.Equal(14638, compactEnterTick);
+                Assert.InRange(attackTick, dallesCapture + 1, dallesCapture + followUpWindowTicks);
                 host.Shutdown();
                 return;
             }
@@ -628,6 +675,7 @@ namespace Wasteland.Sim.Tests
             Assert.True(compactInGoldendale, "Compact task force never entered Goldendale's zone.");
             host.Shutdown();
         }
+
 
         private static bool CombatSeatInZone(
             AiMatchHost host,

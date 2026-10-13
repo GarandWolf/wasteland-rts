@@ -96,6 +96,8 @@ namespace Wasteland.Sim.Ai
         private readonly int[] _edgeNode = new int[8];
         private readonly int[] _edgeX = new int[8];
         private readonly int[] _edgeY = new int[8];
+        private readonly int[] _hqCommit = new int[8];
+        private bool _forceHqMarch;
         private int[] _rankId = Array.Empty<int>();
         private int[] _rankDist = Array.Empty<int>();
         private int[] _rankCommit = Array.Empty<int>();
@@ -662,6 +664,7 @@ namespace Wasteland.Sim.Ai
             int prizeTargetBonusPpt,
             IAiSeatView seatView)
         {
+            _forceHqMarch = false;
             faction.DefendTownId = 0;
             int fromNode = faction.HqNodeId;
             if (fromNode == 0 && networkCount > 0)
@@ -812,9 +815,24 @@ namespace Wasteland.Sim.Ai
                 townCount,
                 prizeTerritoryKey,
                 out enemyHq);
+            bool canExtendSupply = SupplyExtensionPendingOrAffordable(tick, faction, seat);
+            bool largeMap = graph.NodeCount > 512;
+            _forceHqMarch = false;
+            int factionSlot = faction.FactionId;
+            bool committedHq = false;
+            if (largeMap && haveEnemyHq && factionSlot > 0 && factionSlot < _hqCommit.Length)
+            {
+                if (canExtendSupply)
+                {
+                    _hqCommit[factionSlot] = 1;
+                }
+
+                committedHq = _hqCommit[factionSlot] != 0;
+            }
+
             bool hqOutOfSupply = haveEnemyHq
-                && (graph.NodeCount > 512
-                    ? target.Id == enemyHq.Id
+                && (largeMap
+                    ? !committedHq
                     : HqOutOfSupply(
                         faction,
                         graph,
@@ -822,7 +840,22 @@ namespace Wasteland.Sim.Ai
                         networkNodeIds,
                         networkCount,
                         supplyReachCm));
-            bool canExtendSupply = SupplyExtensionPendingOrAffordable(tick, faction, seat);
+            if (committedHq)
+            {
+                _forceHqMarch = true;
+                if (!AdoptAttackTown(
+                    faction,
+                    enemyHq,
+                    battalions,
+                    battalionCount,
+                    out target,
+                    out own,
+                    out defender))
+                {
+                    return;
+                }
+            }
+
             if (hqOutOfSupply && canExtendSupply)
             {
                 if (!AdoptAttackTown(
@@ -979,6 +1012,7 @@ namespace Wasteland.Sim.Ai
                 }
             }
 
+            bool hqMarch = _forceHqMarch && haveEnemyHq && target.Id == enemyHq.Id;
             if (!StrengthAllowsAttack(own, defender, attackStrengthRatioPpt))
             {
                 RaiseWhileOutmatched(
@@ -990,16 +1024,28 @@ namespace Wasteland.Sim.Ai
                     battalions,
                     battalionCount,
                     target);
-                return;
+                if (!hqMarch)
+                {
+                    return;
+                }
             }
 
-            if (TargetOutOfSupply(
-                graph,
-                target.NodeId,
-                networkNodeIds,
-                networkCount,
-                faction,
-                supplyReachCm))
+            bool needsDepot = hqMarch && largeMap
+                ? HqOutOfSupply(
+                    faction,
+                    graph,
+                    target.NodeId,
+                    networkNodeIds,
+                    networkCount,
+                    supplyReachCm)
+                : TargetOutOfSupply(
+                    graph,
+                    target.NodeId,
+                    networkNodeIds,
+                    networkCount,
+                    faction,
+                    supplyReachCm);
+            if (needsDepot)
             {
                 TryPlaceForwardDepot(
                     tick,
@@ -1014,7 +1060,10 @@ namespace Wasteland.Sim.Ai
                     networkCount,
                     target.NodeId,
                     supplyReachCm);
-                return;
+                if (!hqMarch)
+                {
+                    return;
+                }
             }
 
             int battalionId = NearestIdle(
@@ -1026,7 +1075,10 @@ namespace Wasteland.Sim.Ai
                 string.Empty,
                 false,
                 true,
-                target.Id);
+                target.Id,
+                hqMarch,
+                target.XCm,
+                target.YCm);
             if (_budgetDeferred)
             {
                 return;
@@ -3279,8 +3331,9 @@ namespace Wasteland.Sim.Ai
                 return false;
             }
 
+            bool retargetHq = _forceHqMarch && target.IsHq;
             if (!AlreadyOnTheWay(faction.FactionId, battalionId, target.XCm, target.YCm)
-                && !AlreadyMarching(faction.FactionId, battalionId)
+                && (retargetHq || !AlreadyMarching(faction.FactionId, battalionId))
                 && !BattalionOccupiesClaim(faction, battalionId, target))
             {
                 int moveId = _commands.SubmitMove(faction.FactionId, battalionId, target.XCm, target.YCm);
@@ -3705,7 +3758,10 @@ namespace Wasteland.Sim.Ai
             string role,
             bool prizeMarch,
             bool capturersOnly,
-            int claimTownId)
+            int claimTownId,
+            bool skipEnRoute = false,
+            int enRouteXCm = 0,
+            int enRouteYCm = 0)
         {
             int bestId = 0;
             int bestDist = AiConstants.UnreachableCm;
@@ -3713,6 +3769,11 @@ namespace Wasteland.Sim.Ai
             {
                 AiBattalionPin pin = battalions[i];
                 if (pin.Assigned || IsHeld(faction, pin.Id))
+                {
+                    continue;
+                }
+
+                if (skipEnRoute && AlreadyOnTheWay(faction.FactionId, pin.Id, enRouteXCm, enRouteYCm))
                 {
                     continue;
                 }
