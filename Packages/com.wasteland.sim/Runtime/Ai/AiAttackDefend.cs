@@ -2977,6 +2977,7 @@ namespace Wasteland.Sim.Ai
                 AiSupplyResult dist = _roads.DistanceCm(graph, hqNode, enemyNode, faction);
                 if (dist.IsBudgetExhausted)
                 {
+                    // Keep the previous turn's holds and retry the scan next turn.
                     return;
                 }
 
@@ -3395,6 +3396,7 @@ namespace Wasteland.Sim.Ai
                 AiSupplyResult dist = _roads.DistanceCm(graph, hqNode, nodeId, faction);
                 if (dist.IsBudgetExhausted)
                 {
+                    // Keep the previous turn's holds and retry the scan next turn.
                     return false;
                 }
 
