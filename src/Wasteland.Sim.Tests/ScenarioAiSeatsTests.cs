@@ -75,20 +75,21 @@ namespace Wasteland.Sim.Tests
             for (int i = 0; i < compact.RaisableUnits.Length; i++)
             {
                 Assert.True(catalog.TryGetTier(compact.RaisableUnits[i], out int tier));
-                Assert.Equal(1, tier);
-                Assert.True(compact.AllowsUnitForTier(compact.RaisableUnits[i], view.CurrentTier, catalog));
+                bool towed = compact.RaisableUnits[i] == "compact_towed_artillery";
+                Assert.Equal(towed ? 2 : 1, tier);
+                Assert.Equal(!towed, compact.AllowsUnitForTier(compact.RaisableUnits[i], view.CurrentTier, catalog));
             }
         }
 
         [Fact]
-        public void CompactSeat_FourDistinctIdsAndRoles_TiersMatchCatalog()
+        public void CompactSeat_FiveDistinctIdsAndRoles_TiersMatchCatalog()
         {
             SimScenario scenario = LoadMvp();
             ScenarioAiSeats seats = ScenarioAiSeats.From(scenario);
             ScenarioSeat model = scenario.SeatAt(1);
             AiScenarioSeatView compact = seats.SeatAt(1);
             Assert.Equal(model.RaisableUnits, compact.RaisableUnits);
-            Assert.Equal(4, compact.RaisableUnits.Length);
+            Assert.Equal(5, compact.RaisableUnits.Length);
             IAiUnitCatalog catalog = AiBalanceTablesTests.LoadBalance().UnitCatalog;
             string[] roles = new string[compact.RaisableUnits.Length];
             for (int i = 0; i < compact.RaisableUnits.Length; i++)
@@ -96,7 +97,7 @@ namespace Wasteland.Sim.Tests
                 string id = compact.RaisableUnits[i];
                 Assert.Equal(model.RaisableUnits[i], id);
                 Assert.True(catalog.TryGetTier(id, out int tier));
-                Assert.Equal(1, tier);
+                Assert.Equal(id == "compact_towed_artillery" ? 2 : 1, tier);
                 Assert.True(catalog.TryGetRole(id, out string role));
                 roles[i] = role;
             }

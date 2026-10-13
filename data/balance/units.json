@@ -559,7 +559,7 @@
       },
       "buildTicks": 900,
       "producedAt": "muster_camp",
-      "techTier": 1,
+      "techTier": 2,
       "upkeepPerMin": {
         "manpower": 0,
         "fuel": 2,

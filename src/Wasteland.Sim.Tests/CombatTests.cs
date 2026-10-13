@@ -325,7 +325,10 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(world.GetBattalion(id).CutDetectedTick, restored.GetBattalion(id).CutDetectedTick);
             byte[] schema11 = { 11, 0, 0, 0 };
             InvalidDataException ex = Assert.Throws<InvalidDataException>(() => restored.Load(schema11));
-            Assert.Contains("expected 12", ex.Message);
+            Assert.Contains("expected 13", ex.Message);
+            byte[] schema12 = { 12, 0, 0, 0 };
+            InvalidDataException ex12 = Assert.Throws<InvalidDataException>(() => restored.Load(schema12));
+            Assert.Contains("expected 13", ex12.Message);
         }
 
         private static int OpenVolley(int baseDamage, int armor, int attackerDm = 0, int targetDm = 0)

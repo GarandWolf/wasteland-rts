@@ -34,6 +34,8 @@ namespace Wasteland.Sim.Scenario
         private readonly int[] _techFuel;
         private readonly int[] _techMateriel;
         private readonly int[] _techTargetTier;
+        private int[] _techRequiredOwnedTier = Array.Empty<int>();
+        private bool[] _techHqSatisfiesOwnedTier = Array.Empty<bool>();
         private readonly string[] _factionIds;
         private readonly string[] _personalityIds;
         private readonly string[] _personalityFactions;
@@ -324,6 +326,9 @@ namespace Wasteland.Sim.Scenario
                 out techFuel,
                 out techMateriel,
                 out techTargetTier);
+            int[] techRequiredOwnedTier;
+            bool[] techHqSatisfies;
+            ReadTechOwnedTier(rulesRoot, techIds, out techRequiredOwnedTier, out techHqSatisfies);
             int[] speedCmPerTick = ReadSpeeds(rulesRoot);
             string[] personalityIds;
             string[] personalityFactions;
@@ -369,6 +374,8 @@ namespace Wasteland.Sim.Scenario
                 unitCanBuild,
                 buildingFortification,
                 capture);
+            catalog._techRequiredOwnedTier = techRequiredOwnedTier;
+            catalog._techHqSatisfiesOwnedTier = techHqSatisfies;
 
             for (int i = 0; i < unitIds.Length; i++)
             {
@@ -492,6 +499,11 @@ namespace Wasteland.Sim.Scenario
 
             index = IndexOf(_unitIds, unitId);
             return index >= 0;
+        }
+
+        internal int TechCount
+        {
+            get { return _techIds.Length; }
         }
 
         internal int UnitCount
@@ -736,6 +748,21 @@ namespace Wasteland.Sim.Scenario
         internal int TechTargetTierAt(int index)
         {
             return _techTargetTier[index];
+        }
+
+        /// <summary>
+        /// Holding tier index (hamlet 0 .. city 3) a seat must own to start this
+        /// research, from <c>requiresOwnedTier</c>; -1 when the tech has no requirement.
+        /// </summary>
+        internal int TechRequiredOwnedTierAt(int index)
+        {
+            return index >= _techRequiredOwnedTier.Length ? -1 : _techRequiredOwnedTier[index];
+        }
+
+        /// <summary>True when the seat's HQ town satisfies <c>requiresOwnedTier</c>.</summary>
+        internal bool TechHqSatisfiesOwnedTierAt(int index)
+        {
+            return index < _techHqSatisfiesOwnedTier.Length && _techHqSatisfiesOwnedTier[index];
         }
 
         internal bool TryGetTechIndex(string techId, out int index)
@@ -1150,6 +1177,58 @@ namespace Wasteland.Sim.Scenario
             materiel = Permute(materiel, order);
             targetTier = Permute(targetTier, order);
             ScenarioSort.RequireUnique(ids, "rules.json $.tech");
+        }
+
+        private static readonly string[] OwnedTierIds = { "hamlet", "village", "town", "city" };
+
+        /// <summary>
+        /// Optional <c>requiresOwnedTier</c> and <c>hqSatisfiesOwnedTierRequirement</c>
+        /// per tech, in the sorted order of <paramref name="techIds"/>.
+        /// </summary>
+        private static void ReadTechOwnedTier(
+            JsonValue rulesRoot,
+            string[] techIds,
+            out int[] requiredTier,
+            out bool[] hqSatisfies)
+        {
+            JsonValue tech = Child(rulesRoot, "tech", "rules.json $.tech");
+            requiredTier = new int[techIds.Length];
+            hqSatisfies = new bool[techIds.Length];
+            for (int i = 0; i < techIds.Length; i++)
+            {
+                requiredTier[i] = -1;
+                string path = "rules.json $.tech." + techIds[i];
+                JsonValue row = Child(tech, techIds[i], path);
+                for (int f = 0; f < row.ObjectValue.Count; f++)
+                {
+                    string name = row.ObjectValue[f].Name;
+                    JsonValue value = row.ObjectValue[f].Value;
+                    if (name == "requiresOwnedTier")
+                    {
+                        if (value.Kind != JsonKind.String)
+                        {
+                            throw ScenarioErrors.At(path + ".requiresOwnedTier", "expected a holding tier id.");
+                        }
+
+                        int index = Array.IndexOf(OwnedTierIds, value.StringValue);
+                        if (index < 0)
+                        {
+                            throw ScenarioErrors.At(path + ".requiresOwnedTier", "unknown holding tier " + value.StringValue + ".");
+                        }
+
+                        requiredTier[i] = index;
+                    }
+                    else if (name == "hqSatisfiesOwnedTierRequirement")
+                    {
+                        if (value.Kind != JsonKind.Bool)
+                        {
+                            throw ScenarioErrors.At(path + ".hqSatisfiesOwnedTierRequirement", "expected a boolean.");
+                        }
+
+                        hqSatisfies[i] = value.BoolValue;
+                    }
+                }
+            }
         }
 
         private static int TargetTierFromId(string id, string path)

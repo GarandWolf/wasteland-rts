@@ -262,6 +262,20 @@ namespace Wasteland.Sim.World
             _battalions[index] = battalion;
         }
 
+        /// <summary>Test hook: set every town owned by <paramref name="from"/> to <paramref name="to"/> without events.</summary>
+        internal void ReassignTownsForTests(int from, int to)
+        {
+            for (int i = 0; i < _towns.Count; i++)
+            {
+                if (_towns[i].OwnerFactionId == from)
+                {
+                    TownState town = _towns[i];
+                    town.OwnerFactionId = to;
+                    _towns[i] = town;
+                }
+            }
+        }
+
         internal void SetBattalionStrength(int id, int strengthPpt)
         {
             int index = BattalionIndexOf(id);

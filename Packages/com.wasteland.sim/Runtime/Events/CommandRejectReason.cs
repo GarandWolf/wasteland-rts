@@ -85,6 +85,15 @@ namespace Wasteland.Sim.Events
         NotArmed = 29,
 
         /// <summary>The attacker and the target are the same battalion. Param0 = target id.</summary>
-        TargetIsSelf = 30
+        TargetIsSelf = 30,
+
+        /// <summary>ResearchTech while the seat already has research running.</summary>
+        ResearchInProgress = 31,
+
+        /// <summary>ResearchTech for a tier the seat already has.</summary>
+        TierAlreadyReached = 32,
+
+        /// <summary>ResearchTech without an owned holding of the required tier (HQ counts when rules say so).</summary>
+        NoQualifyingTier = 33
     }
 }

@@ -420,7 +420,9 @@ namespace Wasteland.Sim.Ai
                     scenario.MatchRules.FuelEnabled,
                     catalog.StartingSeatPopCap,
                     scenarioSeat.RaisableUnits,
-                    scenarioSeat.AutoResearch,
+                    IsHumanSeat(factionId, aiFactionIds)
+                        ? Array.Empty<ScenarioAutoResearch>()
+                        : scenarioSeat.AutoResearch,
                     scenarioSeat.StartingUnits));
             }
 
