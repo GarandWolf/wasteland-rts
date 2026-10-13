@@ -93,6 +93,25 @@ namespace Wasteland.Audio.Tests
         }
 
         [Test]
+        public void EndAndStartOnTheSameTick_IsOneContinuousBed()
+        {
+            CombatBedClock clock = new CombatBedClock();
+            clock.ApplyTick(0, new[] { new BedEvent(CombatContestEvents.Started, 4, 10, 20) });
+            int generation = clock.Generation(4);
+
+            clock.ApplyTick(3, new[]
+            {
+                new BedEvent(CombatContestEvents.Ended, 4, 10, 20),
+                new BedEvent(CombatContestEvents.Started, 4, 12, 22)
+            });
+
+            Assert.That(clock.Generation(4), Is.EqualTo(generation));
+            Assert.That(clock.ContinuedWithoutRestart(4), Is.True);
+            Assert.That(clock.Layers(4), Is.EqualTo(1));
+            Assert.That(clock.IsAudible(4), Is.True);
+        }
+
+        [Test]
         public void Fade_MovesTowardTheTargetWithoutOvershooting()
         {
             Assert.That(SoundFades.Advance(0f, 1f, 0.25f, 0.5f), Is.EqualTo(0.5f));

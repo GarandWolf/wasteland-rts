@@ -103,6 +103,25 @@ namespace Wasteland.Audio
             SetContestedTowns(null);
         }
 
+        public void SetListener(Transform listener)
+        {
+            _listenerOverride = listener;
+            _listener = null;
+        }
+
+        public void SetRolloff(float minDistance, float maxDistance)
+        {
+            if (minDistance > 0f)
+            {
+                _minDistance = minDistance;
+            }
+
+            if (maxDistance > _minDistance)
+            {
+                _maxDistance = maxDistance;
+            }
+        }
+
         /// <summary>
         /// Start or stop the bed for a contest event. Kind 10 starts, kind 11 stops.
         /// Subject is the town. Aux and param0 are the two seats, -1 for a garrison.
@@ -294,7 +313,8 @@ namespace Wasteland.Audio
                     voice.TargetGain = 0f;
                 }
 
-                voice.Gain = SoundFades.Advance(voice.Gain, voice.TargetGain, deltaTime, _fadeSeconds);
+                float fade = CombatBedClock.FadeSeconds(voice.Gain, voice.TargetGain, _fadeSeconds);
+                voice.Gain = SoundFades.Advance(voice.Gain, voice.TargetGain, deltaTime, fade);
                 float baseVolume = hasLoop ? loopEntry.Volume : 1f;
                 voice.Source.volume = baseVolume * voice.Gain;
 

@@ -31,8 +31,8 @@ namespace Wasteland.Presentation
         const string LfsMessage =
             "Git LFS map files are pointer stubs. Run `git lfs pull`. The main map is 607,152 bytes and the terrain is 19,872,744 bytes.";
 
-        readonly List<int> _beds = new List<int>();
         AiMatchHost _host;
+        TacticalMatchBridge _bridge;
         [SerializeField] CombatLoopManager _loops;
         int _cursor;
         int _ticksPerFrame = 1;
@@ -49,7 +49,7 @@ namespace Wasteland.Presentation
 
         public bool CombatBedActive
         {
-            get { return _beds.Count > 0; }
+            get { return _bridge != null && _bridge.BedActive; }
         }
 
         public int LoggerTick
@@ -103,6 +103,11 @@ namespace Wasteland.Presentation
                 _host.Step();
                 Drain();
             }
+
+            if (_bridge != null && _host != null)
+            {
+                _bridge.Sync(_host.World);
+            }
         }
 
         void OnDestroy()
@@ -149,9 +154,9 @@ namespace Wasteland.Presentation
             string mapName = SimScenario.ExpectedWrmbFileName(JsonString(json, "mapFile"));
             string golden = Path.Combine(root, "data", "golden");
             byte[] map = ReadMaterialized(Path.Combine(golden, mapName), MainMapBytes);
-            _ = ReadMaterialized(Path.Combine(golden, TerrainSibling(mapName)), TerrainMapBytes);
+            byte[] terrain = ReadMaterialized(Path.Combine(golden, TerrainSibling(mapName)), TerrainMapBytes);
             string balanceDir = Path.Combine(root, "data", "balance");
-            SimScenario.Load(json, BalanceCatalog.LoadFromDirectory(balanceDir), map, mapName, ScenarioId);
+            SimScenario scenario = SimScenario.Load(json, BalanceCatalog.LoadFromDirectory(balanceDir), map, mapName, ScenarioId);
             AiBalanceTables balance = AiBalanceTables.FromDirectory(balanceDir);
             ulong mapKey = MapKey.For(WrmbFile.Parse(map), AiConstants.MapKeySectionTags());
             _host = AiMatchHost.Start(
@@ -175,10 +180,34 @@ namespace Wasteland.Presentation
                 AssignEditorBank(_loops);
             }
 
-            if (FindFirstObjectByType<AudioListener>() == null)
+            Camera camera = Camera.main;
+            if (camera == null)
             {
-                gameObject.AddComponent<AudioListener>();
+                GameObject cameraObject = new GameObject("Tactical Camera");
+                cameraObject.tag = "MainCamera";
+                camera = cameraObject.AddComponent<Camera>();
+                cameraObject.AddComponent<AudioListener>();
             }
+
+            TacticalCamera tactical = camera.GetComponent<TacticalCamera>();
+            if (tactical == null)
+            {
+                tactical = camera.gameObject.AddComponent<TacticalCamera>();
+            }
+
+            TacticalMapView view = gameObject.GetComponent<TacticalMapView>();
+            if (view == null)
+            {
+                view = gameObject.AddComponent<TacticalMapView>();
+            }
+
+            _bridge = gameObject.GetComponent<TacticalMatchBridge>();
+            if (_bridge == null)
+            {
+                _bridge = gameObject.AddComponent<TacticalMatchBridge>();
+            }
+
+            _bridge.Open(MapDocument.Load(map, terrain), scenario, _loops, tactical, view);
         }
 
         // World.Events is append-only for the life of the world. SimWorld.Emit only
@@ -187,6 +216,11 @@ namespace Wasteland.Presentation
         // An index cursor therefore cannot skip or re-read an event.
         void Drain()
         {
+            if (_bridge != null)
+            {
+                _bridge.BeginTick(LoggerTick);
+            }
+
             IReadOnlyList<SimEvent> events = _host.World.Events;
             for (int i = _cursor; i < events.Count; i++)
             {
@@ -194,6 +228,10 @@ namespace Wasteland.Presentation
             }
 
             _cursor = events.Count;
+            if (_bridge != null)
+            {
+                _bridge.EndTick();
+            }
         }
 
         void Apply(SimEvent ev)
@@ -211,19 +249,9 @@ namespace Wasteland.Presentation
 
             if (kind == (int)SimEventKind.TownContestStarted || kind == (int)SimEventKind.TownContestEnded)
             {
-                Vector3 ear = Listener();
-                if (!_loops.ApplyContestEvent(kind, ev.SubjectId, ev.AuxId, ev.Param0, ear + new Vector3(0f, 0f, 2f)))
+                if (_bridge != null)
                 {
-                    return;
-                }
-
-                if (kind == (int)SimEventKind.TownContestStarted && !Contains(ev.SubjectId))
-                {
-                    _beds.Add(ev.SubjectId);
-                }
-                else if (kind == (int)SimEventKind.TownContestEnded)
-                {
-                    _beds.Remove(ev.SubjectId);
+                    _bridge.Note(ev);
                 }
 
                 return;
@@ -231,8 +259,11 @@ namespace Wasteland.Presentation
 
             if (kind == (int)SimEventKind.MatchEnded)
             {
-                _beds.Clear();
-                _loops.Clear();
+                if (_bridge != null)
+                {
+                    _bridge.ClearBeds();
+                }
+
                 _over = true;
                 return;
             }
@@ -242,25 +273,6 @@ namespace Wasteland.Presentation
             {
                 return;
             }
-        }
-
-        bool Contains(int townId)
-        {
-            for (int i = 0; i < _beds.Count; i++)
-            {
-                if (_beds[i] == townId)
-                {
-                    return true;
-                }
-            }
-
-            return false;
-        }
-
-        Vector3 Listener()
-        {
-            AudioListener listener = FindFirstObjectByType<AudioListener>();
-            return listener != null ? listener.transform.position : transform.position;
         }
 
         static void AssignEditorBank(CombatLoopManager loops)
