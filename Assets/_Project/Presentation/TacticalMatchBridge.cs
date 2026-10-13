@@ -66,12 +66,24 @@ namespace Wasteland.Presentation
             double x1 = MapSpace.Metres(map.OriginXCm + map.ExtentXCm);
             double z1 = MapSpace.Metres(map.OriginYCm + map.ExtentYCm);
             camera.Frame(x0, x1, z0, z1);
-            if (camera.GetComponent<AudioListener>() == null && FindFirstObjectByType<AudioListener>() == null)
+            // Exactly one listener, on the tactical camera.
+            AudioListener listener = camera.GetComponent<AudioListener>();
+            if (listener == null)
             {
-                camera.gameObject.AddComponent<AudioListener>();
+                listener = camera.gameObject.AddComponent<AudioListener>();
             }
 
-            loops.SetListener(camera.transform);
+            AudioListener[] all = FindObjectsByType<AudioListener>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i] != listener)
+                {
+                    all[i].enabled = false;
+                }
+            }
+
+            listener.enabled = true;
+            loops.SetListener(listener);
             view.Build(map, camera.Camera);
         }
 
@@ -266,8 +278,8 @@ namespace Wasteland.Presentation
             float halfH = _camera.OrthographicSize;
             float aspect = _camera.Camera.aspect > 0.01f ? _camera.Camera.aspect : 1f;
             float halfW = halfH * aspect;
-            float reach = Mathf.Sqrt(halfW * halfW + halfH * halfH) + ground + 80f;
-            _loops.SetRolloff(1f, reach);
+            CombatBedRolloff.Compute(halfW, halfH, 40f, out float fullGain, out float reach);
+            _loops.SetRolloff(fullGain, reach);
         }
 
         void Publish()
