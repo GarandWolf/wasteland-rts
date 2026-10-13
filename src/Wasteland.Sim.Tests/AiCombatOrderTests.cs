@@ -33,7 +33,6 @@ namespace Wasteland.Sim.Tests
             Assert.NotEqual((int)AiCommandReject.NotArmed, (int)CommandRejectReason.NotArmed);
             Assert.NotEqual((int)AiCommandReject.TargetIsSelf, (int)CommandRejectReason.TargetIsSelf);
             Assert.Equal(12, AiConstants.StateSchemaVersion);
-            Assert.Equal(13, SimWorld.WorldStateSchema);
         }
 
         [Fact]

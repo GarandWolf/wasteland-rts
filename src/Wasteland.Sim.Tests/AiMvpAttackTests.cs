@@ -954,6 +954,8 @@ namespace Wasteland.Sim.Tests
                 MinGarrisonPerTown = settler.MinGarrisonPerTown;
                 SeatView.Tier2ResearchTicks = tables.Tier2ResearchTicks;
                 SeatView.Manpower = Seat.StartingManpower;
+                SeatView.Materials = 100000;
+                SeatView.Fuel = 100000;
                 PrizeTerritoryKey = 0UL;
                 PrizeTargetBonusPpt = 0;
             }

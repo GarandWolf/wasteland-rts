@@ -269,7 +269,8 @@ namespace Wasteland.Sim.Tests
             StepUntil(world, startTick);
             Assert.Equal(1, SeatOf(world, remnant.Slot).CurrentTier);
             Assert.Equal(1, SeatOf(world, compact.Slot).CurrentTier);
-            Assert.Equal(catalog.StartingMateriel, SeatOf(world, remnant.Slot).Materials);
+            // Tick 1200 has not accrued yet: 59 intervals of HQ materiel 50.
+            Assert.Equal(catalog.StartingMateriel + ((59 * 50) / 60), SeatOf(world, remnant.Slot).Materials);
 
             world.Step();
             SimEvent started = Single(world, SimEventKind.TierResearchStarted, remnant.Slot);
@@ -277,10 +278,11 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(2, started.AuxId);
             Assert.Equal(startTick, started.Param0);
             Assert.Equal(reachedTick, started.Param1);
-            Assert.Equal(catalog.StartingMateriel - materielCost, SeatOf(world, remnant.Slot).Materials);
+            // The 60th interval pays one more materiel, then research charges.
+            Assert.Equal(catalog.StartingMateriel + 50 - materielCost, SeatOf(world, remnant.Slot).Materials);
             Assert.Equal(catalog.StartingFuel, world.FuelOf(remnant.Slot));
-            Assert.Equal(remnant.StartingManpower, SeatOf(world, remnant.Slot).Manpower);
-            Assert.Equal(catalog.StartingMateriel, SeatOf(world, compact.Slot).Materials);
+            Assert.Equal(remnant.StartingManpower + 10, SeatOf(world, remnant.Slot).Manpower);
+            Assert.Equal(catalog.StartingMateriel + 50, SeatOf(world, compact.Slot).Materials);
             Assert.Equal(0, Count(world, SimEventKind.TierResearchStarted, compact.Slot));
 
             StepUntil(world, reachedTick);

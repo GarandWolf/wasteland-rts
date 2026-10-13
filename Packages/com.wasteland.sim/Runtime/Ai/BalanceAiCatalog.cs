@@ -38,6 +38,16 @@ namespace Wasteland.Sim.Ai
             return _inner.TryGetManpowerCost(unitId, out manpower);
         }
 
+        public bool TryGetMaterielCost(string unitId, out int materiel)
+        {
+            return _inner.TryGetMaterielCost(unitId, out materiel);
+        }
+
+        public bool TryGetFuelCost(string unitId, out int fuel)
+        {
+            return _inner.TryGetFuelCost(unitId, out fuel);
+        }
+
         public bool TryGetPopCost(string unitId, out int pop)
         {
             if (!_inner.TryGetUnitIndex(unitId, out int index))

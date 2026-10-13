@@ -206,15 +206,24 @@ namespace Wasteland.Sim.Ai
 
             int reservedManpower;
             int reservedPop;
+            int reservedMateriel;
+            int reservedFuel;
             SumPendingRaises(
                 _commands,
                 tick,
                 faction.FactionId,
                 catalog,
                 out reservedManpower,
-                out reservedPop);
+                out reservedPop,
+                out reservedMateriel,
+                out reservedFuel);
+            if (!seatView.FuelEnabled)
+            {
+                reservedFuel = 0;
+            }
+
             ReservedSeatView reserved = new ReservedSeatView(seatView);
-            reserved.Add(reservedManpower, reservedPop);
+            reserved.Add(reservedManpower, reservedPop, reservedMateriel, reservedFuel);
             _seatView = reserved;
             _queuedUnitIds = queuedUnitIds;
             _queuedCount = 0;
@@ -1364,11 +1373,19 @@ namespace Wasteland.Sim.Ai
             }
 
             int cost = 0;
+            int materielCost = 0;
+            int fuelCost = 0;
             _catalog.TryGetManpowerCost(unitId, out cost);
+            _catalog.TryGetMaterielCost(unitId, out materielCost);
+            if (_seatView.FuelEnabled)
+            {
+                _catalog.TryGetFuelCost(unitId, out fuelCost);
+            }
+
             ReservedSeatView? reserved = _seatView as ReservedSeatView;
             if (reserved != null)
             {
-                reserved.Add(cost, popCost);
+                reserved.Add(cost, popCost, materielCost, fuelCost);
             }
         }
 
@@ -1471,14 +1488,38 @@ namespace Wasteland.Sim.Ai
             return false;
         }
 
-        private static bool CanAfford(IAiSeatView seatView, IAiUnitCatalog catalog, string unitId)
+        /// <summary>
+        /// Seat stock vs manpower, materiel, and fuel. Fuel is checked only
+        /// when the seat has fuel enabled. An unknown unit stays affordable
+        /// so the sim can reject it.
+        /// </summary>
+        internal static bool CanAfford(IAiSeatView seatView, IAiUnitCatalog catalog, string unitId)
         {
-            if (string.IsNullOrEmpty(unitId) || !catalog.TryGetManpowerCost(unitId, out int cost))
+            if (seatView == null || catalog == null || string.IsNullOrEmpty(unitId))
             {
                 return true;
             }
 
-            return seatView.Manpower >= cost;
+            if (!catalog.TryGetManpowerCost(unitId, out int manpower))
+            {
+                return true;
+            }
+
+            int materiel = 0;
+            int fuel = 0;
+            catalog.TryGetMaterielCost(unitId, out materiel);
+            catalog.TryGetFuelCost(unitId, out fuel);
+            if (seatView.Manpower < manpower || seatView.Materials < materiel)
+            {
+                return false;
+            }
+
+            if (seatView.FuelEnabled && seatView.Fuel < fuel)
+            {
+                return false;
+            }
+
+            return true;
         }
 
         private static string FirstRaisableRole(
@@ -1719,10 +1760,14 @@ namespace Wasteland.Sim.Ai
             int factionId,
             IAiUnitCatalog catalog,
             out int manpower,
-            out int pop)
+            out int pop,
+            out int materiel,
+            out int fuel)
         {
             manpower = 0;
             pop = 0;
+            materiel = 0;
+            fuel = 0;
             if (commands == null || catalog == null)
             {
                 return;
@@ -1749,8 +1794,14 @@ namespace Wasteland.Sim.Ai
                 }
 
                 int cost = 0;
+                int materielCost = 0;
+                int fuelCost = 0;
                 catalog.TryGetManpowerCost(cmd.UnitId, out cost);
+                catalog.TryGetMaterielCost(cmd.UnitId, out materielCost);
+                catalog.TryGetFuelCost(cmd.UnitId, out fuelCost);
                 manpower += cost;
+                materiel += materielCost;
+                fuel += fuelCost;
                 int unitPop = 1;
                 if (catalog.TryGetPopCost(cmd.UnitId, out int havePop))
                 {
@@ -1833,6 +1884,8 @@ namespace Wasteland.Sim.Ai
         {
             private readonly IAiSeatView _inner;
             private int _reservedManpower;
+            private int _reservedMateriel;
+            private int _reservedFuel;
             private int _reservedPop;
 
             public ReservedSeatView(IAiSeatView inner)
@@ -1861,12 +1914,20 @@ namespace Wasteland.Sim.Ai
 
             public int Materials
             {
-                get { return _inner.Materials; }
+                get
+                {
+                    int value = _inner.Materials - _reservedMateriel;
+                    return value < 0 ? 0 : value;
+                }
             }
 
             public int Fuel
             {
-                get { return _inner.Fuel; }
+                get
+                {
+                    int value = _inner.Fuel - _reservedFuel;
+                    return value < 0 ? 0 : value;
+                }
             }
 
             public bool FuelEnabled
@@ -1889,10 +1950,12 @@ namespace Wasteland.Sim.Ai
                 get { return _inner.HasSeenEnemyArmourOrMech; }
             }
 
-            public void Add(int manpower, int pop)
+            public void Add(int manpower, int pop, int materiel, int fuel)
             {
                 _reservedManpower += manpower;
                 _reservedPop += pop;
+                _reservedMateriel += materiel;
+                _reservedFuel += fuel;
             }
         }
 

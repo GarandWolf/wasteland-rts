@@ -178,7 +178,7 @@ namespace Wasteland.Sim.Ai
     }
 
     /// <summary>
-    /// Manpower / income until sim economy exists. Designer rates are per minute.
+    /// Planning rate and a live-stock mirror. The sim pays income.
     /// </summary>
     public interface IAiEconomy
     {

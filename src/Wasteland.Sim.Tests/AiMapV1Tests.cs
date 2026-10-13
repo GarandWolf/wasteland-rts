@@ -152,8 +152,8 @@ namespace Wasteland.Sim.Tests
             int brutalIncome = brutal.Ai.ManpowerIncomePerMinute(AiConstants.DefaultAiFactionA);
             Assert.Equal((normalIncome * 1100) / 1000, brutalIncome);
             Assert.True(brutalIncome > normalIncome);
-            Assert.Equal(18, normalIncome);
-            Assert.Equal(20, normal.Ai.ManpowerIncomePerMinute(AiConstants.DefaultAiFactionB));
+            Assert.Equal(32, normalIncome);
+            Assert.Equal(48, normal.Ai.ManpowerIncomePerMinute(AiConstants.DefaultAiFactionB));
 
             normal.Shutdown();
             brutal.Shutdown();
