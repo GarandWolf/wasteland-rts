@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Text;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Hashing;
+using Wasteland.Sim.Scenario;
+using Wasteland.Sim.World;
 using Xunit;
 
 namespace Wasteland.Sim.Tests
@@ -10,12 +12,13 @@ namespace Wasteland.Sim.Tests
     public sealed class AiReplayPinTests
     {
         /// <summary>
-        /// xxHash64 (seed 0) of the Compact raise-replay command buffer from
-        /// <see cref="HashLog"/>. This is not <c>SimWorld.HashState</c> — #24
-        /// widening HashState (seats, paths, pending queue) does not move this pin.
-        /// Behaviour pin; not the <see cref="AiBalanceTablesTests.ExpectedAiOwnedBalanceKey"/> data hash.
+        /// xxHash64 mix of the Compact raise-replay command buffer from
+        /// <see cref="HashLog"/> and <see cref="SimWorld.HashState"/> after the
+        /// first income accrual. Stock and carry are in that world hash, so a
+        /// paid interval moves this pin. Not the
+        /// <see cref="AiBalanceTablesTests.ExpectedAiOwnedBalanceKey"/> data hash.
         /// </summary>
-        public const ulong ExpectedCompactReplayKey = 0x9B9FBF4797CFF1D1UL;
+        public const ulong ExpectedCompactReplayKey = 0x3987D486579715EAUL;
 
         public const int ReplayTicks = 12;
         public const int ArmourFlipTick = 6;
@@ -203,8 +206,50 @@ namespace Wasteland.Sim.Tests
             Assert.True(harness.Catalog.TryGetRole(lostRaise, out string lostRole));
             Assert.Equal(AiConstants.RoleAntiTank, lostRole);
 
-            ulong key = HashLog(harness.Sink.Log, harness.Seat.Slot);
-            return new ReplayRun(key, raiseRoles.ToArray());
+            ulong commands = HashLog(harness.Sink.Log, harness.Seat.Slot);
+            ulong world = AccruedCompactWorldHash();
+            return new ReplayRun(XxHash64.Mix(commands, world), raiseRoles.ToArray());
+        }
+
+        /// <summary>
+        /// One Compact seat stepped through the first accrual. <see cref="SimWorld.HashState"/>
+        /// then includes the paid carry.
+        /// </summary>
+        private static ulong AccruedCompactWorldHash()
+        {
+            BalanceCatalog catalog = BalanceCatalog.LoadFromDirectory(BalanceLoad.DirectoryPath());
+            SimWorld world = new SimWorld(new MatchConfig(0xC01055A1UL, 0));
+            world.BindCatalog(catalog);
+            const int factionId = 1;
+            world.BindSeat(new SeatSetup(
+                factionId,
+                0,
+                "homestead_compact",
+                10,
+                0,
+                0,
+                1,
+                -1,
+                catalog.StartingManpower,
+                catalog.StartingMateriel,
+                catalog.StartingFuel,
+                false,
+                catalog.StartingSeatPopCap,
+                Array.Empty<string>()));
+            int interval = catalog.Capture.AccrualIntervalTicks;
+            Assert.True(interval >= 1);
+            for (int i = 0; i <= interval; i++)
+            {
+                world.Step();
+            }
+
+            Assert.Equal(interval + 1, world.Tick);
+            Assert.False(world.FuelEnabledOf(factionId));
+            world.CopyIncomeCarry(factionId, out int manpowerCarry, out int materielCarry, out int fuelCarry);
+            Assert.True(manpowerCarry > 0);
+            Assert.True(materielCarry > 0);
+            Assert.True(fuelCarry > 0);
+            return world.HashState();
         }
 
         private static AiMvpAttackTests.Harness CompactHarness()
