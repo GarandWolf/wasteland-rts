@@ -1,5 +1,7 @@
 using System.Collections.Generic;
+using System.IO;
 using Wasteland.Sim.Ai;
+using Wasteland.Sim.Scenario;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.Events;
 using Wasteland.Sim.Movement;
@@ -308,7 +310,138 @@ namespace Wasteland.Sim.Tests
 
             Assert.Equal(1, hqMoves);
             Assert.Equal(1, attacks);
-            Assert.Equal(1, AiCombatTable.RecallCap(1));
+            Assert.Equal(40, AiCombatTable.RecallCap(40));
+            Assert.True(AiAttackDefend.StrengthAllowsAttack(100, 40, AiCombatTable.HqRecallMarginPpt));
+            Assert.Equal(1, AiCombatTable.CountToCover(new[] { 100 }, 1, 40));
+        }
+
+        [Fact]
+        public void ArmouredThreat_RecallsMoreThanOneScout()
+        {
+            BalanceCatalog catalog = BalanceCatalog.LoadFromDirectory(
+                Path.Combine(GoldenMapFiles.FindRepoRoot(), "data", "balance"));
+            Assert.True(catalog.TryGetUnitTargetClass("remnant_armoured_battalion", out string armourClass));
+            Assert.Equal(AiConstants.TargetClassArmored, armourClass);
+            Assert.True(catalog.TryGetUnitTargetClass("compact_scouts", out string scoutClass));
+            Assert.Equal(AiConstants.TargetClassSoft, scoutClass);
+            Assert.True(catalog.TryGetUnitIndex("remnant_armoured_battalion", out int armourIndex));
+            Assert.True(catalog.TryGetUnitIndex("compact_scouts", out int scoutIndex));
+            int armourHp = catalog.UnitMaxHpAt(armourIndex);
+            int scoutHp = catalog.UnitMaxHpAt(scoutIndex);
+            Assert.True(armourHp > scoutHp);
+
+            Board board = Board.Create();
+            board.SetOwnHitPoints(scoutHp);
+            board.PlaceNearThreat(board.ScoutId, scoutHp, scoutHp);
+            board.Planner.SyncHqRecall(
+                0,
+                board.Faction,
+                board.Towns,
+                board.Towns.Length,
+                board.Pins(),
+                3,
+                board.Roads);
+            int scoutHolds = CountHolds(board.Faction);
+            Assert.Equal(1, scoutHolds);
+
+            AiCombatantView armour = board.ArmourView(armourHp, armourHp);
+            board.PlaceNearThreat(armour);
+            board.Planner.SyncHqRecall(
+                1,
+                board.Faction,
+                board.Towns,
+                board.Towns.Length,
+                board.Pins(),
+                3,
+                board.Roads);
+            int armourHolds = CountHolds(board.Faction);
+            Assert.True(armourHolds > scoutHolds);
+            Assert.True(armourHolds > 1);
+        }
+
+        [Fact]
+        public void GarrisonInsideHqRadius_RecallsNothing()
+        {
+            Board board = Board.Create();
+            board.PlaceNearGarrison(board.GarrisonView().MaxHp);
+            board.Planner.SyncHqRecall(
+                0,
+                board.Faction,
+                board.Towns,
+                board.Towns.Length,
+                board.Pins(),
+                3,
+                board.Roads);
+            Assert.Equal(0, CountHolds(board.Faction));
+        }
+
+        [Fact]
+        public void ReleaseHqHolds_KeepsTownDefendOrder()
+        {
+            Board board = Board.Create();
+            AiOrder townDefend = default;
+            townDefend.Id = 4;
+            townDefend.Type = AiGoalType.DefendTown;
+            townDefend.TargetTownId = board.Faction.HomeTownId;
+            townDefend.BattalionId = board.OtherOwnId;
+            townDefend.Score = 0;
+            board.Faction.Orders[board.Faction.OrderCount++] = townDefend;
+            board.Faction.NextOrderId = 5;
+
+            board.Planner.SyncHqRecall(
+                0,
+                board.Faction,
+                board.Towns,
+                board.Towns.Length,
+                board.Pins(),
+                3,
+                board.Roads);
+            bool kept = false;
+            for (int i = 0; i < board.Faction.OrderCount; i++)
+            {
+                AiOrder order = board.Faction.Orders[i];
+                if (order.Id == townDefend.Id && order.Score == 0)
+                {
+                    kept = true;
+                }
+            }
+
+            Assert.True(kept);
+            Assert.Equal(1, CountHolds(board.Faction));
+        }
+
+        [Fact]
+        public void HoldAtHq_DoesNotDropOrdersWhenTheListIsFull()
+        {
+            Board board = Board.Create();
+            int cap = board.Faction.Orders.Length;
+            for (int i = 0; i < cap; i++)
+            {
+                AiOrder order = default;
+                order.Id = 50 + i;
+                order.Type = AiGoalType.ClaimTown;
+                order.TargetTownId = board.EnemyTown;
+                order.BattalionId = 400 + i;
+                board.Faction.Orders[i] = order;
+            }
+
+            board.Faction.OrderCount = cap;
+            board.Planner.SyncHqRecall(
+                0,
+                board.Faction,
+                board.Towns,
+                board.Towns.Length,
+                board.Pins(),
+                3,
+                board.Roads);
+            Assert.Equal(cap, board.Faction.OrderCount);
+            for (int i = 0; i < cap; i++)
+            {
+                Assert.Equal(50 + i, board.Faction.Orders[i].Id);
+                Assert.Equal(AiGoalType.ClaimTown, board.Faction.Orders[i].Type);
+            }
+
+            Assert.Equal(0, CountHolds(board.Faction));
         }
 
         private static int CountKind(RecordingAiCommandSink sink, AiIssuedKind kind)
@@ -331,7 +464,9 @@ namespace Wasteland.Sim.Tests
             for (int i = 0; i < faction.OrderCount; i++)
             {
                 AiOrder order = faction.Orders[i];
-                if (order.Type == AiGoalType.DefendTown && order.TargetTownId == faction.HomeTownId)
+                if (order.Type == AiGoalType.DefendTown
+                    && order.TargetTownId == faction.HomeTownId
+                    && order.Score == AiCombatTable.HqHoldScore)
                 {
                     count++;
                 }
@@ -345,7 +480,9 @@ namespace Wasteland.Sim.Tests
             for (int i = 0; i < faction.OrderCount; i++)
             {
                 AiOrder order = faction.Orders[i];
-                if (order.Type == AiGoalType.DefendTown && order.TargetTownId == faction.HomeTownId)
+                if (order.Type == AiGoalType.DefendTown
+                    && order.TargetTownId == faction.HomeTownId
+                    && order.Score == AiCombatTable.HqHoldScore)
                 {
                     return order.BattalionId;
                 }
@@ -371,6 +508,7 @@ namespace Wasteland.Sim.Tests
             public readonly int FarOwnId;
             public readonly int OtherOwnId;
             public readonly int ScoutId;
+            public readonly int ArmourId;
             public readonly int GarrisonId;
             public readonly int DefenderId;
             public readonly RoadGraph Roads;
@@ -400,6 +538,7 @@ namespace Wasteland.Sim.Tests
                 int farOwnId,
                 int otherOwnId,
                 int scoutId,
+                int armourId,
                 int garrisonId,
                 int defenderId,
                 RoadGraph roads,
@@ -421,6 +560,7 @@ namespace Wasteland.Sim.Tests
                 FarOwnId = farOwnId;
                 OtherOwnId = otherOwnId;
                 ScoutId = scoutId;
+                ArmourId = armourId;
                 GarrisonId = garrisonId;
                 DefenderId = defenderId;
                 Roads = roads;
@@ -485,6 +625,7 @@ namespace Wasteland.Sim.Tests
                     102,
                     103,
                     201,
+                    202,
                     301,
                     205,
                     roads,
@@ -586,6 +727,18 @@ namespace Wasteland.Sim.Tests
                 return new AiCombatantView(ScoutId, 2, 0, 1000, NearNode, 40, 40);
             }
 
+            public AiCombatantView ArmourView(int hp, int maxHp)
+            {
+                return new AiCombatantView(ArmourId, 2, 0, 1000, NearNode, hp, maxHp);
+            }
+
+            public void PlaceNearGarrison(int hp)
+            {
+                DropCombatant(ScoutId);
+                DropCombatant(GarrisonId);
+                _combat.Add(new AiCombatantView(GarrisonId, SimWorld.NeutralOwnerId, 0, 1000, NearNode, hp, hp));
+            }
+
             public void RemoveGarrison()
             {
                 DropCombatant(GarrisonId);
@@ -611,6 +764,31 @@ namespace Wasteland.Sim.Tests
             {
                 DropCombatant(ScoutId);
                 _combat.Add(ScoutView());
+            }
+
+            public void SetOwnHitPoints(int hp)
+            {
+                int[] ids = { NearOwnId, FarOwnId, OtherOwnId };
+                for (int i = 0; i < ids.Length; i++)
+                {
+                    SimBattalion battalion = _own[ids[i]];
+                    battalion.Hp = hp;
+                    battalion.MaxHp = hp;
+                    _own[ids[i]] = battalion;
+                }
+            }
+
+            public void PlaceNearThreat(int id, int hp, int maxHp)
+            {
+                PlaceNearThreat(new AiCombatantView(id, 2, 0, 1000, NearNode, hp, maxHp));
+            }
+
+            public void PlaceNearThreat(AiCombatantView threat)
+            {
+                DropCombatant(ScoutId);
+                DropCombatant(ArmourId);
+                DropCombatant(threat.Id);
+                _combat.Add(threat);
             }
 
             public bool TryGet(int townId, out AiTownReadback readback)

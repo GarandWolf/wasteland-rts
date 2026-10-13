@@ -50,7 +50,6 @@ namespace Wasteland.Sim.Ai
         private readonly string[] _queuedUnitIds = new string[AiConstants.PendingCommandCapacity];
         private bool _shutdown;
         private bool _homesSeeded;
-        private bool _hqRecallDirty;
         private int _strategicSliceRuns;
 
         private struct Candidate
@@ -334,8 +333,6 @@ namespace Wasteland.Sim.Ai
             int workUnits = 0;
             int phase = tick % AiConstants.TimeSliceModulus;
             bool ranStrategic = false;
-            bool refreshHq = _hqRecallDirty;
-            _hqRecallDirty = false;
 
             for (int i = 0; i < _owned.FactionCount; i++)
             {
@@ -343,10 +340,6 @@ namespace Wasteland.Sim.Ai
                 faction.PathRequestsThisTick = 0;
                 faction.WorkUnitsThisTick = 0;
                 _attackDefend.ExpireAttackOrders(tick, faction);
-                if (refreshHq)
-                {
-                    RefreshHqRecall(faction);
-                }
 
                 if (workUnits >= _balance.WorkUnitsPerTick)
                 {
@@ -711,7 +704,7 @@ namespace Wasteland.Sim.Ai
                     if (ev.Kind == SimEventKind.BattalionDestroyed)
                     {
                         AiAttackDefend.ClearDestroyedBattalion(_owned, ev.SubjectId);
-                        _hqRecallDirty = true;
+                        RefreshHqAfterDestroy();
                         continue;
                     }
 
@@ -2243,6 +2236,24 @@ namespace Wasteland.Sim.Ai
             }
 
             return a.Id.CompareTo(b.Id);
+        }
+
+        /// <summary>
+        /// Recompute HQ holds in the same turn that consumes
+        /// <see cref="SimEventKind.BattalionDestroyed"/>. The result is faction
+        /// orders, which are saved and hashed. Work spent here is restored so
+        /// the rest of the tick still has its budget.
+        /// </summary>
+        private void RefreshHqAfterDestroy()
+        {
+            for (int f = 0; f < _owned.FactionCount; f++)
+            {
+                AiFactionState faction = _owned.FactionAt(f);
+                int spent = faction.WorkUnitsThisTick;
+                faction.WorkUnitsThisTick = 0;
+                RefreshHqRecall(faction);
+                faction.WorkUnitsThisTick = spent;
+            }
         }
 
         private void RefreshHqRecall(AiFactionState faction)

@@ -399,6 +399,53 @@ namespace Wasteland.Sim.Tests
         }
 
         [Fact]
+        public void SaveLoadOnEvent15Tick_MatchesHash()
+        {
+            Assert.Equal(12, AiConstants.StateSchemaVersion);
+            Assert.Equal(12, SimWorld.WorldStateSchema);
+            AiMatchHost original = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
+            int cursor = 0;
+            int destroyTick = -1;
+            const int limit = 8000;
+            while (original.Tick < limit && destroyTick < 0)
+            {
+                original.Run(1);
+                IReadOnlyList<SimEvent> events = original.World.Events;
+                while (cursor < events.Count)
+                {
+                    if (events[cursor].Kind == SimEventKind.BattalionDestroyed)
+                    {
+                        destroyTick = events[cursor].Tick;
+                        break;
+                    }
+
+                    cursor++;
+                }
+            }
+
+            Assert.True(destroyTick >= 0);
+            if (original.Tick <= destroyTick)
+            {
+                original.Run(destroyTick - original.Tick + 1);
+            }
+
+            ulong atSave = original.HashWorld();
+            byte[] blob = original.Ai.Save();
+            SimCommand[] log = CopyLog(original.CommandLog);
+            AiMatchHost restored = Replay(
+                log,
+                blob,
+                original.Tick);
+            Assert.Equal(original.Tick, restored.Tick);
+            Assert.Equal(atSave, restored.HashWorld());
+            original.Run(1);
+            restored.Run(1);
+            Assert.Equal(original.HashWorld(), restored.HashWorld());
+            restored.Shutdown();
+            original.Shutdown();
+        }
+
+        [Fact]
         public void DifferentSeed_ProducesDifferentHashStream()
         {
             List<ulong> first = Run(MatchSeed, out _, out _, out AiMatchHost hostA);
@@ -421,6 +468,19 @@ namespace Wasteland.Sim.Tests
             }
 
             return hashes;
+        }
+
+        private static AiMatchHost Replay(SimCommand[] log, byte[] blob, int tick)
+        {
+            return AiMatchHost.ReplayTo(
+                MatchConfig.Default(MatchSeed),
+                AiSeamsTests.LoadGorgeV1Bytes(),
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                AiConstants.DifficultyNormal,
+                AiBalanceTablesTests.LoadBalance(),
+                log,
+                blob,
+                tick);
         }
 
         private static AiMatchHost Start(ulong seed, string difficultyId, AiBalanceTables balance)

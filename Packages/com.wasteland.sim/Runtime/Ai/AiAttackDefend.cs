@@ -85,6 +85,7 @@ namespace Wasteland.Sim.Ai
         private int[] _rankId = Array.Empty<int>();
         private int[] _rankDist = Array.Empty<int>();
         private int[] _rankCommit = Array.Empty<int>();
+        private int[] _rankStrength = Array.Empty<int>();
         private int _rankCount;
 
         public AiAttackDefend(IAiCommandSink commands, IAiTownQuery towns, IAiDepotQuery depots)
@@ -2955,12 +2956,14 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
+            // A road search that runs out of work units returns before any hold
+            // is released or added, so the previous recall set stays as it was.
             _world.CopyCombatants(faction.FactionId, _combatScratch);
-            int threat = 0;
+            int threatStrength = 0;
             for (int i = 0; i < _combatScratch.Count; i++)
             {
                 AiCombatantView combatant = _combatScratch[i];
-                if (combatant.Hp <= 0 || combatant.OwnerSeat == faction.FactionId)
+                if (combatant.Hp <= 0 || combatant.OwnerSeat <= 0 || combatant.OwnerSeat == faction.FactionId)
                 {
                     continue;
                 }
@@ -2982,11 +2985,11 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                threat++;
+                long sum = (long)threatStrength + combatant.Hp;
+                threatStrength = sum > int.MaxValue ? int.MaxValue : (int)sum;
             }
 
-            int cap = AiCombatTable.RecallCap(threat);
-            if (cap < 1)
+            if (threatStrength < 1)
             {
                 ReleaseHqHolds(faction);
                 return;
@@ -2997,11 +3000,7 @@ namespace Wasteland.Sim.Ai
                 return;
             }
 
-            int recall = _rankCount;
-            if (recall > cap)
-            {
-                recall = cap;
-            }
+            int recall = AiCombatTable.CountToCover(_rankStrength, _rankCount, threatStrength);
 
             ReleaseHqHolds(faction);
             for (int i = 0; i < recall; i++)
@@ -3401,6 +3400,7 @@ namespace Wasteland.Sim.Ai
 
                 int distance = dist.IsReached ? dist.DistanceCm : AiConstants.UnreachableCm;
                 int commit = CommittedToAttack(faction, pin.Id) ? 1 : 0;
+                int strength = OwnHitPoints(faction, pin.Id);
                 int insert = count;
                 while (insert > 0 && RecallBefore(
                     distance,
@@ -3412,12 +3412,14 @@ namespace Wasteland.Sim.Ai
                 {
                     _rankDist[insert] = _rankDist[insert - 1];
                     _rankCommit[insert] = _rankCommit[insert - 1];
+                    _rankStrength[insert] = _rankStrength[insert - 1];
                     _rankId[insert] = _rankId[insert - 1];
                     insert--;
                 }
 
                 _rankDist[insert] = distance;
                 _rankCommit[insert] = commit;
+                _rankStrength[insert] = strength;
                 _rankId[insert] = pin.Id;
                 count++;
             }
@@ -3452,6 +3454,18 @@ namespace Wasteland.Sim.Ai
             return HasPrizeOrder(faction, battalionId, faction.AttackTargetTownId);
         }
 
+        private int OwnHitPoints(AiFactionState faction, int battalionId)
+        {
+            if (_world != null
+                && _world.TryGetOwnBattalion(faction.FactionId, battalionId, out SimBattalion battalion)
+                && battalion.Hp > 0)
+            {
+                return battalion.Hp;
+            }
+
+            return 1;
+        }
+
         private void EnsureRank(int count)
         {
             if (_rankId.Length >= count)
@@ -3463,6 +3477,7 @@ namespace Wasteland.Sim.Ai
             _rankId = new int[n];
             _rankDist = new int[n];
             _rankCommit = new int[n];
+            _rankStrength = new int[n];
         }
 
         private void HoldAtHq(
@@ -3474,21 +3489,19 @@ namespace Wasteland.Sim.Ai
             int hqNode)
         {
             StripOrdersForBattalion(faction, battalionId);
-            if (faction.OrderCount >= faction.Orders.Length && faction.OrderCount > 0)
+            if (faction.OrderCount >= faction.Orders.Length)
             {
-                faction.OrderCount--;
+                return;
             }
 
-            if (faction.OrderCount < faction.Orders.Length)
-            {
-                AiOrder order = default;
-                order.Id = faction.NextOrderId++;
-                order.Type = AiGoalType.DefendTown;
-                order.TargetTownId = faction.HomeTownId;
-                order.TargetTerritoryId = faction.HomeTerritoryId;
-                order.BattalionId = battalionId;
-                faction.Orders[faction.OrderCount++] = order;
-            }
+            AiOrder order = default;
+            order.Id = faction.NextOrderId++;
+            order.Type = AiGoalType.DefendTown;
+            order.TargetTownId = faction.HomeTownId;
+            order.TargetTerritoryId = faction.HomeTerritoryId;
+            order.BattalionId = battalionId;
+            order.Score = AiCombatTable.HqHoldScore;
+            faction.Orders[faction.OrderCount++] = order;
 
             if (_world == null)
             {
@@ -3519,7 +3532,9 @@ namespace Wasteland.Sim.Ai
             for (int i = 0; i < faction.OrderCount; i++)
             {
                 AiOrder order = faction.Orders[i];
-                if (order.Type == AiGoalType.DefendTown && order.TargetTownId == faction.HomeTownId)
+                if (order.Type == AiGoalType.DefendTown
+                    && order.TargetTownId == faction.HomeTownId
+                    && order.Score == AiCombatTable.HqHoldScore)
                 {
                     continue;
                 }
@@ -3563,7 +3578,8 @@ namespace Wasteland.Sim.Ai
                 AiOrder order = faction.Orders[i];
                 if (order.BattalionId == battalionId
                     && order.Type == AiGoalType.DefendTown
-                    && order.TargetTownId == faction.HomeTownId)
+                    && order.TargetTownId == faction.HomeTownId
+                    && order.Score == AiCombatTable.HqHoldScore)
                 {
                     return true;
                 }
