@@ -168,7 +168,8 @@ namespace Wasteland.Audio
                 long sumX = 0;
                 long sumY = 0;
                 int members = 0;
-                int voice = int.MaxValue;
+                int fresh = int.MaxValue;
+                int voice = 0;
                 bool anyHeld = false;
                 for (int i = 0; i < count; i++)
                 {
@@ -180,14 +181,33 @@ namespace Wasteland.Audio
                     sumX += xs[i];
                     sumY += ys[i];
                     members++;
-                    if (ids[i] < voice)
+                    if (ids[i] < fresh)
                     {
-                        voice = ids[i];
+                        fresh = ids[i];
+                    }
+
+                    TownBed town = Find(ids[i]);
+                    if (town.StickyVoice != 0 && GroupHas(ids, group, g, town.StickyVoice) && (voice == 0 || town.StickyVoice < voice))
+                    {
+                        voice = town.StickyVoice;
                     }
 
                     if (held[i])
                     {
                         anyHeld = true;
+                    }
+                }
+
+                if (voice == 0)
+                {
+                    voice = fresh;
+                }
+
+                for (int i = 0; i < count; i++)
+                {
+                    if (group[i] == g)
+                    {
+                        Find(ids[i]).StickyVoice = voice;
                     }
                 }
 
@@ -376,6 +396,19 @@ namespace Wasteland.Audio
             return dx * dx + dy * dy;
         }
 
+        static bool GroupHas(int[] ids, int[] group, int groupId, int townId)
+        {
+            for (int i = 0; i < ids.Length; i++)
+            {
+                if (group[i] == groupId && ids[i] == townId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         static int Find(int[] parent, int index)
         {
             int root = index;
@@ -414,6 +447,7 @@ namespace Wasteland.Audio
             public int HoldLeft;
             public int Generation;
             public bool Continued;
+            public int StickyVoice;
         }
     }
 }

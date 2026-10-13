@@ -89,6 +89,24 @@ namespace Wasteland.Presentation.Tests
         }
 
         [Fact]
+        public void JoiningANearbyTown_KeepsTheSameBed()
+        {
+            CombatBedClock clock = new CombatBedClock();
+            clock.ApplyTick(0, new[] { Start(2, 0, 0) });
+            List<AudibleBed> beds = new List<AudibleBed>();
+            clock.CopyAudible(beds);
+            Assert.Equal(2, beds[0].VoiceId);
+
+            clock.ApplyTick(1, new[] { Start(1, 1000, 0) });
+            clock.CopyAudible(beds);
+            Assert.Single(beds);
+            Assert.Equal(2, beds[0].MemberCount);
+            Assert.Equal(2, beds[0].VoiceId);
+            Assert.Equal(1, clock.Layers(1));
+            Assert.Equal(1, clock.Layers(2));
+        }
+
+        [Fact]
         public void HeldTown_CountsTowardTheCap_AndTheMergedBed()
         {
             CombatBedClock clock = new CombatBedClock();
