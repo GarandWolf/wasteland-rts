@@ -28,6 +28,11 @@ namespace Wasteland.Presentation
                 case CommandRejectReason.UnknownKind:
                     return "That is not an order you can give.";
                 case CommandRejectReason.TierLocked:
+                    if (param0 <= 1)
+                    {
+                        return "Not available yet.";
+                    }
+
                     return "Requires " + TierName(param0) + " research.";
                 case CommandRejectReason.UnitNotRaisable:
                     return "You cannot raise that battalion.";

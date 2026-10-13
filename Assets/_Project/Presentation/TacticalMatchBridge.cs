@@ -47,6 +47,7 @@ namespace Wasteland.Presentation
         int _groundY;
         bool _groundSet;
         readonly UnderAttackAlerts _attacks = new UnderAttackAlerts();
+        readonly BattalionContactWatch _contact = new BattalionContactWatch();
         readonly ResearchTrack _research = new ResearchTrack();
         readonly ResearchCueGate _researchCue = new ResearchCueGate();
         readonly HqOutcomeGate _outcome = new HqOutcomeGate();
@@ -894,6 +895,18 @@ namespace Wasteland.Presentation
                         continue;
                     }
 
+                    if (!_contact.InContact(
+                        target.Id,
+                        attacker.PositionXCm,
+                        attacker.PositionYCm,
+                        target.PositionXCm,
+                        target.PositionYCm,
+                        WeaponRangeCm(world, attacker),
+                        target.Hp))
+                    {
+                        continue;
+                    }
+
                     UnderAttackAlert alert;
                     if (_attacks.TryBattalion(world.Tick, target.Id, target.PositionXCm, target.PositionYCm, true, FactionRgb(_humanSeat), out alert))
                     {
@@ -901,6 +914,23 @@ namespace Wasteland.Presentation
                     }
                 }
             }
+        }
+
+        int WeaponRangeCm(SimWorld world, SimBattalion attacker)
+        {
+            if (_catalog == null || world == null)
+            {
+                return 0;
+            }
+
+            BattalionView view;
+            int range;
+            if (!world.TryGetBattalionView(attacker.Id, out view) || !_catalog.TryGetWeaponRangeCm(view.UnitId, out range))
+            {
+                return 0;
+            }
+
+            return range;
         }
 
         void RaiseAlert(UnderAttackAlert alert)

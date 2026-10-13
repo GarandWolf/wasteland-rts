@@ -64,6 +64,46 @@ namespace Wasteland.Presentation.Tests
         }
 
         [Fact]
+        public void BattalionAlert_WaitsForRangeOrDamage()
+        {
+            BattalionContactWatch far = new BattalionContactWatch();
+            UnderAttackAlerts silent = new UnderAttackAlerts();
+            Rgb remnant = Rgb.FromHex(MarkerArt.Remnant);
+            const int rangeCm = 1000;
+            const int targetId = 7;
+            Assert.False(far.InContact(targetId, 0, 0, 500000, 0, rangeCm, 100));
+            Assert.False(far.InContact(targetId, 0, 0, 500000, 0, rangeCm, 100));
+            Assert.False(BattalionContact.WithinWeaponRange(0, 0, rangeCm + 1, 0, rangeCm));
+            bool distantFired = false;
+            if (far.InContact(targetId, 0, 0, 500000, 0, rangeCm, 100))
+            {
+                distantFired = silent.TryBattalion(1, targetId, 500000, 0, true, remnant, out _);
+            }
+
+            Assert.False(distantFired);
+
+            BattalionContactWatch close = new BattalionContactWatch();
+            UnderAttackAlerts heard = new UnderAttackAlerts();
+            Assert.True(close.InContact(targetId, 0, 0, rangeCm, 0, rangeCm, 100));
+            Assert.True(heard.TryBattalion(1, targetId, rangeCm, 0, true, remnant, out UnderAttackAlert ranged));
+            Assert.Equal(UnderAttackAlerts.Volume, ranged.Volume);
+            Assert.False(ranged.Spatial);
+            Assert.Equal(UnderAttackAlerts.CueFile, ranged.CueFile);
+            Assert.True(ranged.PlayCue);
+            Assert.False(heard.TryBattalion(1, targetId, rangeCm, 0, false, remnant, out _));
+
+            BattalionContactWatch hurt = new BattalionContactWatch();
+            UnderAttackAlerts damaged = new UnderAttackAlerts();
+            Assert.False(hurt.InContact(targetId, 0, 0, 500000, 0, rangeCm, 100));
+            Assert.True(hurt.InContact(targetId, 0, 0, 500000, 0, rangeCm, 90));
+            Assert.True(damaged.TryBattalion(2, targetId, 500000, 0, true, remnant, out UnderAttackAlert hit));
+            Assert.Equal(0.8f, hit.Volume);
+            Assert.False(hit.Spatial);
+            Assert.Equal(rangeCm, 1000);
+            Assert.Equal(UnderAttackAlerts.CooldownTicks, 600);
+        }
+
+        [Fact]
         public void AlertRing_PulsesInFactionColour()
         {
             float low = AlertRingStyle.Pulse(0f);
@@ -82,6 +122,7 @@ namespace Wasteland.Presentation.Tests
             HqBanner remnantWins = HqOutcome.Read(true, HqOutcome.ReasonHqCaptured, 1, true, 1, "Homestead Compact");
             Assert.True(remnantWins.Show);
             Assert.Equal("Victory", remnantWins.Title);
+            Assert.Equal("Enemy headquarters captured.", remnantWins.Detail);
             Assert.Equal(HqOutcome.WinFile, remnantWins.StingerFile);
             Assert.True(remnantWins.Play);
 
@@ -91,10 +132,12 @@ namespace Wasteland.Presentation.Tests
 
             HqBanner compactWins = HqOutcome.Read(true, HqOutcome.ReasonHqCaptured, 2, true, 2, "Homestead Compact");
             Assert.Equal("Victory", compactWins.Title);
+            Assert.Equal("Enemy headquarters captured.", compactWins.Detail);
             Assert.Equal(HqOutcome.WinFile, compactWins.StingerFile);
 
             HqBanner draw = HqOutcome.Read(true, HqOutcome.ReasonDraw, -1, true, 1, "Remnant Command");
-            Assert.Equal("Defeat", draw.Title);
+            Assert.Equal("Draw", draw.Title);
+            Assert.Equal("Both headquarters fell.", draw.Detail);
             Assert.Equal(HqOutcome.DefeatFile, draw.StingerFile);
             Assert.DoesNotContain("draw_stinger", draw.StingerFile);
 
@@ -104,9 +147,9 @@ namespace Wasteland.Presentation.Tests
             Assert.Equal(HqOutcome.WinFile, spectator.StingerFile);
 
             HqBanner spectatorDraw = HqOutcome.Read(true, HqOutcome.ReasonDraw, -1, false, 0, "Remnant Command");
-            Assert.Equal("Defeat", spectatorDraw.Title);
+            Assert.Equal("Draw", spectatorDraw.Title);
+            Assert.Equal("Both headquarters fell.", spectatorDraw.Detail);
             Assert.Equal(HqOutcome.DefeatFile, spectatorDraw.StingerFile);
-            Assert.Equal(string.Empty, spectatorDraw.Detail);
 
             Assert.False(HqOutcome.Read(false, HqOutcome.ReasonHqCaptured, 1, true, 1, "Remnant Command").Show);
             Assert.False(HqOutcome.Read(true, 0, 1, true, 1, "Remnant Command").Show);
@@ -164,10 +207,31 @@ namespace Wasteland.Presentation.Tests
         }
 
         [Fact]
+        public void HumanWin_SaysTheEnemyHeadquartersWasCaptured()
+        {
+            HqBanner remnant = HqOutcome.Read(true, HqOutcome.ReasonHqCaptured, 1, true, 1, "Homestead Compact");
+            HqBanner compact = HqOutcome.Read(true, HqOutcome.ReasonHqCaptured, 2, true, 2, "Remnant Command");
+            Assert.Equal("Victory", remnant.Title);
+            Assert.Equal("Enemy headquarters captured.", remnant.Detail);
+            Assert.Equal("Victory", compact.Title);
+            Assert.Equal("Enemy headquarters captured.", compact.Detail);
+            Assert.Equal(HqOutcome.WinFile, remnant.StingerFile);
+            Assert.Equal(HqOutcome.WinFile, compact.StingerFile);
+        }
+
+        [Fact]
+        public void TierLocked_TierOne_SaysNotAvailableYet()
+        {
+            Assert.Equal("Not available yet.", PlayerRejectText.Describe(CommandRejectReason.TierLocked, 1, 0));
+            Assert.Equal("Requires Tier II research.", PlayerRejectText.Describe(CommandRejectReason.TierLocked, 2, 1));
+            Assert.Equal("Requires Tier III research.", PlayerRejectText.Describe(CommandRejectReason.TierLocked, 3, 1));
+        }
+
+        [Fact]
         public void RejectText_NamesTheTier_AndSpeaksPlainly()
         {
             Assert.Equal("Requires Tier II research.", PlayerRejectText.Describe(CommandRejectReason.TierLocked, 2, 1));
-            Assert.Equal("Requires Tier I research.", PlayerRejectText.Describe(CommandRejectReason.TierLocked, 1, 0));
+            Assert.Equal("Not available yet.", PlayerRejectText.Describe(CommandRejectReason.TierLocked, 1, 0));
             Assert.Equal("Requires Tier III research.", PlayerRejectText.Describe(CommandRejectReason.TierLocked, 3, 2));
             Assert.Equal("That battalion is already in the fight.", PlayerRejectText.Describe(CommandRejectReason.DuplicateBattalion, 0, 0));
             Assert.Equal("A battalion cannot move backwards.", PlayerRejectText.Describe(CommandRejectReason.NegativeSpeed, 0, 0));

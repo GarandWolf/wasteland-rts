@@ -445,6 +445,25 @@ namespace Wasteland.Sim.Scenario
             return true;
         }
 
+        public bool TryGetWeaponRangeCm(string unitId, out int rangeCm)
+        {
+            if (unitId == null)
+            {
+                rangeCm = 0;
+                return false;
+            }
+
+            int index = UnitIndex(unitId);
+            if (index < 0)
+            {
+                rangeCm = 0;
+                return false;
+            }
+
+            rangeCm = _unitRangeCm[index];
+            return true;
+        }
+
         public bool TryGetUnitTargetClass(string unitId, out string targetClass)
         {
             int index = UnitIndex(unitId);

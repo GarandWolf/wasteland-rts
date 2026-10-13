@@ -84,6 +84,52 @@ namespace Wasteland.Presentation
     }
 
     /// <summary>
+    /// A targeted battalion is in contact when the attacker is inside weapon
+    /// range, or the target has lost hit points since the last sample.
+    /// A far <c>AttackTargetId</c> is not contact.
+    /// </summary>
+    public static class BattalionContact
+    {
+        public static bool WithinWeaponRange(int attackerXCm, int attackerYCm, int targetXCm, int targetYCm, int weaponRangeCm)
+        {
+            if (weaponRangeCm <= 0)
+            {
+                return false;
+            }
+
+            long dx = (long)attackerXCm - targetXCm;
+            long dy = (long)attackerYCm - targetYCm;
+            long range = weaponRangeCm;
+            return (dx * dx) + (dy * dy) <= range * range;
+        }
+    }
+
+    /// <summary>
+    /// Remembers hit points so a later sample can see a loss. The first sample
+    /// is a baseline, not damage.
+    /// </summary>
+    public sealed class BattalionContactWatch
+    {
+        readonly Dictionary<int, int> _hp = new Dictionary<int, int>();
+
+        public bool InContact(
+            int targetId,
+            int attackerXCm,
+            int attackerYCm,
+            int targetXCm,
+            int targetYCm,
+            int weaponRangeCm,
+            int hp)
+        {
+            int previous;
+            bool known = _hp.TryGetValue(targetId, out previous);
+            _hp[targetId] = hp;
+            bool lostHp = known && hp < previous;
+            return lostHp || BattalionContact.WithinWeaponRange(attackerXCm, attackerYCm, targetXCm, targetYCm, weaponRangeCm);
+        }
+    }
+
+    /// <summary>
     /// One alert when the human seat is attacked. Towns wait
     /// <see cref="CooldownTicks"/> between cues. The HQ does not wait.
     /// A spectator match stays silent.
@@ -183,8 +229,9 @@ namespace Wasteland.Presentation
     }
 
     /// <summary>
-    /// HQ capture is the only MVP result. A draw plays the defeat stinger.
-    /// The human hears their own side. A spectator victory names the winner.
+    /// HQ capture is the only MVP result. A draw is titled Draw and still plays
+    /// the defeat stinger. The human hears their own side. A spectator victory
+    /// names the winner.
     /// </summary>
     public static class HqOutcome
     {
@@ -209,14 +256,14 @@ namespace Wasteland.Presentation
             bool draw = reason == ReasonDraw || winnerSeat < 0;
             if (draw)
             {
-                return new HqBanner(true, true, "Defeat", string.Empty, DefeatFile);
+                return new HqBanner(true, true, "Draw", "Both headquarters fell.", DefeatFile);
             }
 
             if (hasHuman)
             {
                 if (winnerSeat == humanSeat)
                 {
-                    return new HqBanner(true, true, "Victory", string.Empty, WinFile);
+                    return new HqBanner(true, true, "Victory", "Enemy headquarters captured.", WinFile);
                 }
 
                 return new HqBanner(true, true, "Defeat", string.Empty, DefeatFile);
