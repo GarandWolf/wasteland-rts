@@ -20,11 +20,12 @@ namespace Wasteland.Presentation
     public sealed class GorgeListeningHarness : MonoBehaviour
     {
         public const ulong MatchSeed = 0xC01055A1UL;
-        public const int FirstCombatTick = 3683;
-        public const int GarrisonClearedTick = 4896;
+        public const int MaxTicksPerFrame = 64;
+
+        // Lengths are not in the .sha256 pins (those files are the hash and the file name).
+        // They match the v1-marsh pair in data/golden/README.md. A pin bump must update both.
         public const int MainMapBytes = 607152;
         public const int TerrainMapBytes = 19872744;
-        public const int MaxTicksPerFrame = 64;
 
         const string ScenarioId = "columbia_gorge_100mi_mvp";
         const string LfsMessage =
@@ -32,9 +33,11 @@ namespace Wasteland.Presentation
 
         readonly List<int> _beds = new List<int>();
         AiMatchHost _host;
-        CombatLoopManager _loops;
+        [SerializeField] CombatLoopManager _loops;
         int _cursor;
         int _ticksPerFrame = 1;
+        int _firstContestTick = -1;
+        int _firstDestroyedTick = -1;
         bool _over;
         string _error;
 
@@ -52,6 +55,16 @@ namespace Wasteland.Presentation
         public int LoggerTick
         {
             get { return _host == null || _host.Tick < 1 ? 0 : _host.Tick - 1; }
+        }
+
+        public int FirstContestTick
+        {
+            get { return _firstContestTick; }
+        }
+
+        public int FirstBattalionDestroyedTick
+        {
+            get { return _firstDestroyedTick; }
         }
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -118,13 +131,15 @@ namespace Wasteland.Presentation
             GUILayout.EndArea();
         }
 
-        public void RunTo(int loggerTick)
+        public void StepOne()
         {
-            while (_host != null && !_over && _host.Tick - 1 < loggerTick)
+            if (_host == null || _over)
             {
-                _host.Step();
-                Drain();
+                return;
             }
+
+            _host.Step();
+            Drain();
         }
 
         void Begin()
@@ -145,15 +160,31 @@ namespace Wasteland.Presentation
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 AiConstants.DifficultyNormal,
                 balance);
-            _loops = new GameObject("Combat Loops").AddComponent<CombatLoopManager>();
-            _loops.transform.SetParent(transform, false);
-            AssignBank(_loops);
+            if (_loops == null)
+            {
+                _loops = GetComponent<CombatLoopManager>();
+            }
+
+            if (_loops == null)
+            {
+                _loops = gameObject.AddComponent<CombatLoopManager>();
+            }
+
+            if (_loops.Bank == null)
+            {
+                AssignEditorBank(_loops);
+            }
+
             if (FindFirstObjectByType<AudioListener>() == null)
             {
                 gameObject.AddComponent<AudioListener>();
             }
         }
 
+        // World.Events is append-only for the life of the world. SimWorld.Emit only
+        // Add's to _events. PruneEventHistory drops _eventHistory (the last
+        // EventHistoryTicks), which backs CopyEventsInRange, and does not touch Events.
+        // An index cursor therefore cannot skip or re-read an event.
         void Drain()
         {
             IReadOnlyList<SimEvent> events = _host.World.Events;
@@ -168,6 +199,16 @@ namespace Wasteland.Presentation
         void Apply(SimEvent ev)
         {
             int kind = (int)ev.Kind;
+            if (kind == (int)SimEventKind.TownContestStarted && _firstContestTick < 0)
+            {
+                _firstContestTick = ev.Tick;
+            }
+
+            if (kind == (int)SimEventKind.BattalionDestroyed && _firstDestroyedTick < 0)
+            {
+                _firstDestroyedTick = ev.Tick;
+            }
+
             if (kind == (int)SimEventKind.TownContestStarted || kind == (int)SimEventKind.TownContestEnded)
             {
                 Vector3 ear = Listener();
@@ -222,7 +263,7 @@ namespace Wasteland.Presentation
             return listener != null ? listener.transform.position : transform.position;
         }
 
-        static void AssignBank(CombatLoopManager loops)
+        static void AssignEditorBank(CombatLoopManager loops)
         {
 #if UNITY_EDITOR
             SoundBank bank = UnityEditor.AssetDatabase.LoadAssetAtPath<SoundBank>(SoundBank.PlaceholderAssetPath);
@@ -241,7 +282,7 @@ namespace Wasteland.Presentation
             bankProp.objectReferenceValue = bank;
             so.ApplyModifiedPropertiesWithoutUndo();
 #else
-            throw new InvalidOperationException("Assign the placeholder sound bank in the editor.");
+            throw new InvalidOperationException("The combat sound bank is not assigned on the listening object.");
 #endif
         }
 
