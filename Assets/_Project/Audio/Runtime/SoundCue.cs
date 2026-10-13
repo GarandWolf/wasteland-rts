@@ -6,7 +6,7 @@ namespace Wasteland.Audio
     /// </summary>
     public enum SoundCue
     {
-        /// <summary>HUD click. Rejected human orders use <see cref="SoundPlayer.PlayLow"/>.</summary>
+        /// <summary>HUD click when a human order is accepted.</summary>
         UiClick = 0,
 
         /// <summary>Human command accepted at issue time, not at the execute tick.</summary>
@@ -33,8 +33,17 @@ namespace Wasteland.Audio
         /// <summary>Lose result screen.</summary>
         LoseStinger = 8,
 
-        /// <summary>Draw result screen. Both HQs fell on the same tick.</summary>
+        /// <summary>Draw result screen. Both HQs fell on the same tick. The HUD plays <see cref="LoseStinger"/> for a draw.</summary>
         DrawStinger = 9,
+
+        /// <summary>Human seat is under attack. 2D. The HUD plays this at 0.8.</summary>
+        UnderAttack = 10,
+
+        /// <summary>Tier research completed (sim event 6). 2D.</summary>
+        ResearchDone = 11,
+
+        /// <summary>Rejected human order. Kenney click2, 2D, distinct from <see cref="UiClick"/>.</summary>
+        OrderDeny = 12,
     }
 
     /// <summary>
@@ -42,7 +51,7 @@ namespace Wasteland.Audio
     /// </summary>
     public static class SoundCues
     {
-        public const int Count = 10;
+        public const int Count = 13;
         public const string PlaceholderDirectory = "Assets/_Project/Audio/Placeholder/";
 
         public static string FileName(SoundCue cue)
@@ -59,6 +68,9 @@ namespace Wasteland.Audio
                 case SoundCue.WinStinger: return "win_stinger.wav";
                 case SoundCue.LoseStinger: return "lose_stinger.wav";
                 case SoundCue.DrawStinger: return "draw_stinger.wav";
+                case SoundCue.UnderAttack: return "under_attack.wav";
+                case SoundCue.ResearchDone: return "research_done.wav";
+                case SoundCue.OrderDeny: return "order_deny.wav";
                 default: return null;
             }
         }

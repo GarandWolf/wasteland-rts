@@ -125,6 +125,12 @@ namespace Wasteland.Presentation
             LowVolume = lowVolume;
             Command = command;
         }
+
+        /// <summary>Rejected human order. Plays the soft-deny click, not the accept click.</summary>
+        public bool SoftDeny
+        {
+            get { return !Accepted && PlayClick && LowVolume; }
+        }
     }
 
     /// <summary>

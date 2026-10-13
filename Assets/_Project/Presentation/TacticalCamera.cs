@@ -83,6 +83,21 @@ namespace Wasteland.Presentation
             transform.position = position;
         }
 
+        /// <summary>Move the view to a ground point, keeping height and zoom.</summary>
+        public void LookAt(float xMetres, float zMetres)
+        {
+            Vector3 position = transform.position;
+            position.x = xMetres;
+            position.z = zMetres;
+            if (_bounded)
+            {
+                position.x = Mathf.Clamp(position.x, _minX, _maxX);
+                position.z = Mathf.Clamp(position.z, _minZ, _maxZ);
+            }
+
+            transform.position = position;
+        }
+
         void Update()
         {
             Camera cam = Camera;

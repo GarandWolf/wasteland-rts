@@ -15,7 +15,8 @@ namespace Wasteland.Presentation
         Engineer = 7,
         Supply = 8,
         Militia = 9,
-        AntiTank = 10
+        AntiTank = 10,
+        Towed = 11
     }
 
     /// <summary>
@@ -107,8 +108,10 @@ namespace Wasteland.Presentation
                     glyph = BattalionGlyph.Armour;
                     return true;
                 case "remnant_sp_artillery":
-                case "compact_towed_artillery":
                     glyph = BattalionGlyph.Artillery;
+                    return true;
+                case "compact_towed_artillery":
+                    glyph = BattalionGlyph.Towed;
                     return true;
                 case "remnant_drone_detachment":
                     glyph = BattalionGlyph.Drone;

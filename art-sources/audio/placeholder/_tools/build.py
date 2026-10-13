@@ -55,3 +55,9 @@ write('win_stinger.wav', fade(load(os.path.join(F,'fs651200_trumpetplayer_previe
 write('lose_stinger.wav', fade(load(os.path.join(F,'fs651204_trumpetplayer_preview-hq.ogg'),2,0.15,5.85),0.02,0.3))
 # 10 draw_stinger: same Taps phrase cut short, 0.15-3.25 s, long fade on the held note
 write('draw_stinger.wav', fade(load(os.path.join(F,'fs651204_trumpetplayer_preview-hq.ogg'),2,0.15,3.10),0.02,1.0))
+# 11 under_attack: Kenney UI Audio switch2, whole file, mono. Played at 0.8 by the HUD.
+write('under_attack.wav', fade(load(os.path.join(K,'switch2.ogg'),1),0.0,0.02))
+# 12 research_done: Kenney UI Audio switch3, whole file, mono.
+write('research_done.wav', fade(load(os.path.join(K,'switch3.ogg'),1),0.0,0.02))
+# 13 order_deny: Kenney UI Audio click2, a different click from ui_click (click1).
+write('order_deny.wav', fade(load(os.path.join(K,'click2.ogg'),1),0.0,0.01))
