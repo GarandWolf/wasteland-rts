@@ -17,7 +17,7 @@ namespace Wasteland.Sim.World
         public const int MatchReasonDraw = 2;
 
         /// <summary>World snapshot schema. A version 11 blob is refused.</summary>
-        public const int WorldStateSchema = 12;
+        public const int WorldStateSchema = 13;
 
         private CombatTerrain _terrain;
         private int[] _pendingDamage = Array.Empty<int>();
@@ -56,6 +56,17 @@ namespace Wasteland.Sim.World
                     writer.Write(battalion.CutDetectedTick);
                     writer.Write(battalion.Penalized);
                     writer.Write(battalion.StrengthPpt);
+                }
+
+                writer.Write(_seats.Count);
+                for (int i = 0; i < _seats.Count; i++)
+                {
+                    SeatState seat = _seats[i];
+                    writer.Write(seat.FactionId);
+                    writer.Write(seat.CurrentTier);
+                    writer.Write(seat.TierResearchCompleteTick);
+                    writer.Write(seat.ResearchStartTick);
+                    writer.Write(seat.AutoResearchCursor);
                 }
 
                 writer.Flush();
@@ -117,6 +128,33 @@ namespace Wasteland.Sim.World
                     battalion.Penalized = penalized;
                     battalion.StrengthPpt = strength;
                     _battalions[index] = battalion;
+                }
+
+                int seatCount = reader.ReadInt32();
+                if (seatCount != _seats.Count)
+                {
+                    throw new InvalidDataException("World save seat count does not match.");
+                }
+
+                for (int i = 0; i < seatCount; i++)
+                {
+                    int factionId = reader.ReadInt32();
+                    int tier = reader.ReadInt32();
+                    int complete = reader.ReadInt32();
+                    int start = reader.ReadInt32();
+                    int cursor = reader.ReadInt32();
+                    int seatIndex = FindSeat(factionId);
+                    if (seatIndex < 0)
+                    {
+                        throw new InvalidDataException("World save names missing seat " + factionId + ".");
+                    }
+
+                    SeatState seat = _seats[seatIndex];
+                    seat.CurrentTier = tier;
+                    seat.TierResearchCompleteTick = complete;
+                    seat.ResearchStartTick = start;
+                    seat.AutoResearchCursor = cursor;
+                    _seats[seatIndex] = seat;
                 }
 
                 Tick = tick;

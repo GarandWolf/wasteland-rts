@@ -133,7 +133,8 @@ namespace Wasteland.Sim.Tests
                 "compact_militia",
                 "compact_rifle_battalion",
                 "compact_at_battalion",
-                "compact_engineers"
+                "compact_engineers",
+                "compact_towed_artillery"
             };
             Assert.Equal(remnantRaisable, first.SeatAt(0).RaisableUnits);
             Assert.Equal(remnantRaisable, second.SeatAt(0).RaisableUnits);

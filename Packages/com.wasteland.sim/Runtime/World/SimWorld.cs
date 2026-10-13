@@ -233,6 +233,7 @@ namespace Wasteland.Sim.World
             seat.HqYCm = setup.HqYCm;
             seat.CurrentTier = setup.CurrentTier;
             seat.TierResearchCompleteTick = setup.TierResearchCompleteTick;
+            seat.ResearchStartTick = -1;
             seat.AutoResearchTech = new int[setup.AutoResearch.Length];
             seat.AutoResearchNotBefore = new int[setup.AutoResearch.Length];
             seat.AutoResearchCursor = 0;
@@ -530,6 +531,7 @@ namespace Wasteland.Sim.World
                 hash.AddInt(seat.HqYCm);
                 hash.AddInt(seat.CurrentTier);
                 hash.AddInt(seat.TierResearchCompleteTick);
+                hash.AddInt(seat.ResearchStartTick);
                 hash.AddInt(seat.AutoResearchCursor);
                 int researchCount = seat.AutoResearchTech == null ? 0 : seat.AutoResearchTech.Length;
                 hash.AddInt(researchCount);
@@ -628,6 +630,9 @@ namespace Wasteland.Sim.World
                         break;
                     case CommandKind.Attack:
                         ApplyAttack(command);
+                        break;
+                    case CommandKind.ResearchTech:
+                        ApplyResearchTech(command);
                         break;
                     default:
                         Reject(command, CommandRejectReason.UnknownKind, 0, 0);
@@ -1152,6 +1157,7 @@ namespace Wasteland.Sim.World
                 {
                     seat.CurrentTier++;
                     seat.TierResearchCompleteTick = -1;
+                    seat.ResearchStartTick = -1;
                     _seats[i] = seat;
                     Emit(SimEventKind.TierReached, seat.FactionId, seat.CurrentTier);
                 }
@@ -1196,31 +1202,179 @@ namespace Wasteland.Sim.World
                 return false;
             }
 
-            int manpowerCost = _catalog.TechManpowerAt(techIndex);
-            int materielCost = _catalog.TechMaterielAt(techIndex);
-            int fuelCost = _catalog.TechFuelAt(techIndex);
-            if (seat.Manpower < manpowerCost || seat.Materials < materielCost)
+            if (ResearchShortfall(seat, techIndex, out _, out _, out _) != CommandRejectReason.None)
             {
                 return false;
             }
 
+            seat.AutoResearchCursor = cursor + 1;
+            StartTierResearch(ref seat, techIndex);
+            return true;
+        }
+
+        /// <summary>
+        /// First missing resource for <paramref name="techIndex"/>, in reject order
+        /// materiel, fuel (only when fuel is enabled), manpower. None when affordable.
+        /// </summary>
+        private CommandRejectReason ResearchShortfall(SeatState seat, int techIndex, out int need, out int have, out int unused)
+        {
+            unused = 0;
+            int materielCost = _catalog.TechMaterielAt(techIndex);
+            if (seat.Materials < materielCost)
+            {
+                need = materielCost;
+                have = seat.Materials;
+                return CommandRejectReason.InsufficientMaterials;
+            }
+
+            int fuelCost = _catalog.TechFuelAt(techIndex);
             if (seat.FuelEnabled && seat.Fuel < fuelCost)
             {
-                return false;
+                need = fuelCost;
+                have = seat.Fuel;
+                return CommandRejectReason.InsufficientFuel;
             }
 
+            int manpowerCost = _catalog.TechManpowerAt(techIndex);
+            if (seat.Manpower < manpowerCost)
+            {
+                need = manpowerCost;
+                have = seat.Manpower;
+                return CommandRejectReason.InsufficientManpower;
+            }
+
+            need = 0;
+            have = 0;
+            return CommandRejectReason.None;
+        }
+
+        /// <summary>
+        /// Shared by ResearchTech and auto-research. The caller has checked the
+        /// target tier and affordability. Charges manpower and materiel always,
+        /// fuel only when the seat has fuel enabled, then emits TierResearchStarted
+        /// (subject faction, aux target tier, param0 start tick, param1 complete tick).
+        /// </summary>
+        private void StartTierResearch(ref SeatState seat, int techIndex)
+        {
             int complete = checked(Tick + _catalog.TechResearchTicksAt(techIndex));
-            seat.Manpower -= manpowerCost;
-            seat.Materials -= materielCost;
+            seat.Manpower -= _catalog.TechManpowerAt(techIndex);
+            seat.Materials -= _catalog.TechMaterielAt(techIndex);
             if (seat.FuelEnabled)
             {
-                seat.Fuel -= fuelCost;
+                seat.Fuel -= _catalog.TechFuelAt(techIndex);
             }
 
             seat.TierResearchCompleteTick = complete;
-            seat.AutoResearchCursor = cursor + 1;
-            Emit(SimEventKind.TierResearchStarted, seat.FactionId, targetTier, Tick, complete);
-            return true;
+            seat.ResearchStartTick = Tick;
+            Emit(SimEventKind.TierResearchStarted, seat.FactionId, _catalog.TechTargetTierAt(techIndex), Tick, complete);
+        }
+
+        /// <summary>
+        /// Player- or AI-issued tier research. Reject order: 13 UnknownSeat,
+        /// 4 NotOwner, 31 ResearchInProgress, 32 TierAlreadyReached,
+        /// 33 NoQualifyingTier, then 11 materiel / 12 fuel / 10 manpower.
+        /// Cost is paid on this tick; completion runs in AdvanceResearch.
+        /// </summary>
+        private void ApplyResearchTech(SimCommand command)
+        {
+            int seatIndex = FindSeat(command.IssuerId);
+            if (seatIndex < 0 || _catalog == null)
+            {
+                Reject(command, CommandRejectReason.UnknownSeat, 0, 0);
+                return;
+            }
+
+            int techIndex = command.Arg0;
+            if (techIndex < 0 || techIndex >= _catalog.TechCount)
+            {
+                Reject(command, CommandRejectReason.UnknownKind, techIndex, 0);
+                return;
+            }
+
+            SeatState seat = _seats[seatIndex];
+            if (seat.FactionId != command.IssuerId)
+            {
+                Reject(command, CommandRejectReason.NotOwner, 0, 0);
+                return;
+            }
+
+            int targetTier = _catalog.TechTargetTierAt(techIndex);
+            if (seat.TierResearchCompleteTick >= 0)
+            {
+                Reject(command, CommandRejectReason.ResearchInProgress, seat.TierResearchCompleteTick, 0);
+                return;
+            }
+
+            if (seat.CurrentTier >= targetTier)
+            {
+                Reject(command, CommandRejectReason.TierAlreadyReached, targetTier, seat.CurrentTier);
+                return;
+            }
+
+            if (targetTier != seat.CurrentTier + 1)
+            {
+                Reject(command, CommandRejectReason.TierLocked, targetTier - 1, seat.CurrentTier);
+                return;
+            }
+
+            if (!HasQualifyingOwnedTier(seat, techIndex))
+            {
+                Reject(command, CommandRejectReason.NoQualifyingTier, _catalog.TechRequiredOwnedTierAt(techIndex), 0);
+                return;
+            }
+
+            CommandRejectReason shortfall = ResearchShortfall(seat, techIndex, out int need, out int have, out _);
+            if (shortfall != CommandRejectReason.None)
+            {
+                Reject(command, shortfall, need, have);
+                return;
+            }
+
+            StartTierResearch(ref seat, techIndex);
+            _seats[seatIndex] = seat;
+        }
+
+        /// <summary>
+        /// True when the tech has no owned-tier requirement, no towns are bound,
+        /// the seat owns a town at or above the required tier, or the rules let
+        /// the HQ satisfy it and the seat still owns its seat town.
+        /// </summary>
+        private bool HasQualifyingOwnedTier(SeatState seat, int techIndex)
+        {
+            int required = _catalog.TechRequiredOwnedTierAt(techIndex);
+            if (required < 0 || _towns.Count == 0)
+            {
+                return true;
+            }
+
+            bool hqCounts = _catalog.TechHqSatisfiesOwnedTierAt(techIndex);
+            for (int i = 0; i < _towns.Count; i++)
+            {
+                TownState town = _towns[i];
+                if (town.OwnerFactionId != seat.FactionId)
+                {
+                    continue;
+                }
+
+                if (town.Tier >= required || (hqCounts && town.TownId == seat.HomeTownId))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>Queue ResearchTech for <paramref name="techId"/>; an unknown id queues index -1 and rejects.</summary>
+        public SimCommand SubmitResearchTech(int factionId, string techId)
+        {
+            int techIndex = -1;
+            if (_catalog != null && techId != null && _catalog.TryGetTechIndex(techId, out int found))
+            {
+                techIndex = found;
+            }
+
+            return Submit(SimCommand.ResearchTech(Tick, factionId, techIndex));
         }
 
         internal void AddResources(int factionId, int manpower, int materials, int fuel)
@@ -1514,6 +1668,7 @@ namespace Wasteland.Sim.World
             public int HqYCm;
             public int CurrentTier;
             public int TierResearchCompleteTick;
+            public int ResearchStartTick;
             public int AutoResearchCursor;
             public int[] AutoResearchTech;
             public int[] AutoResearchNotBefore;

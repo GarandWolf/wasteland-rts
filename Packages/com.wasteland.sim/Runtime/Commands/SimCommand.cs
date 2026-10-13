@@ -105,6 +105,12 @@ namespace Wasteland.Sim.Commands
             return new SimCommand(issuedTick, issuerId, battalionId, CommandKind.Attack, targetBattalionId, 0, 0);
         }
 
+        /// <summary>Start tier research for the issuing seat. Arg0 is the catalog tech index; BattalionId stays 0.</summary>
+        public static SimCommand ResearchTech(int issuedTick, int issuerId, int techIndex)
+        {
+            return new SimCommand(issuedTick, issuerId, 0, CommandKind.ResearchTech, techIndex, 0, 0);
+        }
+
         public SimCommand WithIssuedTick(int issuedTick)
         {
             return new SimCommand(issuedTick, IssuerId, BattalionId, Kind, Arg0, Arg1, Arg2, ExecuteTick, Sequence);

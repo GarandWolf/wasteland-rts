@@ -30,6 +30,9 @@ namespace Wasteland.Sim.Commands
         /// Arg1 and Arg2 stay 0. Out of range, the attacker paths in
         /// and then stops to fire.
         /// </summary>
-        Attack = 7
+        Attack = 7,
+
+        /// <summary>Seat starts tier research. Arg0 is the tech index (MVP: tier2). No battalion.</summary>
+        ResearchTech = 8
     }
 }
