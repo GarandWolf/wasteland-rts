@@ -2,7 +2,8 @@
   "name": "Wasteland.Presentation",
   "rootNamespace": "Wasteland.Presentation",
   "references": [
-    "Wasteland.Sim"
+    "Wasteland.Sim",
+    "Wasteland.Audio"
   ],
   "includePlatforms": [],
   "excludePlatforms": [],
