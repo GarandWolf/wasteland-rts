@@ -1159,24 +1159,7 @@ namespace Wasteland.Sim.World
         // TODO: replace this linear scan with a spatial index when maps get large.
         private int NearestNodeId(int xCm, int yCm)
         {
-            int bestIndex = 0;
-            int bestId = _roads.GetNodeId(0);
-            long bestDist = long.MaxValue;
-            for (int i = 0; i < _roads.NodeCount; i++)
-            {
-                long dx = (long)_roads.GetNodeXCm(i) - xCm;
-                long dy = (long)_roads.GetNodeYCm(i) - yCm;
-                long dist = (dx * dx) + (dy * dy);
-                int id = _roads.GetNodeId(i);
-                if (dist < bestDist || (dist == bestDist && id < bestId))
-                {
-                    bestDist = dist;
-                    bestId = id;
-                    bestIndex = i;
-                }
-            }
-
-            return _roads.GetNodeId(bestIndex);
+            return _roads.NearestNodeId(xCm, yCm);
         }
 
         private void AdvanceResearch()

@@ -55,7 +55,18 @@ namespace Wasteland.Sim.Ai
         public readonly int Hp;
         public readonly int MaxHp;
 
+        /// <summary>
+        /// Attack order for the viewing seat's own battalion. Enemy and
+        /// neutral battalions leave this at 0. Their intent stays hidden.
+        /// </summary>
+        public readonly int AttackTargetId;
+
         public AiCombatantView(int id, int ownerSeat, int xCm, int yCm, int nodeId, int hp, int maxHp)
+            : this(id, ownerSeat, xCm, yCm, nodeId, hp, maxHp, 0)
+        {
+        }
+
+        public AiCombatantView(int id, int ownerSeat, int xCm, int yCm, int nodeId, int hp, int maxHp, int attackTargetId)
         {
             Id = id;
             OwnerSeat = ownerSeat;
@@ -64,6 +75,7 @@ namespace Wasteland.Sim.Ai
             NodeId = nodeId;
             Hp = hp;
             MaxHp = maxHp;
+            AttackTargetId = attackTargetId;
         }
     }
 

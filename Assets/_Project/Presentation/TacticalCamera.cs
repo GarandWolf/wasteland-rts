@@ -18,6 +18,8 @@ namespace Wasteland.Presentation
         float _minZ;
         float _maxZ;
         bool _bounded;
+        Vector2 _rightPress;
+        bool _rightHeld;
 
         public Camera Camera
         {
@@ -157,6 +159,46 @@ namespace Wasteland.Presentation
             }
 
             screen = mouse.position.ReadValue();
+            return true;
+        }
+
+        /// <summary>
+        /// A right click that did not drag. Dragging still pans. The top HUD strip is ignored.
+        /// </summary>
+        public bool TryConsumeOrderClick(out Vector2 screen)
+        {
+            screen = default;
+            Mouse mouse = Mouse.current;
+            if (mouse == null)
+            {
+                return false;
+            }
+
+            if (mouse.rightButton.wasPressedThisFrame)
+            {
+                _rightPress = mouse.position.ReadValue();
+                _rightHeld = true;
+            }
+
+            if (!mouse.rightButton.wasReleasedThisFrame || !_rightHeld)
+            {
+                return false;
+            }
+
+            _rightHeld = false;
+            screen = mouse.position.ReadValue();
+            float dx = screen.x - _rightPress.x;
+            float dy = screen.y - _rightPress.y;
+            if ((dx * dx) + (dy * dy) > 36f)
+            {
+                return false;
+            }
+
+            if (screen.y > Screen.height - 110f)
+            {
+                return false;
+            }
+
             return true;
         }
 

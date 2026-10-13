@@ -216,29 +216,12 @@ namespace Wasteland.Sim.Ai
 
         public int GetNearestNodeId(int xCm, int yCm)
         {
-            if (_roads == null || _roads.NodeCount < 1)
+            if (_roads == null)
             {
                 return 0;
             }
 
-            int bestIndex = 0;
-            int bestId = _roads.GetNodeId(0);
-            long bestDist = long.MaxValue;
-            for (int i = 0; i < _roads.NodeCount; i++)
-            {
-                long dx = (long)_roads.GetNodeXCm(i) - xCm;
-                long dy = (long)_roads.GetNodeYCm(i) - yCm;
-                long dist = (dx * dx) + (dy * dy);
-                int id = _roads.GetNodeId(i);
-                if (dist < bestDist || (dist == bestDist && id < bestId))
-                {
-                    bestDist = dist;
-                    bestId = id;
-                    bestIndex = i;
-                }
-            }
-
-            return _roads.GetNodeId(bestIndex);
+            return _roads.NearestNodeId(xCm, yCm);
         }
 
         public CommandRejectReason PreviewDepotPlacement(int factionId, int nodeId, out int param0, out int param1)
@@ -318,6 +301,8 @@ namespace Wasteland.Sim.Ai
                 }
 
                 int nodeId = GetNearestNodeId(battalion.PositionXCm, battalion.PositionYCm);
+                // Own orders only. Enemy and neutral intent stays hidden.
+                int attackTargetId = battalion.OwnerId == factionId ? battalion.AttackTargetId : 0;
                 into.Add(new AiCombatantView(
                     battalion.Id,
                     battalion.OwnerId,
@@ -325,7 +310,8 @@ namespace Wasteland.Sim.Ai
                     battalion.PositionYCm,
                     nodeId,
                     battalion.Hp,
-                    battalion.MaxHp));
+                    battalion.MaxHp,
+                    attackTargetId));
             }
         }
 

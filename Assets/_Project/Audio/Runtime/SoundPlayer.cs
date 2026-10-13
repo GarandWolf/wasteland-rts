@@ -29,6 +29,11 @@ namespace Wasteland.Audio
             get { return _bank; }
         }
 
+        public void UseBank(SoundBank bank)
+        {
+            _bank = bank;
+        }
+
         private void Reset()
         {
             ConfigureUiSource();
