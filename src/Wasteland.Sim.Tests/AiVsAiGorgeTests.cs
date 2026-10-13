@@ -402,7 +402,7 @@ namespace Wasteland.Sim.Tests
         [Fact]
         public void SaveLoadOnEvent15Tick_MatchesHash()
         {
-            Assert.Equal(12, AiConstants.StateSchemaVersion);
+            Assert.Equal(13, AiConstants.StateSchemaVersion);
             Assert.Equal(SimWorld.WorldStateSchema, WorldSchemaOf(new SimWorld(new MatchConfig(1UL, 0)).Save()));
             AiMatchHost original = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
             int cursor = 0;
@@ -498,9 +498,47 @@ namespace Wasteland.Sim.Tests
         /// AI-vs-AI Gorge with seat income. <see cref="SimWorld.HashState"/> at tick 20000,
         /// after Compact has put a contest unit inside Goldendale.
         /// </summary>
-        public const ulong ExpectedAiVsAiGorgeIncomeWorldKey = 0x54D683BFEA38C584UL;
+        public const ulong ExpectedAiVsAiGorgeIncomeWorldKey = 0x3EB6A2979749053DUL;
 
         public const int AiVsAiGorgeIncomePinTick = 20000;
+
+        [Fact]
+        public void AiVsAiGorgeIncome_SaveAfterHqCommit_MatchesStraightWorldHash()
+        {
+            AiBalanceTables balance = BalanceLoad.Tables();
+            AiMatchHost straight = Start(MatchSeed, AiConstants.DifficultyNormal, balance);
+            int saveTick = -1;
+            while (straight.Tick < AiVsAiGorgeIncomePinTick && saveTick < 0)
+            {
+                straight.Run(1);
+                if (straight.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA).HqCommit != 0
+                    || straight.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionB).HqCommit != 0)
+                {
+                    saveTick = straight.Tick;
+                }
+            }
+
+            Assert.True(saveTick > 0, "HqCommit was never set before tick " + AiVsAiGorgeIncomePinTick + ".");
+            byte[] blob = straight.Ai.Save();
+            SimCommand[] log = CopyLog(straight.CommandLog);
+            straight.Run(AiVsAiGorgeIncomePinTick - straight.Tick);
+            ulong atEnd = straight.World.HashState();
+
+            AiMatchHost restored = AiMatchHost.ReplayTo(
+                MatchConfig.Default(MatchSeed),
+                AiSeamsTests.LoadGorgeV1Bytes(),
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                AiConstants.DifficultyNormal,
+                balance,
+                log,
+                blob,
+                saveTick);
+            restored.Run(AiVsAiGorgeIncomePinTick - restored.Tick);
+            Assert.Equal(atEnd, restored.World.HashState());
+            Assert.Equal(ExpectedAiVsAiGorgeIncomeWorldKey, atEnd);
+            restored.Shutdown();
+            straight.Shutdown();
+        }
 
         [Fact]
         public void AiVsAiGorgeIncome_WorldHash_AtTick20000()
@@ -529,7 +567,7 @@ namespace Wasteland.Sim.Tests
                 }
             }
 
-            Assert.Equal(14638, entered);
+            Assert.Equal(14598, entered);
             host.Shutdown();
         }
 
@@ -652,7 +690,7 @@ namespace Wasteland.Sim.Tests
                 Assert.True(contestTick < contestBeforeTick);
                 Assert.True(contestTown == goldendale || contestTown == hoodRiver);
                 Assert.True(peakBeds >= 1 && peakBedTick >= 0);
-                Assert.Equal(14638, compactEnterTick);
+                Assert.Equal(14598, compactEnterTick);
                 Assert.InRange(attackTick, dallesCapture + 1, dallesCapture + followUpWindowTicks);
                 host.Shutdown();
                 return;

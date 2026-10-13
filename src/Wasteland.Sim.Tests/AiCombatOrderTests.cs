@@ -32,7 +32,7 @@ namespace Wasteland.Sim.Tests
             Assert.NotEqual((int)AiCommandReject.TargetNotEnemy, (int)CommandRejectReason.TargetNotEnemy);
             Assert.NotEqual((int)AiCommandReject.NotArmed, (int)CommandRejectReason.NotArmed);
             Assert.NotEqual((int)AiCommandReject.TargetIsSelf, (int)CommandRejectReason.TargetIsSelf);
-            Assert.Equal(12, AiConstants.StateSchemaVersion);
+            Assert.Equal(13, AiConstants.StateSchemaVersion);
             Assert.Equal(SimWorld.WorldStateSchema, WorldSchemaOf(new SimWorld(new MatchConfig(1UL, 0)).Save()));
         }
 
@@ -90,7 +90,7 @@ namespace Wasteland.Sim.Tests
                 Assert.NotEqual(board.NearOwnId, board.Sink.Log[i].Arg0);
             }
 
-            Assert.Equal(1, attacks);
+            Assert.Equal(2, attacks);
             Assert.Equal(board.GarrisonId, attackTarget);
             Assert.Equal(board.EnemyTown, board.Faction.AttackTargetTownId);
         }
@@ -156,7 +156,7 @@ namespace Wasteland.Sim.Tests
             Assert.Equal(1, defenderAttacks);
 
             byte[] blob = board.Owned.Save(1UL, 2UL, 3UL);
-            Assert.Equal(12, blob[0] | (blob[1] << 8) | (blob[2] << 16) | (blob[3] << 24));
+            Assert.Equal(13, blob[0] | (blob[1] << 8) | (blob[2] << 16) | (blob[3] << 24));
             AiFactionState loadedFaction = Board.MakeFaction(board.Faction.HomeTownId, board.HqNode);
             AiOwnedState loaded = new AiOwnedState(new[] { loadedFaction }, 2);
             loaded.Load(blob, 1UL, 2UL, 3UL);
@@ -166,7 +166,7 @@ namespace Wasteland.Sim.Tests
                 CommandKind.Attack,
                 board.GarrisonId,
                 0));
-            Assert.Equal(12, AiConstants.StateSchemaVersion);
+            Assert.Equal(13, AiConstants.StateSchemaVersion);
         }
 
         [Fact]
@@ -309,7 +309,7 @@ namespace Wasteland.Sim.Tests
             }
 
             Assert.Equal(1, hqMoves);
-            Assert.Equal(1, attacks);
+            Assert.Equal(2, attacks);
             Assert.Equal(40, AiCombatTable.RecallCap(40));
             Assert.True(AiAttackDefend.StrengthAllowsAttack(100, 40, AiCombatTable.HqRecallMarginPpt));
             Assert.Equal(1, AiCombatTable.CountToCover(new[] { 100 }, 1, 40));

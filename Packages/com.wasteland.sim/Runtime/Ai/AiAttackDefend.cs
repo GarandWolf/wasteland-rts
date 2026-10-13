@@ -96,7 +96,6 @@ namespace Wasteland.Sim.Ai
         private readonly int[] _edgeNode = new int[8];
         private readonly int[] _edgeX = new int[8];
         private readonly int[] _edgeY = new int[8];
-        private readonly int[] _hqCommit = new int[8];
         private bool _forceHqMarch;
         private int[] _rankId = Array.Empty<int>();
         private int[] _rankDist = Array.Empty<int>();
@@ -816,47 +815,26 @@ namespace Wasteland.Sim.Ai
                 prizeTerritoryKey,
                 out enemyHq);
             bool canExtendSupply = SupplyExtensionPendingOrAffordable(tick, faction, seat);
-            bool largeMap = graph.NodeCount > 512;
-            _forceHqMarch = false;
-            int factionSlot = faction.FactionId;
-            bool committedHq = false;
-            if (largeMap && haveEnemyHq && factionSlot > 0 && factionSlot < _hqCommit.Length)
+            if (haveEnemyHq)
             {
-                if (canExtendSupply)
-                {
-                    _hqCommit[factionSlot] = 1;
-                }
-
-                committedHq = _hqCommit[factionSlot] != 0;
+                faction.HqCommit = canExtendSupply ? 1 : 0;
+            }
+            else
+            {
+                faction.HqCommit = 0;
             }
 
+            bool committedHq = haveEnemyHq && faction.HqCommit != 0;
             bool hqOutOfSupply = haveEnemyHq
-                && (largeMap
-                    ? !committedHq
-                    : HqOutOfSupply(
-                        faction,
-                        graph,
-                        enemyHq.NodeId,
-                        networkNodeIds,
-                        networkCount,
-                        supplyReachCm));
-            if (committedHq)
-            {
-                _forceHqMarch = true;
-                if (!AdoptAttackTown(
+                && !committedHq
+                && HqOutOfSupply(
                     faction,
-                    enemyHq,
-                    battalions,
-                    battalionCount,
-                    out target,
-                    out own,
-                    out defender))
-                {
-                    return;
-                }
-            }
-
-            if (hqOutOfSupply && canExtendSupply)
+                    graph,
+                    enemyHq.NodeId,
+                    networkNodeIds,
+                    networkCount,
+                    supplyReachCm);
+            if (committedHq)
             {
                 if (!AdoptAttackTown(
                     faction,
@@ -905,7 +883,7 @@ namespace Wasteland.Sim.Ai
                         return;
                     }
                 }
-                else if (graph.NodeCount <= 512)
+                else
                 {
                     MarchToSupplyEdge(
                         tick,
@@ -917,19 +895,6 @@ namespace Wasteland.Sim.Ai
                         networkCount,
                         enemyHq.NodeId,
                         supplyReachCm);
-                    RaiseWhileOutmatched(
-                        tick,
-                        faction,
-                        seat,
-                        towns,
-                        townCount,
-                        battalions,
-                        battalionCount,
-                        enemyHq);
-                    return;
-                }
-                else
-                {
                     RaiseWhileOutmatched(
                         tick,
                         faction,
@@ -1012,9 +977,14 @@ namespace Wasteland.Sim.Ai
                 }
             }
 
-            bool hqMarch = _forceHqMarch && haveEnemyHq && target.Id == enemyHq.Id;
+            bool hqMarch = committedHq && target.Id == enemyHq.Id;
             if (!StrengthAllowsAttack(own, defender, attackStrengthRatioPpt))
             {
+                if (hqMarch)
+                {
+                    ReserveDepotSavings();
+                }
+
                 RaiseWhileOutmatched(
                     tick,
                     faction,
@@ -1024,29 +994,18 @@ namespace Wasteland.Sim.Ai
                     battalions,
                     battalionCount,
                     target);
-                if (!hqMarch)
-                {
-                    return;
-                }
+                return;
             }
 
-            bool needsDepot = hqMarch && largeMap
-                ? HqOutOfSupply(
-                    faction,
-                    graph,
-                    target.NodeId,
-                    networkNodeIds,
-                    networkCount,
-                    supplyReachCm)
-                : TargetOutOfSupply(
-                    graph,
-                    target.NodeId,
-                    networkNodeIds,
-                    networkCount,
-                    faction,
-                    supplyReachCm);
-            if (needsDepot)
+            if (TargetOutOfSupply(
+                graph,
+                target.NodeId,
+                networkNodeIds,
+                networkCount,
+                faction,
+                supplyReachCm))
             {
+                int rejectBefore = faction.LastRejectCode;
                 TryPlaceForwardDepot(
                     tick,
                     faction,
@@ -1060,10 +1019,39 @@ namespace Wasteland.Sim.Ai
                     networkCount,
                     target.NodeId,
                     supplyReachCm);
-                if (!hqMarch)
+                if (!hqMarch || faction.LastRejectCode != rejectBefore)
                 {
                     return;
                 }
+            }
+
+            if (hqMarch)
+            {
+                int ordered = MarchHqGroup(tick, faction, battalions, battalionCount, target);
+                if (ordered == 0 && faction.LastRejectCode == 0)
+                {
+                    string raiseId = AffordableCombatUnit(
+                        seat,
+                        battalions,
+                        battalionCount,
+                        GarrisonShort(faction, towns, townCount));
+                    int raiseX;
+                    int raiseY;
+                    RallyForRaise(
+                        prizeMarch,
+                        prizeGroupReady,
+                        raiseId,
+                        towns,
+                        townCount,
+                        faction.HomeTownId,
+                        target.XCm,
+                        target.YCm,
+                        out raiseX,
+                        out raiseY);
+                    TryRaise(tick, faction, seat, raiseId, raiseX, raiseY);
+                }
+
+                return;
             }
 
             int battalionId = NearestIdle(
@@ -1075,10 +1063,7 @@ namespace Wasteland.Sim.Ai
                 string.Empty,
                 false,
                 true,
-                target.Id,
-                hqMarch,
-                target.XCm,
-                target.YCm);
+                target.Id);
             if (_budgetDeferred)
             {
                 return;
@@ -1200,6 +1185,63 @@ namespace Wasteland.Sim.Ai
             reserved.Add(0, 0, materiel, fuelReserve);
         }
 
+        public void ClearPlanningCaches()
+        {
+            Array.Clear(_waypointTown, 0, _waypointTown.Length);
+            Array.Clear(_waypointSites, 0, _waypointSites.Length);
+            Array.Clear(_waypointCached, 0, _waypointCached.Length);
+            Array.Clear(_hqOutSites, 0, _hqOutSites.Length);
+            Array.Clear(_hqOutCached, 0, _hqOutCached.Length);
+            Array.Clear(_hqOutValue, 0, _hqOutValue.Length);
+            Array.Clear(_edgeCached, 0, _edgeCached.Length);
+            Array.Clear(_edgeSites, 0, _edgeSites.Length);
+            Array.Clear(_edgeNode, 0, _edgeNode.Length);
+            Array.Clear(_edgeX, 0, _edgeX.Length);
+            Array.Clear(_edgeY, 0, _edgeY.Length);
+            _forceHqMarch = false;
+        }
+
+        private int MarchHqGroup(
+            int tick,
+            AiFactionState faction,
+            AiBattalionPin[] battalions,
+            int battalionCount,
+            AiAttackTownInfo target)
+        {
+            _forceHqMarch = true;
+            int ordered = 0;
+            for (int i = 0; i < battalionCount; i++)
+            {
+                AiBattalionPin pin = battalions[i];
+                if (pin.Assigned || IsHeld(faction, pin.Id) || IsEngineerOrSupply(pin.UnitId))
+                {
+                    continue;
+                }
+
+                if (!UnitCanCapture(pin.UnitId, pin.Id))
+                {
+                    continue;
+                }
+
+                if (AlreadyOnTheWay(faction.FactionId, pin.Id, target.XCm, target.YCm))
+                {
+                    continue;
+                }
+
+                if (IssueClaimMarch(tick, faction, pin.Id, pin.UnitId, target))
+                {
+                    NoteMarched(pin.Id);
+                    ordered++;
+                    continue;
+                }
+
+                break;
+            }
+
+            _forceHqMarch = false;
+            return ordered;
+        }
+
         private bool HqOutOfSupply(
             AiFactionState faction,
             Wasteland.Sim.Movement.RoadGraph graph,
@@ -1310,22 +1352,7 @@ namespace Wasteland.Sim.Ai
             }
 
             int stepId = 0;
-            if (!_budgetDeferred && graph.NodeCount > 512)
-            {
-                stepId = PickAttackTarget(
-                    faction,
-                    towns,
-                    townCount,
-                    graph,
-                    fromNodeId,
-                    networkNodeIds,
-                    networkCount,
-                    supplyReachCm,
-                    prizeTerritoryKey,
-                    prizeTargetBonusPpt,
-                    true);
-            }
-            else if (!_budgetDeferred)
+            if (!_budgetDeferred)
             {
                 stepId = PickRouteWaypoint(
                     faction,
@@ -2008,8 +2035,12 @@ namespace Wasteland.Sim.Ai
 
             int buildId = _commands.SubmitBuildDepot(faction.FactionId, engineerId, bestNode);
             Issue(tick, faction, buildId);
-            if (_commands.RejectOf(buildId) == AiCommandReject.None
-                && _depots.TryGet(faction.FactionId, bestNode, out AiDepotReadback built))
+            if (_commands.RejectOf(buildId) != AiCommandReject.None)
+            {
+                return;
+            }
+
+            if (_depots.TryGet(faction.FactionId, bestNode, out AiDepotReadback built))
             {
                 faction.DepotSiteTick = built.SiteTick;
                 faction.DepotActiveTick = built.ActiveTick;

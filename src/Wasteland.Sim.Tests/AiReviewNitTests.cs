@@ -386,7 +386,7 @@ namespace Wasteland.Sim.Tests
             AiMatchHost host = StartHost(balance, factions);
             try
             {
-                Assert.Equal(12, AiConstants.StateSchemaVersion);
+                Assert.Equal(13, AiConstants.StateSchemaVersion);
                 Assert.Empty(host.HumanSeats);
                 ulong hash = host.HashWorld();
                 byte[] blob = host.Ai.Save();

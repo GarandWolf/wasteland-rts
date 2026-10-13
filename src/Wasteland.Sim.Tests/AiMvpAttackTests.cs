@@ -663,10 +663,27 @@ namespace Wasteland.Sim.Tests
             harness.Towns[30] = Enemy(2, 1);
             harness.SetBattalions(Idle(5, 1), Idle(6, 1));
             harness.Tick();
-            Assert.Single(harness.Sink.Log);
-            Assert.Equal(AiIssuedKind.RaiseBattalion, harness.Sink.Log[0].Kind);
-            Assert.True(harness.Catalog.TryGetRole(harness.Sink.Log[0].UnitId, out string raiseRole));
-            Assert.Equal(AiConstants.RoleEngineer, raiseRole);
+            int engineerRaises = 0;
+            int capturerOrders = 0;
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                AiIssuedCommand cmd = harness.Sink.Log[i];
+                if (cmd.Kind == AiIssuedKind.RaiseBattalion)
+                {
+                    Assert.True(harness.Catalog.TryGetRole(cmd.UnitId, out string raiseRole));
+                    Assert.Equal(AiConstants.RoleEngineer, raiseRole);
+                    engineerRaises++;
+                }
+
+                if ((cmd.Kind == AiIssuedKind.Move || cmd.Kind == AiIssuedKind.ClaimTown)
+                    && (cmd.Arg0 == 5 || cmd.Arg0 == 6))
+                {
+                    capturerOrders++;
+                }
+            }
+
+            Assert.Equal(1, engineerRaises);
+            Assert.True(capturerOrders >= 2, "both capturers should march once the strength ratio passes");
         }
 
         [Fact]
@@ -728,14 +745,15 @@ namespace Wasteland.Sim.Tests
             harness.SetBattalions(Idle(5, 1), Idle(6, 1));
             harness.Sink.NextReject = AiCommandReject.Rejected;
             harness.Tick(0);
-            Assert.Single(harness.Sink.Log);
+            Assert.True(harness.Sink.Log.Count >= 1);
             Assert.Equal((int)AiCommandReject.Rejected, harness.Faction.LastRejectCode);
             int until = harness.Faction.RejectBackoffUntilTick;
             Assert.Equal(AiAttackDefend.RejectBackoffStartTicks, until);
+            int count = harness.Sink.Log.Count;
             harness.Tick(1);
-            Assert.Single(harness.Sink.Log);
+            Assert.Equal(count, harness.Sink.Log.Count);
             harness.Tick(until);
-            Assert.True(harness.Sink.Log.Count > 1);
+            Assert.True(harness.Sink.Log.Count > count);
         }
 
         [Fact]
@@ -767,7 +785,10 @@ namespace Wasteland.Sim.Tests
             harness.Towns[30] = Enemy(2, 1);
             harness.SetBattalions(Idle(5, 1), Idle(6, 1));
             harness.Tick();
-            Assert.Empty(harness.Sink.Log);
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                Assert.NotEqual(AiIssuedKind.RaiseBattalion, harness.Sink.Log[i].Kind);
+            }
         }
 
         [Fact]
