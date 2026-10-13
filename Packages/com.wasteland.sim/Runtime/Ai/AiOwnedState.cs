@@ -957,6 +957,41 @@ namespace Wasteland.Sim.Ai
             SortBackoff();
         }
 
+        /// <summary>
+        /// Drop backoff rows for a destroyed battalion, including Attack rows
+        /// that named it as the target. Schema stays
+        /// <see cref="AiConstants.StateSchemaVersion"/>.
+        /// </summary>
+        public void ClearBattalionCombatMemory(int battalionId)
+        {
+            if (battalionId == 0)
+            {
+                return;
+            }
+
+            int write = 0;
+            for (int i = 0; i < BackoffCount; i++)
+            {
+                AiOrderBackoffEntry row = _backoff[i];
+                bool drop = row.BattalionId == battalionId
+                    || (row.Kind == (byte)CommandKind.Attack && row.TargetId == battalionId);
+                if (drop)
+                {
+                    continue;
+                }
+
+                _backoff[write] = row;
+                write++;
+            }
+
+            for (int i = write; i < BackoffCount; i++)
+            {
+                _backoff[i] = default;
+            }
+
+            BackoffCount = write;
+        }
+
         public void NoteOrderSuccess(int seatId, int battalionId, CommandKind kind, int targetId)
         {
             int index = IndexOfBackoff(seatId, battalionId, (byte)kind, targetId);
@@ -2024,7 +2059,7 @@ namespace Wasteland.Sim.Ai
                     throw new InvalidDataException("AI order backoff seat or battalion is zero.");
                 }
 
-                if (entry.Kind < (byte)CommandKind.Move || entry.Kind > (byte)CommandKind.BuildDepot)
+                if (entry.Kind < (byte)CommandKind.Move || entry.Kind > (byte)CommandKind.Attack)
                 {
                     throw new InvalidDataException("AI order backoff kind byte is out of range.");
                 }

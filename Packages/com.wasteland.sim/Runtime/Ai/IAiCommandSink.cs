@@ -33,7 +33,19 @@ namespace Wasteland.Sim.Ai
         PopCapReached = 6,
         InsufficientManpower = 7,
         InsufficientMaterials = 8,
-        InsufficientFuel = 9
+        InsufficientFuel = 9,
+
+        /// <summary>Attack target is gone. Not sim reject 27.</summary>
+        UnknownTarget = 14,
+
+        /// <summary>Attack target is not an enemy. Not sim reject 28.</summary>
+        TargetNotEnemy = 15,
+
+        /// <summary>Attacker has no weapon. Not sim reject 29.</summary>
+        NotArmed = 16,
+
+        /// <summary>Attacker and target are the same battalion. Not sim reject 30.</summary>
+        TargetIsSelf = 17
     }
 
     public readonly struct AiIssuedCommand

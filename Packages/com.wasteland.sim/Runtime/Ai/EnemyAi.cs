@@ -50,6 +50,7 @@ namespace Wasteland.Sim.Ai
         private readonly string[] _queuedUnitIds = new string[AiConstants.PendingCommandCapacity];
         private bool _shutdown;
         private bool _homesSeeded;
+        private bool _hqRecallDirty;
         private int _strategicSliceRuns;
 
         private struct Candidate
@@ -333,12 +334,19 @@ namespace Wasteland.Sim.Ai
             int workUnits = 0;
             int phase = tick % AiConstants.TimeSliceModulus;
             bool ranStrategic = false;
+            bool refreshHq = _hqRecallDirty;
+            _hqRecallDirty = false;
 
             for (int i = 0; i < _owned.FactionCount; i++)
             {
                 AiFactionState faction = _owned.FactionAt(i);
                 faction.PathRequestsThisTick = 0;
                 faction.WorkUnitsThisTick = 0;
+                _attackDefend.ExpireAttackOrders(tick, faction);
+                if (refreshHq)
+                {
+                    RefreshHqRecall(faction);
+                }
 
                 if (workUnits >= _balance.WorkUnitsPerTick)
                 {
@@ -700,7 +708,14 @@ namespace Wasteland.Sim.Ai
                         continue;
                     }
 
-                    if (ev.Kind == SimEventKind.BattalionDestroyed || ev.Kind == SimEventKind.MatchEnded)
+                    if (ev.Kind == SimEventKind.BattalionDestroyed)
+                    {
+                        AiAttackDefend.ClearDestroyedBattalion(_owned, ev.SubjectId);
+                        _hqRecallDirty = true;
+                        continue;
+                    }
+
+                    if (ev.Kind == SimEventKind.MatchEnded)
                     {
                         continue;
                     }
@@ -849,6 +864,14 @@ namespace Wasteland.Sim.Ai
                 || reason == CommandRejectReason.PopCapReached)
             {
                 return CommandKind.RaiseBattalion;
+            }
+
+            if (reason == CommandRejectReason.UnknownTarget
+                || reason == CommandRejectReason.TargetNotEnemy
+                || reason == CommandRejectReason.NotArmed
+                || reason == CommandRejectReason.TargetIsSelf)
+            {
+                return CommandKind.Attack;
             }
 
             return CommandKind.Move;
@@ -2220,6 +2243,20 @@ namespace Wasteland.Sim.Ai
             }
 
             return a.Id.CompareTo(b.Id);
+        }
+
+        private void RefreshHqRecall(AiFactionState faction)
+        {
+            int townCount = FillAttackTowns();
+            int battalionCount = FillAttackBattalions(faction);
+            _attackDefend.SyncHqRecall(
+                _world.Tick,
+                faction,
+                _attackTowns,
+                townCount,
+                _attackBattalions,
+                battalionCount,
+                _map.Roads);
         }
 
         private void RunAttackDefend(AiFactionState faction)
