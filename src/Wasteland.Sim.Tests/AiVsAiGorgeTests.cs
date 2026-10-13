@@ -331,9 +331,69 @@ namespace Wasteland.Sim.Tests
                 }
             }
 
-            Assert.Equal(4343, garrisonClear);
+            List<int> contestTicks = new List<int>();
+            List<int> contestKinds = new List<int>();
+            for (int i = 0; i < events.Count; i++)
+            {
+                SimEvent ev = events[i];
+                if (ev.SubjectId != dalles)
+                {
+                    continue;
+                }
+
+                if (ev.Kind != SimEventKind.TownContestStarted && ev.Kind != SimEventKind.TownContestEnded)
+                {
+                    continue;
+                }
+
+                contestTicks.Add(ev.Tick);
+                contestKinds.Add((int)ev.Kind);
+            }
+
+            int pairs = 0;
+            int open = 0;
+            int shortestGap = -1;
+            for (int i = 0; i < contestKinds.Count; i++)
+            {
+                if (contestKinds[i] == (int)SimEventKind.TownContestStarted)
+                {
+                    open++;
+                }
+                else if (contestKinds[i] == (int)SimEventKind.TownContestEnded && open > 0)
+                {
+                    open--;
+                    pairs++;
+                }
+
+                if (contestKinds[i] != (int)SimEventKind.TownContestEnded)
+                {
+                    continue;
+                }
+
+                for (int j = i + 1; j < contestKinds.Count; j++)
+                {
+                    if (contestKinds[j] != (int)SimEventKind.TownContestStarted)
+                    {
+                        continue;
+                    }
+
+                    int gap = contestTicks[j] - contestTicks[i];
+                    if (shortestGap < 0 || gap < shortestGap)
+                    {
+                        shortestGap = gap;
+                    }
+
+                    break;
+                }
+            }
+
+            Assert.Equal(new[] { 10, 11, 10, 11 }, contestKinds);
+            Assert.Equal(new[] { 3683, 4583, 4583, 8282 }, contestTicks);
+            Assert.Equal(2, pairs);
+            Assert.Equal(0, shortestGap);
+            Assert.Equal(4223, garrisonClear);
             Assert.Equal(3683, dallesFight);
-            Assert.Equal(18925, dallesCapture);
+            Assert.Equal(10682, dallesCapture);
             Assert.Equal(-1, matchEnd);
             host.Shutdown();
         }
