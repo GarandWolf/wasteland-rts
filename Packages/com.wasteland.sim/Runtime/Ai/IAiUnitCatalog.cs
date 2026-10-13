@@ -18,6 +18,10 @@ namespace Wasteland.Sim.Ai
 
         bool TryGetManpowerCost(string unitId, out int manpower);
 
+        bool TryGetMaterielCost(string unitId, out int materiel);
+
+        bool TryGetFuelCost(string unitId, out int fuel);
+
         bool TryGetPopCost(string unitId, out int pop);
 
         bool TryGetMovementClass(string unitId, out MovementClass moveClass);

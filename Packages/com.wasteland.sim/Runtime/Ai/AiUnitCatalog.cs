@@ -145,6 +145,20 @@ namespace Wasteland.Sim.Ai
             return true;
         }
 
+        public bool TryGetMaterielCost(string unitId, out int materiel)
+        {
+            int index = IndexOf(unitId);
+            materiel = 0;
+            return index >= 0;
+        }
+
+        public bool TryGetFuelCost(string unitId, out int fuel)
+        {
+            int index = IndexOf(unitId);
+            fuel = 0;
+            return index >= 0;
+        }
+
         public bool TryGetPopCost(string unitId, out int pop)
         {
             int index = IndexOf(unitId);

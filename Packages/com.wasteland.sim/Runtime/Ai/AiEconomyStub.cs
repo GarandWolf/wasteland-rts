@@ -4,11 +4,13 @@ using Wasteland.Sim.World;
 namespace Wasteland.Sim.Ai
 {
     /// <summary>
-    /// AI-owned manpower until the sim owns economy. Rates come from
-    /// <c>economy.json</c> as per-minute integers. Accrual is remainder-carry
-    /// on <c>incomeAccrual.intervalTicks</c>. Difficulty applies
-    /// <c>rules.json</c> <c>difficulty.*.incomeMultiplierPpt</c>. Contested
-    /// holdings pay only when <c>contestedHoldingPaysIncome</c> is true.
+    /// Read-only mirror of live seat manpower. The sim pays income. This
+    /// type does not accrue a second stock. <see cref="IncomePerMinute"/> is
+    /// the planning rate: HQ plus holding tiers, then faction and difficulty
+    /// ppt. With a world, the tier is <see cref="TownView.Tier"/> (the band
+    /// checked against <c>derived.territories[].places</c>), not map
+    /// population class. Contested holdings pay only when
+    /// <c>contestedHoldingPaysIncome</c> is true.
     /// </summary>
     public sealed class AiEconomyStub : IAiEconomy
     {
@@ -49,6 +51,28 @@ namespace Wasteland.Sim.Ai
             bool contestedPays = _balance.ContestedHoldingPaysIncome;
             for (int i = 0; i < _map.TownCount; i++)
             {
+                AiTownRecord town = _map.TownAt(i);
+                if (_world != null)
+                {
+                    if (!_world.TryGetTown(town.Id, out TownView view))
+                    {
+                        continue;
+                    }
+
+                    if (view.OwnerFactionId != factionId || view.Tier < 0)
+                    {
+                        continue;
+                    }
+
+                    if (!contestedPays && view.Contested)
+                    {
+                        continue;
+                    }
+
+                    baseIncome += _balance.IncomePerMinForClass(view.Tier);
+                    continue;
+                }
+
                 if (_owned.TownOwnerAt(i) != factionId)
                 {
                     continue;
@@ -59,7 +83,7 @@ namespace Wasteland.Sim.Ai
                     continue;
                 }
 
-                baseIncome += _balance.IncomePerMinForClass(_map.TownAt(i).PopulationClass);
+                baseIncome += _balance.IncomePerMinForClass(town.PopulationClass);
             }
 
             int modified = ApplyPpt(baseIncome, _balance.ManpowerModifierPpt(personality.EconomyFactionId));
@@ -68,23 +92,17 @@ namespace Wasteland.Sim.Ai
 
         public void AccrueTick(int tick)
         {
-            int interval = _balance.AccrualIntervalTicks;
-            if (tick < 1 || interval < 1 || (tick % interval) != 0)
+            if (_world == null || tick < 0)
             {
                 return;
             }
 
-            int perMinute = _balance.AccrualIntervalsPerMinute;
             for (int i = 0; i < _owned.FactionCount; i++)
             {
                 AiFactionState faction = _owned.FactionAt(i);
-                int income = IncomePerMinute(faction.FactionId);
-                faction.ManpowerCarry += income;
-                int gained = faction.ManpowerCarry / perMinute;
-                if (gained != 0)
+                if (_world.TryGetSeat(faction.FactionId, out SeatView live))
                 {
-                    faction.Manpower += gained;
-                    faction.ManpowerCarry -= gained * perMinute;
+                    faction.Manpower = live.Manpower;
                 }
             }
         }

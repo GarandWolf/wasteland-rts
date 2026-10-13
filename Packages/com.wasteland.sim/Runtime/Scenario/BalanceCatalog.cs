@@ -471,6 +471,32 @@ namespace Wasteland.Sim.Scenario
             return true;
         }
 
+        public bool TryGetMaterielCost(string unitId, out int materiel)
+        {
+            int index = UnitIndex(unitId);
+            if (index < 0)
+            {
+                materiel = 0;
+                return false;
+            }
+
+            materiel = _unitMateriel[index];
+            return true;
+        }
+
+        public bool TryGetFuelCost(string unitId, out int fuel)
+        {
+            int index = UnitIndex(unitId);
+            if (index < 0)
+            {
+                fuel = 0;
+                return false;
+            }
+
+            fuel = _unitFuel[index];
+            return true;
+        }
+
         public bool TryGetBuildingRole(string buildingId, out string role)
         {
             if (buildingId == null)

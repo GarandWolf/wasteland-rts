@@ -245,13 +245,18 @@ namespace Wasteland.Sim.Tests
         public void EconomyAccrual_MatchesEconomyJsonPerMinute()
         {
             AiMatchHost host = StartOneFaction();
-            AiEconomyStub economy = new AiEconomyStub(host.Ai.Map, host.Ai.Owned, host.Ai.Balance, (ICaptureOccupancyView)host.Ai.Commands);
+            AiEconomyStub economy = new AiEconomyStub(
+                host.Ai.Map,
+                host.Ai.Owned,
+                host.Ai.Balance,
+                (ICaptureOccupancyView)host.Ai.Commands,
+                (ISimWorldView)host.Ai.Commands);
             int remnant = AiConstants.DefaultAiFactionA;
             int start = host.Ai.ManpowerOf(remnant);
             Assert.Equal(300, start);
             int perMin = economy.IncomePerMinute(remnant);
             Assert.Equal(host.Ai.ManpowerIncomePerMinute(remnant), perMin);
-            Assert.Equal(18, perMin);
+            Assert.Equal(32, perMin);
 
             AiBalanceTables tables = host.Ai.Balance;
             Assert.Equal(2, tables.IncomePerMinForClass(0));
@@ -267,7 +272,7 @@ namespace Wasteland.Sim.Tests
                 economy.AccrueTick(tick);
             }
 
-            Assert.Equal(start + perMin, host.Ai.ManpowerOf(remnant));
+            Assert.Equal(start, host.Ai.ManpowerOf(remnant));
             host.Shutdown();
         }
 

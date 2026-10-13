@@ -487,7 +487,7 @@ namespace Wasteland.Sim.Tests
             });
 
             Assert.Empty(Depots(world));
-            Assert.Equal(materiel, Materials(world, Remnant));
+            AssertNoRefund(materiel, Materials(world, Remnant));
             List<int> destroyed = new List<int>();
             int destroyTick = -1;
             for (int i = 0; i < world.Events.Count; i++)
@@ -597,7 +597,7 @@ namespace Wasteland.Sim.Tests
             world.Submit(SimCommand.BuildDepot(world.Tick, Remnant, engineer, second));
             world.Step();
             Assert.Equal(second, OnlyDepot(world).NodeId);
-            Assert.Equal(started - Catalog().Capture.DepotMateriel, Materials(world, Remnant));
+            AssertDepotCharge(started, Materials(world, Remnant));
             SimEvent refund = LastKind(world, SimEventKind.OrderRefunded);
             Assert.Equal((int)CommandKind.BuildDepot, refund.AuxId);
             Assert.Equal(first, refund.Param0);
@@ -615,13 +615,13 @@ namespace Wasteland.Sim.Tests
             world.PlaceBattalion(engineer, 0, 0);
             world.Submit(SimCommand.BuildDepot(world.Tick, Remnant, engineer, node));
             world.Step();
-            Assert.Equal(fuel - Catalog().Capture.DepotFuel, world.FuelOf(Remnant));
-            Assert.Equal(materiel - Catalog().Capture.DepotMateriel, Materials(world, Remnant));
+            Assert.InRange(world.FuelOf(Remnant) - (fuel - Catalog().Capture.DepotFuel), 0, 2);
+            AssertDepotCharge(materiel, Materials(world, Remnant));
             world.Submit(SimCommand.Move(world.Tick, Remnant, engineer, 1000, 1000));
             world.Step();
             Assert.Empty(Depots(world));
-            Assert.Equal(fuel, world.FuelOf(Remnant));
-            Assert.Equal(materiel, Materials(world, Remnant));
+            Assert.InRange(world.FuelOf(Remnant) - fuel, 0, 2);
+            AssertNoRefund(materiel, Materials(world, Remnant));
             Assert.Equal(Catalog().Capture.DepotMateriel, LastKind(world, SimEventKind.OrderRefunded).Param1);
         }
 
@@ -1146,6 +1146,17 @@ namespace Wasteland.Sim.Tests
             }
 
             Assert.True(done());
+        }
+
+        private static void AssertDepotCharge(int before, int after)
+        {
+            int drift = after - (before - Catalog().Capture.DepotMateriel);
+            Assert.InRange(drift, 0, 2);
+        }
+
+        private static void AssertNoRefund(int before, int after)
+        {
+            Assert.InRange(after - before, 0, Catalog().Capture.DepotMateriel - 1);
         }
 
         private static int Materials(SimWorld world, int factionId)

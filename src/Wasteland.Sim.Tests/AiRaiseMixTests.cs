@@ -171,6 +171,8 @@ namespace Wasteland.Sim.Tests
             string lineId = AiMvpAttackTests.FirstRoleOrTarget(seat, catalog, AiConstants.RoleLineInfantry, null);
             Assert.True(catalog.TryGetManpowerCost(lineId, out int lineCost));
             FixtureAiSeatView view = new FixtureAiSeatView();
+            view.Materials = 100000;
+            view.Fuel = 100000;
 
             view.Manpower = lineCost - 1;
             AssertRole(
@@ -199,6 +201,8 @@ namespace Wasteland.Sim.Tests
             IAiUnitCatalog catalog = tables.UnitCatalog;
             int ratio = tables.GetPersonality(AiConstants.PersonalityWarlord).LineUnitsPerAntiArmour;
             FixtureAiSeatView view = new FixtureAiSeatView();
+            view.Materials = 100000;
+            view.Fuel = 100000;
             view.CurrentTier = 1;
             view.Manpower = seat.StartingManpower;
 
@@ -264,6 +268,8 @@ namespace Wasteland.Sim.Tests
             IAiUnitCatalog catalog = tables.UnitCatalog;
             int ratio = tables.GetPersonality(AiConstants.PersonalitySettler).LineUnitsPerAntiArmour;
             FixtureAiSeatView view = new FixtureAiSeatView();
+            view.Materials = 100000;
+            view.Fuel = 100000;
             view.Manpower = seat.StartingManpower;
             AssertRole(
                 AiAttackDefend.SelectRaiseUnit(seat, catalog, view, System.Array.Empty<AiBattalionPin>(), 0, ratio, true, false),
@@ -330,6 +336,8 @@ namespace Wasteland.Sim.Tests
             AiBalanceTables tables = AiBalanceTablesTests.LoadBalance();
             AiScenarioSeatView seat = CompactSeat();
             FixtureAiSeatView view = new FixtureAiSeatView();
+            view.Materials = 100000;
+            view.Fuel = 100000;
             view.Manpower = seat.StartingManpower;
             view.HasSeenEnemyArmourOrMech = seenArmour;
             return new MixContext(

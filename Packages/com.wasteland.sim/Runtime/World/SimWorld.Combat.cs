@@ -16,8 +16,8 @@ namespace Wasteland.Sim.World
         public const int MatchReasonHqCaptured = 1;
         public const int MatchReasonDraw = 2;
 
-        /// <summary>World snapshot schema. A version 11 blob is refused.</summary>
-        public const int WorldStateSchema = 13;
+        /// <summary>World snapshot schema. A version 13 blob is refused.</summary>
+        public const int WorldStateSchema = 14;
 
         private CombatTerrain _terrain;
         private int[] _pendingDamage = Array.Empty<int>();
@@ -67,6 +67,12 @@ namespace Wasteland.Sim.World
                     writer.Write(seat.TierResearchCompleteTick);
                     writer.Write(seat.ResearchStartTick);
                     writer.Write(seat.AutoResearchCursor);
+                    writer.Write(seat.Manpower);
+                    writer.Write(seat.Materials);
+                    writer.Write(seat.Fuel);
+                    writer.Write(seat.ManpowerCarry);
+                    writer.Write(seat.MaterielCarry);
+                    writer.Write(seat.FuelCarry);
                 }
 
                 writer.Flush();
@@ -143,6 +149,12 @@ namespace Wasteland.Sim.World
                     int complete = reader.ReadInt32();
                     int start = reader.ReadInt32();
                     int cursor = reader.ReadInt32();
+                    int manpower = reader.ReadInt32();
+                    int materials = reader.ReadInt32();
+                    int fuel = reader.ReadInt32();
+                    int manpowerCarry = reader.ReadInt32();
+                    int materielCarry = reader.ReadInt32();
+                    int fuelCarry = reader.ReadInt32();
                     int seatIndex = FindSeat(factionId);
                     if (seatIndex < 0)
                     {
@@ -154,6 +166,12 @@ namespace Wasteland.Sim.World
                     seat.TierResearchCompleteTick = complete;
                     seat.ResearchStartTick = start;
                     seat.AutoResearchCursor = cursor;
+                    seat.Manpower = manpower;
+                    seat.Materials = materials;
+                    seat.Fuel = fuel;
+                    seat.ManpowerCarry = manpowerCarry;
+                    seat.MaterielCarry = materielCarry;
+                    seat.FuelCarry = fuelCarry;
                     _seats[seatIndex] = seat;
                 }
 

@@ -41,8 +41,14 @@ namespace Wasteland.Sim.Scenario
             int depotManpower,
             int depotMateriel,
             int depotFuel,
-            int depotBuildTicks)
+            int depotBuildTicks,
+            IncomeSchedule income)
         {
+            if (income == null)
+            {
+                throw new ArgumentNullException(nameof(income));
+            }
+
             SceneryPopulationBelow = sceneryBelow;
             _popMin = popMin;
             _popMax = popMax;
@@ -63,7 +69,10 @@ namespace Wasteland.Sim.Scenario
             DepotMateriel = depotMateriel;
             DepotFuel = depotFuel;
             DepotBuildTicks = depotBuildTicks;
+            _income = income;
         }
+
+        private readonly IncomeSchedule _income;
 
         public int SceneryPopulationBelow { get; }
 
@@ -94,6 +103,82 @@ namespace Wasteland.Sim.Scenario
         public int DepotFuel { get; }
 
         public int DepotBuildTicks { get; }
+
+        /// <summary><c>economy.json</c> <c>incomeAccrual.intervalTicks</c>.</summary>
+        public int AccrualIntervalTicks
+        {
+            get { return _income.IntervalTicks; }
+        }
+
+        /// <summary><c>economy.json</c> <c>incomeAccrual.intervalsPerMinute</c>.</summary>
+        public int AccrualIntervalsPerMinute
+        {
+            get { return _income.IntervalsPerMinute; }
+        }
+
+        /// <summary><c>economy.json</c> <c>contestedHoldingPaysIncome</c>.</summary>
+        public bool ContestedHoldingPaysIncome
+        {
+            get { return _income.ContestedHoldingPays; }
+        }
+
+        public int HoldingManpowerPerMin(int tier)
+        {
+            return _income.Manpower[tier];
+        }
+
+        public int HoldingMaterielPerMin(int tier)
+        {
+            return _income.Materiel[tier];
+        }
+
+        public int HoldingFuelPerMin(int tier)
+        {
+            return _income.Fuel[tier];
+        }
+
+        /// <summary>
+        /// HQ income and faction ppt modifiers. Missing factions report zero
+        /// HQ income and a 1000 ppt modifier.
+        /// </summary>
+        public bool TryHqIncome(
+            string factionId,
+            out int manpower,
+            out int materiel,
+            out int fuel,
+            out int manpowerPpt,
+            out int materielPpt,
+            out int fuelPpt)
+        {
+            manpower = 0;
+            materiel = 0;
+            fuel = 0;
+            manpowerPpt = 1000;
+            materielPpt = 1000;
+            fuelPpt = 1000;
+            if (factionId == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < _income.FactionIds.Length; i++)
+            {
+                if (_income.FactionIds[i] != factionId)
+                {
+                    continue;
+                }
+
+                manpower = _income.HqManpower[i];
+                materiel = _income.HqMateriel[i];
+                fuel = _income.HqFuel[i];
+                manpowerPpt = _income.ManpowerPpt[i];
+                materielPpt = _income.MaterielPpt[i];
+                fuelPpt = _income.FuelPpt[i];
+                return true;
+            }
+
+            return false;
+        }
 
         public string TierId(int tier)
         {
@@ -197,6 +282,7 @@ namespace Wasteland.Sim.Scenario
             int fuel;
             int buildTicks;
             ReadDepotCost(buildingsRoot, out manpower, out materiel, out fuel, out buildTicks);
+            IncomeSchedule income = ReadIncome(economyRoot);
             return new CaptureBalance(
                 scenery,
                 popMin,
@@ -217,7 +303,169 @@ namespace Wasteland.Sim.Scenario
                 manpower,
                 materiel,
                 fuel,
-                buildTicks);
+                buildTicks,
+                income);
+        }
+
+        private static IncomeSchedule ReadIncome(JsonValue economyRoot)
+        {
+            IncomeSchedule income = new IncomeSchedule();
+            JsonValue tiers = Child(economyRoot, "holdingTiers", "economy.json $.holdingTiers");
+            if (tiers.Kind != JsonKind.Array)
+            {
+                throw ScenarioErrors.At("economy.json $.holdingTiers", "expected an array.");
+            }
+
+            bool[] seen = new bool[TierCount];
+            for (int i = 0; i < tiers.ArrayValue.Count; i++)
+            {
+                JsonValue row = tiers.ArrayValue[i];
+                string path = "economy.json $.holdingTiers[" + i + "]";
+                string id = TextAt(Child(row, "id", path + ".id"), path + ".id");
+                int index = -1;
+                for (int t = 0; t < TierIds.Length; t++)
+                {
+                    if (TierIds[t] == id)
+                    {
+                        index = t;
+                        break;
+                    }
+                }
+
+                if (index < 0)
+                {
+                    continue;
+                }
+
+                seen[index] = true;
+                JsonValue perMin = Child(row, "incomePerMin", path + ".incomePerMin");
+                income.Manpower[index] = IntAt(
+                    Child(perMin, "manpower", path + ".incomePerMin.manpower"),
+                    path + ".incomePerMin.manpower",
+                    0);
+                income.Fuel[index] = IntAt(
+                    Child(perMin, "fuel", path + ".incomePerMin.fuel"),
+                    path + ".incomePerMin.fuel",
+                    0);
+                income.Materiel[index] = IntAt(
+                    Child(perMin, "materiel", path + ".incomePerMin.materiel"),
+                    path + ".incomePerMin.materiel",
+                    0);
+            }
+
+            for (int i = 0; i < seen.Length; i++)
+            {
+                if (!seen[i])
+                {
+                    throw ScenarioErrors.At("economy.json $.holdingTiers", "missing tier '" + TierIds[i] + "'.");
+                }
+            }
+
+            JsonValue accrual = Child(economyRoot, "incomeAccrual", "economy.json $.incomeAccrual");
+            income.IntervalTicks = IntAt(
+                Child(accrual, "intervalTicks", "economy.json $.incomeAccrual.intervalTicks"),
+                "economy.json $.incomeAccrual.intervalTicks",
+                1);
+            income.IntervalsPerMinute = IntAt(
+                Child(accrual, "intervalsPerMinute", "economy.json $.incomeAccrual.intervalsPerMinute"),
+                "economy.json $.incomeAccrual.intervalsPerMinute",
+                1);
+            string method = TextAt(
+                Child(accrual, "method", "economy.json $.incomeAccrual.method"),
+                "economy.json $.incomeAccrual.method");
+            if (method != "remainder_carry")
+            {
+                throw ScenarioErrors.At("economy.json $.incomeAccrual.method", "expected remainder_carry.");
+            }
+
+            JsonValue hq = Child(economyRoot, "hqIncomePerMinByFaction", "economy.json $.hqIncomePerMinByFaction");
+            JsonValue mods = Child(economyRoot, "factionIncomeModifiersPpt", "economy.json $.factionIncomeModifiersPpt");
+            if (hq.Kind != JsonKind.Object || mods.Kind != JsonKind.Object)
+            {
+                throw ScenarioErrors.At("economy.json $.hqIncomePerMinByFaction", "expected an object.");
+            }
+
+            int count = hq.ObjectValue.Count;
+            income.FactionIds = new string[count];
+            income.HqManpower = new int[count];
+            income.HqMateriel = new int[count];
+            income.HqFuel = new int[count];
+            income.ManpowerPpt = new int[count];
+            income.MaterielPpt = new int[count];
+            income.FuelPpt = new int[count];
+            for (int i = 0; i < count; i++)
+            {
+                string id = hq.ObjectValue[i].Name;
+                string path = "economy.json $.hqIncomePerMinByFaction." + id;
+                JsonValue row = hq.ObjectValue[i].Value;
+                income.FactionIds[i] = id;
+                income.HqManpower[i] = IntAt(Child(row, "manpower", path + ".manpower"), path + ".manpower", 0);
+                income.HqFuel[i] = IntAt(Child(row, "fuel", path + ".fuel"), path + ".fuel", 0);
+                income.HqMateriel[i] = IntAt(Child(row, "materiel", path + ".materiel"), path + ".materiel", 0);
+
+                JsonValue modRow;
+                if (!TryField(mods, id, out modRow))
+                {
+                    throw ScenarioErrors.At(
+                        "economy.json $.factionIncomeModifiersPpt." + id,
+                        "missing faction modifier.");
+                }
+
+                string modPath = "economy.json $.factionIncomeModifiersPpt." + id;
+                income.ManpowerPpt[i] = IntAt(Child(modRow, "manpower", modPath + ".manpower"), modPath + ".manpower", 0);
+                income.FuelPpt[i] = IntAt(Child(modRow, "fuel", modPath + ".fuel"), modPath + ".fuel", 0);
+                income.MaterielPpt[i] = IntAt(Child(modRow, "materiel", modPath + ".materiel"), modPath + ".materiel", 0);
+            }
+
+            SortFactionIncome(income);
+            income.ContestedHoldingPays = BoolAt(
+                Child(economyRoot, "contestedHoldingPaysIncome", "economy.json $.contestedHoldingPaysIncome"),
+                "economy.json $.contestedHoldingPaysIncome");
+            return income;
+        }
+
+        private static void SortFactionIncome(IncomeSchedule income)
+        {
+            for (int i = 1; i < income.FactionIds.Length; i++)
+            {
+                string id = income.FactionIds[i];
+                int hqManpower = income.HqManpower[i];
+                int hqMateriel = income.HqMateriel[i];
+                int hqFuel = income.HqFuel[i];
+                int manpowerPpt = income.ManpowerPpt[i];
+                int materielPpt = income.MaterielPpt[i];
+                int fuelPpt = income.FuelPpt[i];
+                int j = i - 1;
+                while (j >= 0 && string.CompareOrdinal(income.FactionIds[j], id) > 0)
+                {
+                    income.FactionIds[j + 1] = income.FactionIds[j];
+                    income.HqManpower[j + 1] = income.HqManpower[j];
+                    income.HqMateriel[j + 1] = income.HqMateriel[j];
+                    income.HqFuel[j + 1] = income.HqFuel[j];
+                    income.ManpowerPpt[j + 1] = income.ManpowerPpt[j];
+                    income.MaterielPpt[j + 1] = income.MaterielPpt[j];
+                    income.FuelPpt[j + 1] = income.FuelPpt[j];
+                    j--;
+                }
+
+                income.FactionIds[j + 1] = id;
+                income.HqManpower[j + 1] = hqManpower;
+                income.HqMateriel[j + 1] = hqMateriel;
+                income.HqFuel[j + 1] = hqFuel;
+                income.ManpowerPpt[j + 1] = manpowerPpt;
+                income.MaterielPpt[j + 1] = materielPpt;
+                income.FuelPpt[j + 1] = fuelPpt;
+            }
+        }
+
+        private static bool BoolAt(JsonValue value, string path)
+        {
+            if (value.Kind != JsonKind.Bool)
+            {
+                throw ScenarioErrors.At(path, "expected a boolean.");
+            }
+
+            return value.BoolValue;
         }
 
         private static int ReadScenery(JsonValue economyRoot)
@@ -384,6 +632,23 @@ namespace Wasteland.Sim.Scenario
             }
 
             return value.StringValue;
+        }
+
+        internal sealed class IncomeSchedule
+        {
+            public int IntervalTicks;
+            public int IntervalsPerMinute;
+            public bool ContestedHoldingPays;
+            public readonly int[] Manpower = new int[TierCount];
+            public readonly int[] Materiel = new int[TierCount];
+            public readonly int[] Fuel = new int[TierCount];
+            public string[] FactionIds = Array.Empty<string>();
+            public int[] HqManpower = Array.Empty<int>();
+            public int[] HqMateriel = Array.Empty<int>();
+            public int[] HqFuel = Array.Empty<int>();
+            public int[] ManpowerPpt = Array.Empty<int>();
+            public int[] MaterielPpt = Array.Empty<int>();
+            public int[] FuelPpt = Array.Empty<int>();
         }
     }
 }
