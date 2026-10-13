@@ -4,7 +4,7 @@ using Wasteland.Sim.Events;
 namespace Wasteland.Presentation
 {
     /// <summary>
-    /// Readable copy for a sim rejection. Mapped from
+    /// Player-facing copy for a sim rejection. Mapped from
     /// <see cref="CommandRejectReason"/> only. AI reject enums are not used.
     /// </summary>
     public static class PlayerRejectText
@@ -16,59 +16,59 @@ namespace Wasteland.Presentation
                 case CommandRejectReason.None:
                     return string.Empty;
                 case CommandRejectReason.TooLate:
-                    return "That order was issued too late to enter the queue.";
+                    return "That order was too late.";
                 case CommandRejectReason.UnknownBattalion:
-                    return "No battalion matches that order.";
+                    return "That battalion is not on the map.";
                 case CommandRejectReason.DuplicateBattalion:
-                    return "That battalion id is already in use.";
+                    return "That battalion is already here.";
                 case CommandRejectReason.NotOwner:
-                    return "That battalion belongs to another seat.";
+                    return "That battalion is not yours.";
                 case CommandRejectReason.NegativeSpeed:
-                    return "A battalion cannot have a negative speed.";
+                    return "That speed is not possible.";
                 case CommandRejectReason.UnknownKind:
-                    return "That order is not recognised.";
+                    return "That is not an order you can give.";
                 case CommandRejectReason.TierLocked:
-                    return "That needs tier " + param0 + ". This seat is tier " + param1 + ".";
+                    return "That is not available yet.";
                 case CommandRejectReason.UnitNotRaisable:
-                    return "That battalion cannot be raised.";
+                    return "You cannot raise that battalion.";
                 case CommandRejectReason.PopCapReached:
-                    return "Population cap is " + param0 + " and " + param1 + " is already in use.";
+                    return "You cannot field any more battalions. The limit is " + param0 + " and you already have " + param1 + ".";
                 case CommandRejectReason.InsufficientManpower:
-                    return "Need " + param0 + " manpower. This seat has " + param1 + ".";
+                    return "You need " + param0 + " manpower and have " + param1 + ".";
                 case CommandRejectReason.InsufficientMaterials:
-                    return "Need " + param0 + " materiel. This seat has " + param1 + ".";
+                    return "You need " + param0 + " materiel and have " + param1 + ".";
                 case CommandRejectReason.InsufficientFuel:
-                    return "Need " + param0 + " fuel. This seat has " + param1 + ".";
+                    return "You need " + param0 + " fuel and have " + param1 + ".";
                 case CommandRejectReason.UnknownSeat:
-                    return "No seat is bound for that order.";
+                    return "You are not commanding a side in this match.";
                 case CommandRejectReason.NoPath:
-                    return "No road path from node " + param0 + " to node " + param1 + ".";
+                    return "No road route to that point.";
                 case CommandRejectReason.UnknownTown:
-                    return "No town matches that order.";
+                    return "That town is not on the map.";
                 case CommandRejectReason.NotCapturer:
                     return "That battalion cannot claim a town.";
                 case CommandRejectReason.AlreadyOwned:
-                    return "That town is already yours.";
+                    return "You already hold that town.";
                 case CommandRejectReason.NotBuilder:
                     return "That battalion cannot build a depot.";
                 case CommandRejectReason.BuildingNotBuildable:
-                    return "A supply depot is not available to this seat.";
+                    return "You cannot build a depot.";
                 case CommandRejectReason.UnknownNode:
-                    return "No road node matches that order.";
+                    return "That place is not on a road.";
                 case CommandRejectReason.TerritoryNotOwned:
-                    return "That road node is outside territory this seat owns.";
+                    return "That place is outside land you hold.";
                 case CommandRejectReason.NotConnectedToSupply:
-                    return "That road node is outside supply range.";
+                    return "That place is out of supply.";
                 case CommandRejectReason.DepotTooClose:
-                    return "That site is too close to another depot.";
+                    return "That place is too close to another depot.";
                 case CommandRejectReason.NodeHasDepot:
-                    return "That road node already has a depot.";
+                    return "There is already a depot there.";
                 case CommandRejectReason.DepotCapReached:
-                    return "Depot cap is " + param0 + " and " + param1 + " are already counted.";
+                    return "You cannot build any more depots. The limit is " + param0 + " and you already have " + param1 + ".";
                 case CommandRejectReason.NotSeatTown:
-                    return "That town is not a territory seat.";
+                    return "That town cannot be claimed.";
                 case CommandRejectReason.UnknownTarget:
-                    return "That attack target is not a living battalion.";
+                    return "There is nothing there to attack.";
                 case CommandRejectReason.TargetNotEnemy:
                     return "That battalion is not an enemy.";
                 case CommandRejectReason.NotArmed:
@@ -78,11 +78,11 @@ namespace Wasteland.Presentation
                 case CommandRejectReason.ResearchInProgress:
                     return "Research is already in progress.";
                 case CommandRejectReason.TierAlreadyReached:
-                    return "This seat already has that tier.";
+                    return "You already have that tier.";
                 case CommandRejectReason.NoQualifyingTier:
-                    return "No owned holding qualifies for this research.";
+                    return "You need a town of your own before you can research that.";
                 default:
-                    return "Order rejected (" + (int)reason + ").";
+                    return "That order could not be carried out.";
             }
         }
     }

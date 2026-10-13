@@ -36,13 +36,17 @@ namespace Wasteland.Presentation.Tests
 
                 Assert.False(string.IsNullOrWhiteSpace(text));
                 Assert.DoesNotContain("squad", text, StringComparison.OrdinalIgnoreCase);
-                Assert.DoesNotContain("Order rejected (", text, StringComparison.Ordinal);
+                Assert.DoesNotContain("road node", text, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain("territory seat", text, StringComparison.OrdinalIgnoreCase);
+                Assert.DoesNotContain(" id", text, StringComparison.OrdinalIgnoreCase);
                 Assert.True(seen.Add(text));
             }
 
+            Assert.Equal("No road route to that point.", PlayerRejectText.Describe(CommandRejectReason.NoPath, 4, 9));
+            Assert.Equal("You are not commanding a side in this match.", PlayerRejectText.Describe(CommandRejectReason.UnknownSeat, 0, 0));
             Assert.Contains("already in progress", PlayerRejectText.Describe(CommandRejectReason.ResearchInProgress, 0, 0), StringComparison.Ordinal);
-            Assert.Contains("already has that tier", PlayerRejectText.Describe(CommandRejectReason.TierAlreadyReached, 0, 0), StringComparison.Ordinal);
-            Assert.Contains("qualifies", PlayerRejectText.Describe(CommandRejectReason.NoQualifyingTier, 0, 0), StringComparison.Ordinal);
+            Assert.Contains("already have that tier", PlayerRejectText.Describe(CommandRejectReason.TierAlreadyReached, 0, 0), StringComparison.Ordinal);
+            Assert.Contains("town of your own", PlayerRejectText.Describe(CommandRejectReason.NoQualifyingTier, 0, 0), StringComparison.Ordinal);
         }
 
         [Fact]
@@ -236,16 +240,24 @@ namespace Wasteland.Presentation.Tests
                 world.Step();
             }
 
+            Assert.Equal(raised.Command.BattalionId, View(world, aiRaised.BattalionId).AttackTargetId);
+
             SimWorldCommandSink reader = new SimWorldCommandSink(world);
             reader.BindRoads(roads);
             List<AiCombatantView> enemiesOfAi = new List<AiCombatantView>();
             reader.CopyCombatants(2, enemiesOfAi);
-            Assert.Contains(enemiesOfAi, view => view.Id == raised.Command.BattalionId && view.AttackTargetId == aiRaised.BattalionId);
+            bool sawPlayerBattalion = false;
+            for (int i = 0; i < enemiesOfAi.Count; i++)
+            {
+                AiCombatantView view = enemiesOfAi[i];
+                Assert.Equal(0, view.AttackTargetId);
+                if (view.Id == raised.Command.BattalionId)
+                {
+                    sawPlayerBattalion = true;
+                }
+            }
 
-            List<AiCombatantView> enemiesOfPlayer = new List<AiCombatantView>();
-            reader.CopyCombatants(1, enemiesOfPlayer);
-            Assert.Contains(enemiesOfPlayer, view => view.Id == aiRaised.BattalionId && view.AttackTargetId == raised.Command.BattalionId);
-            Assert.Contains(enemiesOfPlayer, view => view.OwnerSeat != 1);
+            Assert.True(sawPlayerBattalion);
         }
 
         [Fact]

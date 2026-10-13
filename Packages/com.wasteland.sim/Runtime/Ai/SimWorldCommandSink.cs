@@ -301,6 +301,8 @@ namespace Wasteland.Sim.Ai
                 }
 
                 int nodeId = GetNearestNodeId(battalion.PositionXCm, battalion.PositionYCm);
+                // Own orders only. Enemy and neutral intent stays hidden.
+                int attackTargetId = battalion.OwnerId == factionId ? battalion.AttackTargetId : 0;
                 into.Add(new AiCombatantView(
                     battalion.Id,
                     battalion.OwnerId,
@@ -309,7 +311,7 @@ namespace Wasteland.Sim.Ai
                     nodeId,
                     battalion.Hp,
                     battalion.MaxHp,
-                    battalion.AttackTargetId));
+                    attackTargetId));
             }
         }
 

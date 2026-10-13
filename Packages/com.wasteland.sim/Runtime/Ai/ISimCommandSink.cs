@@ -56,8 +56,8 @@ namespace Wasteland.Sim.Ai
         public readonly int MaxHp;
 
         /// <summary>
-        /// Live attack order. Same field an AI attack writes, so a player
-        /// attack on the shared command stream shows up here too.
+        /// Attack order for the viewing seat's own battalion. Enemy and
+        /// neutral battalions leave this at 0. Their intent stays hidden.
         /// </summary>
         public readonly int AttackTargetId;
 
@@ -80,9 +80,7 @@ namespace Wasteland.Sim.Ai
     }
 
     /// <summary>
-    /// World reads. Positions of other battalions are visible. An attack order
-    /// is <see cref="AiCombatantView.AttackTargetId"/> once the shared command
-    /// stream has executed it, whether the issuer was a player or an AI.
+    /// World reads. Enemy live intent stays hidden. Positions of other battalions are visible.
     /// </summary>
     public interface ISimWorldView
     {
