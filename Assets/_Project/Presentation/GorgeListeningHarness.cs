@@ -247,7 +247,7 @@ namespace Wasteland.Presentation
         {
             if (_bridge != null)
             {
-                _bridge.BeginTick(LoggerTick);
+                _bridge.BeginTick(LoggerTick, _host.World);
             }
 
             IReadOnlyList<SimEvent> events = _host.World.Events;
@@ -276,14 +276,9 @@ namespace Wasteland.Presentation
                 _firstDestroyedTick = ev.Tick;
             }
 
-            if (kind == (int)SimEventKind.TownContestStarted || kind == (int)SimEventKind.TownContestEnded)
+            if (_bridge != null)
             {
-                if (_bridge != null)
-                {
-                    _bridge.Note(ev);
-                }
-
-                return;
+                _bridge.Note(ev);
             }
 
             if (kind == (int)SimEventKind.MatchEnded)
@@ -294,6 +289,11 @@ namespace Wasteland.Presentation
                 }
 
                 _over = true;
+                return;
+            }
+
+            if (kind == (int)SimEventKind.TownContestStarted || kind == (int)SimEventKind.TownContestEnded)
+            {
                 return;
             }
 

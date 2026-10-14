@@ -1,6 +1,7 @@
 #nullable disable
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using Wasteland.Audio;
 using Wasteland.Sim.Events;
 using Wasteland.Sim.Scenario;
@@ -45,6 +46,20 @@ namespace Wasteland.Presentation
         int _groundX;
         int _groundY;
         bool _groundSet;
+        readonly UnderAttackAlerts _attacks = new UnderAttackAlerts();
+        readonly BattalionContactWatch _contact = new BattalionContactWatch();
+        readonly ResearchTrack _research = new ResearchTrack();
+        readonly ResearchCueGate _researchCue = new ResearchCueGate();
+        readonly HqOutcomeGate _outcome = new HqOutcomeGate();
+        readonly List<LiveRing> _rings = new List<LiveRing>();
+        HqBanner _banner;
+        bool _roadChosen;
+        int _roadNode;
+        int _roadX;
+        int _roadY;
+        int _jumpX;
+        int _jumpY;
+        bool _jumpReady;
 
         public bool BedActive
         {
@@ -113,18 +128,66 @@ namespace Wasteland.Presentation
 
         public void BeginTick(int tick)
         {
+            BeginTick(tick, null);
+        }
+
+        public void BeginTick(int tick, SimWorld world)
+        {
             _tick = tick;
+            if (world != null)
+            {
+                _world = world;
+            }
+
             _pending.Clear();
         }
 
         public void Note(SimEvent ev)
         {
+            int kind = (int)ev.Kind;
+            if (kind == (int)SimEventKind.TierResearchStarted)
+            {
+                if (_hasHuman && ev.SubjectId == _humanSeat)
+                {
+                    _research.Started(ev.Param0, ev.Param1);
+                }
+
+                return;
+            }
+
+            if (kind == (int)SimEventKind.TierReached)
+            {
+                if (_hasHuman && ev.SubjectId == _humanSeat)
+                {
+                    _research.Reached();
+                }
+
+                float volume;
+                if (_sounds != null && _researchCue.TryConsume(kind, _hasHuman, _humanSeat, ev.SubjectId, ev.AuxId, out volume))
+                {
+                    _sounds.Play(SoundCue.ResearchDone, volume);
+                }
+
+                return;
+            }
+
+            if (kind == (int)SimEventKind.MatchEnded)
+            {
+                _banner = _outcome.Read(true, ev.AuxId, ev.SubjectId, _hasHuman, _humanSeat, WinnerName(ev.SubjectId));
+                PlayStinger(_banner);
+                return;
+            }
+
             if (_closed)
             {
                 return;
             }
 
-            int kind = (int)ev.Kind;
+            if (kind == (int)SimEventKind.TownContestStarted)
+            {
+                NoteTownAttack(ev);
+            }
+
             if (kind != (int)SimEventKind.TownContestStarted && kind != (int)SimEventKind.TownContestEnded)
             {
                 return;
@@ -178,6 +241,7 @@ namespace Wasteland.Presentation
 
             _world = world;
             EnsureOrders(world);
+            WatchBattles(world);
             string polled = _orders.PollRejection();
             if (!string.IsNullOrEmpty(polled))
             {
@@ -294,13 +358,25 @@ namespace Wasteland.Presentation
 
         void Update()
         {
+            PublishRings();
+            Keyboard keyboard = Keyboard.current;
+            if (keyboard != null && keyboard.spaceKey.wasPressedThisFrame)
+            {
+                JumpToAlert();
+            }
+
             Vector2 screen;
             if (_orders == null || _camera == null || _map == null || _world == null || !_camera.TryConsumeOrderClick(out screen))
             {
                 return;
             }
 
-            if (screen.x < 440f && screen.y > Screen.height - 360f && screen.y < Screen.height - 100f)
+            if (_banner.Show)
+            {
+                return;
+            }
+
+            if (screen.x < 440f && screen.y > Screen.height - 528f && screen.y < Screen.height - 108f)
             {
                 return;
             }
@@ -315,27 +391,44 @@ namespace Wasteland.Presentation
                 return;
             }
 
-            GUILayout.BeginArea(new Rect(12f, 108f, 420f, 240f));
+            GUILayout.BeginArea(new Rect(12f, 108f, 420f, 420f));
             if (!_orders.HasHuman)
             {
                 GUILayout.Label("No human seat. Player orders are not sent.");
             }
 
             string research = PlayerOrderSession.TierTwoLabel(_catalog);
-            if (GUILayout.Button(research))
+            ResearchBarView bar = _research.Sample(_hasHuman, _world == null ? _tick : _world.Tick);
+            if (bar.Visible)
+            {
+                Rect row = GUILayoutUtility.GetRect(400f, 36f);
+                if (GUI.Button(row, research))
+                {
+                    ApplyNotice(_orders.ResearchTierTwo());
+                }
+
+                Rect meter = new Rect(row.x + 6f, row.yMax - 8f, row.width - 12f, 4f);
+                DrawResearchBar(meter, bar.Fill);
+            }
+            else if (GUILayout.Button(research))
             {
                 ApplyNotice(_orders.ResearchTierTwo());
             }
 
-            if (GUILayout.Button("Build depot"))
+            bool depotOn = DepotButton.Enabled(_roadChosen);
+            GUI.enabled = depotOn;
+            if (GUILayout.Button(new GUIContent("Build depot", DepotButton.Tooltip(_roadChosen))))
             {
                 int fromX;
                 int fromY;
-                int x;
-                int y;
                 SelectedPoint(out fromX, out fromY);
-                GroundOrSelection(out x, out y);
-                ApplyNotice(_orders.BuildDepot(fromX, fromY, x, y, FactionRgb(_humanSeat)));
+                ApplyNotice(_orders.BuildDepot(fromX, fromY, _roadX, _roadY, FactionRgb(_humanSeat)));
+            }
+
+            GUI.enabled = true;
+            if (!depotOn)
+            {
+                GUILayout.Label(DepotButton.Tooltip(false));
             }
 
             for (int i = 0; i < _raisable.Length; i++)
@@ -350,12 +443,27 @@ namespace Wasteland.Presentation
                 {
                     int x;
                     int y;
-                    GroundOrSelection(out x, out y);
-                    ApplyNotice(_orders.Raise(unitId, x, y, FactionRgb(_humanSeat)));
+                    if (!TryRally(out x, out y))
+                    {
+                        ApplyNotice(new PlayerOrderNotice(false, "No headquarters is on this map.", OrderClick.ForHumanSeat(_hasHuman), true, default(Wasteland.Sim.Commands.SimCommand)));
+                    }
+                    else
+                    {
+                        ApplyNotice(_orders.Raise(unitId, x, y, FactionRgb(_humanSeat)));
+                    }
                 }
             }
 
+            if (_jumpReady && GUILayout.Button("Under attack"))
+            {
+                JumpToAlert();
+            }
+
             GUILayout.EndArea();
+            if (_banner.Show)
+            {
+                DrawResult();
+            }
         }
 
         void LateUpdate()
@@ -486,6 +594,29 @@ namespace Wasteland.Presentation
             {
                 _orders.SelectBattalion(_selectedUnit > 0 ? _selectedUnit : 0);
             }
+
+            if (_selectedTown < 0 && _selectedUnit < 0)
+            {
+                Vector3 ground = TacticalCamera.GroundPoint(cam, screen);
+                int xCm;
+                int yCm;
+                int column;
+                int row;
+                MapSpace.PickGround(
+                    ground.x,
+                    ground.z,
+                    _map.OriginXCm,
+                    _map.OriginYCm,
+                    _map.Width,
+                    _map.Height,
+                    _map.ExtentXCm,
+                    _map.ExtentYCm,
+                    out xCm,
+                    out yCm,
+                    out column,
+                    out row);
+                RecordRoad(xCm, yCm);
+            }
         }
 
         static bool Closer(Camera cam, int xCm, int yCm, Vector2 screen, float radius2, ref float best)
@@ -557,6 +688,7 @@ namespace Wasteland.Presentation
             _groundX = xCm;
             _groundY = yCm;
             _groundSet = true;
+            RecordRoad(xCm, yCm);
 
             float best = 18f * 18f;
             int battalionId = 0;
@@ -639,29 +771,14 @@ namespace Wasteland.Presentation
             }
         }
 
-        void GroundOrSelection(out int xCm, out int yCm)
+        bool TryRally(out int xCm, out int yCm)
         {
-            if (_groundSet)
-            {
-                xCm = _groundX;
-                yCm = _groundY;
-                return;
-            }
-
-            if (_map != null && _map.Map.Roads.NodeCount > 0)
-            {
-                int node = _map.Map.Roads.NearestNodeId(_map.OriginXCm, _map.OriginYCm);
-                int index;
-                if (node != 0 && _map.Map.Roads.TryGetNodeIndex(node, out index))
-                {
-                    xCm = _map.Map.Roads.GetNodeXCm(index);
-                    yCm = _map.Map.Roads.GetNodeYCm(index);
-                    return;
-                }
-            }
-
-            xCm = _map != null ? _map.OriginXCm : 0;
-            yCm = _map != null ? _map.OriginYCm : 0;
+            int hqNode;
+            int hqX;
+            int hqY;
+            bool hq = TryHumanHq(out hqNode, out hqX, out hqY);
+            int node;
+            return OrderAnchor.TryPlace(_roadChosen, _roadNode, _roadX, _roadY, hq, hqNode, hqX, hqY, out node, out xCm, out yCm);
         }
 
         Rgb FactionRgb(int factionId)
@@ -685,19 +802,22 @@ namespace Wasteland.Presentation
                 return;
             }
 
+            if (notice.SoftDeny)
+            {
+                if (OrderDeny.ForHumanSeat(_hasHuman) && SoundCues.FileName(SoundCue.OrderDeny) == OrderDeny.KenneyFileName)
+                {
+                    _sounds.Play(SoundCue.OrderDeny);
+                }
+
+                return;
+            }
+
             if (SoundCues.FileName(SoundCue.UiClick) != OrderClick.KenneyFileName)
             {
                 return;
             }
 
-            if (notice.LowVolume)
-            {
-                _sounds.PlayLow(SoundCue.UiClick);
-            }
-            else
-            {
-                _sounds.Play(SoundCue.UiClick);
-            }
+            _sounds.Play(SoundCue.UiClick);
         }
 
         string FactionKey(SimWorld world, int factionId)
@@ -723,6 +843,295 @@ namespace Wasteland.Presentation
             }
 
             return null;
+        }
+
+        void NoteTownAttack(SimEvent ev)
+        {
+            if (!_hasHuman || ev.Param1 != _humanSeat)
+            {
+                return;
+            }
+
+            MapTown town;
+            if (!_towns.TryGetValue(ev.SubjectId, out town))
+            {
+                return;
+            }
+
+            bool hq = false;
+            SeatView seat;
+            if (_world != null && _world.TryGetSeat(_humanSeat, out seat))
+            {
+                hq = town.Id == seat.HomeTownId;
+            }
+
+            UnderAttackAlert alert;
+            if (_attacks.TryTown(_tick, town.Id, hq, town.XCm, town.YCm, true, FactionRgb(_humanSeat), out alert))
+            {
+                RaiseAlert(alert);
+            }
+        }
+
+        void WatchBattles(SimWorld world)
+        {
+            if (!_hasHuman || world == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < world.Battalions.Count; i++)
+            {
+                SimBattalion attacker = world.Battalions[i];
+                if (attacker.Hp <= 0 || attacker.OwnerId == _humanSeat || attacker.AttackTargetId == 0)
+                {
+                    continue;
+                }
+
+                for (int j = 0; j < world.Battalions.Count; j++)
+                {
+                    SimBattalion target = world.Battalions[j];
+                    if (target.Id != attacker.AttackTargetId || target.OwnerId != _humanSeat || target.Hp <= 0)
+                    {
+                        continue;
+                    }
+
+                    if (!_contact.InContact(
+                        target.Id,
+                        attacker.PositionXCm,
+                        attacker.PositionYCm,
+                        target.PositionXCm,
+                        target.PositionYCm,
+                        WeaponRangeCm(world, attacker),
+                        target.Hp))
+                    {
+                        continue;
+                    }
+
+                    UnderAttackAlert alert;
+                    if (_attacks.TryBattalion(world.Tick, target.Id, target.PositionXCm, target.PositionYCm, true, FactionRgb(_humanSeat), out alert))
+                    {
+                        RaiseAlert(alert);
+                    }
+                }
+            }
+        }
+
+        int WeaponRangeCm(SimWorld world, SimBattalion attacker)
+        {
+            if (_catalog == null || world == null)
+            {
+                return 0;
+            }
+
+            BattalionView view;
+            int range;
+            if (!world.TryGetBattalionView(attacker.Id, out view) || !_catalog.TryGetWeaponRangeCm(view.UnitId, out range))
+            {
+                return 0;
+            }
+
+            return range;
+        }
+
+        void RaiseAlert(UnderAttackAlert alert)
+        {
+            if (!alert.ShowRing && !alert.PlayCue)
+            {
+                return;
+            }
+
+            if (alert.RevealsEnemyOrder || EnemyIntent.ShowOrders)
+            {
+                return;
+            }
+
+            _jumpX = alert.XCm;
+            _jumpY = alert.YCm;
+            _jumpReady = true;
+            _rings.Add(new LiveRing(alert.XCm, alert.YCm, alert.Fill, Time.unscaledTime));
+            if (alert.PlayCue && _sounds != null && !alert.Spatial && SoundCues.FileName(SoundCue.UnderAttack) == alert.CueFile)
+            {
+                _sounds.Play(SoundCue.UnderAttack, alert.Volume);
+            }
+        }
+
+        void PublishRings()
+        {
+            if (_view == null)
+            {
+                return;
+            }
+
+            float now = Time.unscaledTime;
+            for (int i = _rings.Count - 1; i >= 0; i--)
+            {
+                if (now - _rings[i].Born > 8f)
+                {
+                    _rings.RemoveAt(i);
+                }
+            }
+
+            AlertRingMark[] marks = new AlertRingMark[_rings.Count];
+            float pulse = AlertRingStyle.Pulse(now);
+            for (int i = 0; i < _rings.Count; i++)
+            {
+                LiveRing ring = _rings[i];
+                marks[i] = new AlertRingMark
+                {
+                    XCm = ring.XCm,
+                    YCm = ring.YCm,
+                    Pulse = pulse,
+                    Fill = ring.Fill
+                };
+            }
+
+            _view.SetAlertRings(marks);
+            if (_rings.Count == 0)
+            {
+                _jumpReady = false;
+            }
+        }
+
+        void JumpToAlert()
+        {
+            if (!_jumpReady || _camera == null)
+            {
+                return;
+            }
+
+            _camera.LookAt((float)MapSpace.Metres(_jumpX), (float)MapSpace.Metres(_jumpY));
+        }
+
+        void RecordRoad(int xCm, int yCm)
+        {
+            if (_map == null)
+            {
+                return;
+            }
+
+            int node;
+            int nx;
+            int ny;
+            if (!RoadPick.TryHit(_map.Roads, xCm, yCm, RoadPick.ClickRadiusCm, out node, out nx, out ny) || node == 0)
+            {
+                return;
+            }
+
+            _roadChosen = true;
+            _roadNode = node;
+            _roadX = nx;
+            _roadY = ny;
+        }
+
+        bool TryHumanHq(out int nodeId, out int xCm, out int yCm)
+        {
+            nodeId = 0;
+            xCm = 0;
+            yCm = 0;
+            if (_world == null || _map == null || !_hasHuman)
+            {
+                return false;
+            }
+
+            SeatView seat;
+            if (!_world.TryGetSeat(_humanSeat, out seat))
+            {
+                return false;
+            }
+
+            Wasteland.Sim.Movement.RoadGraph roads = _map.Map.Roads;
+            RoadNodePin[] pins = new RoadNodePin[roads.NodeCount];
+            for (int i = 0; i < roads.NodeCount; i++)
+            {
+                pins[i] = new RoadNodePin(roads.GetNodeId(i), roads.GetNodeXCm(i), roads.GetNodeYCm(i));
+            }
+
+            return HqNode.TryFromHomeTown(seat.HomeTownId, _map.Towns, pins, out nodeId, out xCm, out yCm);
+        }
+
+        string WinnerName(int seatId)
+        {
+            return SeatLabel.FromKey(FactionKey(_world, seatId));
+        }
+
+        void PlayStinger(HqBanner banner)
+        {
+            if (!banner.Play || _sounds == null)
+            {
+                return;
+            }
+
+            if (banner.StingerFile == SoundCues.FileName(SoundCue.WinStinger))
+            {
+                _sounds.Play(SoundCue.WinStinger);
+                return;
+            }
+
+            if (banner.StingerFile == SoundCues.FileName(SoundCue.LoseStinger))
+            {
+                _sounds.Play(SoundCue.LoseStinger);
+            }
+        }
+
+        void DrawResearchBar(Rect row, float fill)
+        {
+            if (fill < 0f)
+            {
+                fill = 0f;
+            }
+            else if (fill > 1f)
+            {
+                fill = 1f;
+            }
+
+            Color previous = GUI.color;
+            GUI.color = new Color(0.12f, 0.12f, 0.11f, 0.9f);
+            GUI.DrawTexture(row, Texture2D.whiteTexture);
+            if (fill > 0f)
+            {
+                Rect done = row;
+                done.width = row.width * fill;
+                Rgb rgb = FactionRgb(_humanSeat);
+                GUI.color = new Color(rgb.R / 255f, rgb.G / 255f, rgb.B / 255f, 1f);
+                GUI.DrawTexture(done, Texture2D.whiteTexture);
+            }
+
+            GUI.color = previous;
+        }
+
+        void DrawResult()
+        {
+            const float width = 520f;
+            const float height = 180f;
+            Rect panel = new Rect((Screen.width - width) * 0.5f, (Screen.height - height) * 0.5f, width, height);
+            GUI.Box(panel, GUIContent.none);
+            GUIStyle title = new GUIStyle(GUI.skin.label);
+            title.alignment = TextAnchor.MiddleCenter;
+            title.fontSize = 42;
+            title.normal.textColor = new Color(0.1176f, 0.1216f, 0.1137f, 1f);
+            GUI.Label(new Rect(panel.x, panel.y + 36f, width, 64f), _banner.Title, title);
+            if (!string.IsNullOrEmpty(_banner.Detail))
+            {
+                GUIStyle detail = new GUIStyle(title);
+                detail.fontSize = 22;
+                GUI.Label(new Rect(panel.x, panel.y + 108f, width, 36f), _banner.Detail, detail);
+            }
+        }
+
+        struct LiveRing
+        {
+            public readonly int XCm;
+            public readonly int YCm;
+            public readonly Rgb Fill;
+            public readonly float Born;
+
+            public LiveRing(int xCm, int yCm, Rgb fill, float born)
+            {
+                XCm = xCm;
+                YCm = yCm;
+                Fill = fill;
+                Born = born;
+            }
         }
     }
 }

@@ -15,12 +15,15 @@ All files are 48 kHz, 16-bit PCM WAV, with sample peaks at -1 dBFS. Balancing le
 | `town_lost.wav` | Town lost (by the viewer's side) | 4.00 s | stereo | Funeral bell |
 | `win_stinger.wav` | Win screen | 6.00 s | stereo | Reveille, opening phrase |
 | `lose_stinger.wav` | Lose screen | 5.85 s | stereo | Taps, first phrase |
-| `draw_stinger.wav` | Draw screen (both HQs fall on the same tick) | 3.10 s | stereo | The lose stinger cut short and faded, per spec |
+| `draw_stinger.wav` | Draw screen (both HQs fall on the same tick) | 3.10 s | stereo | The lose stinger cut short and faded, per spec. The HUD plays the defeat stinger for a draw. |
+| `under_attack.wav` | Human seat under attack | 0.32 s | mono | Kenney `switch2.ogg`. The HUD plays it in 2D at 0.8. |
+| `research_done.wav` | Tier research completed (event 6) | 0.36 s | mono | Kenney `switch3.ogg`. 2D. |
+| `order_deny.wav` | Rejected human order | 0.05 s | mono | Kenney `click2.ogg`, a different click from `ui_click`. 2D. |
 
 ## Folder layout
 The sources and the build script live outside `Assets/`, in `art-sources/audio/placeholder/`, so Unity doesn't import them.
 - `art-sources/audio/placeholder/_sources/` holds the original downloads, kept as downloaded: Kenney UI Audio zip, Freesound HQ previews, and page snapshots as proof of licence.
-- `art-sources/audio/placeholder/_tools/build.py` rebuilds all 10 WAVs from those sources straight into this folder (needs ffmpeg with soxr, Python 3 and numpy). Run it from the repo root with `python3 art-sources/audio/placeholder/_tools/build.py`.
-- `art-sources/audio/placeholder/SHA256SUMS` holds checksums of the 10 WAVs in this folder.
+- `art-sources/audio/placeholder/_tools/build.py` rebuilds the WAVs from those sources straight into this folder (needs ffmpeg with soxr, Python 3 and numpy). Run it from the repo root with `python3 art-sources/audio/placeholder/_tools/build.py`.
+- `art-sources/audio/placeholder/SHA256SUMS` holds checksums of the WAVs in this folder.
 
 Placeholder only. Replace these before release, or at minimum swap the Freesound previews for the lossless originals (see `ATTRIBUTION.md`).

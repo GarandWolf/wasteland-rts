@@ -20,15 +20,20 @@ namespace Wasteland.Presentation
                 case CommandRejectReason.UnknownBattalion:
                     return "That battalion is not on the map.";
                 case CommandRejectReason.DuplicateBattalion:
-                    return "That battalion is already here.";
+                    return "That battalion is already in the fight.";
                 case CommandRejectReason.NotOwner:
                     return "That battalion is not yours.";
                 case CommandRejectReason.NegativeSpeed:
-                    return "That speed is not possible.";
+                    return "A battalion cannot move backwards.";
                 case CommandRejectReason.UnknownKind:
                     return "That is not an order you can give.";
                 case CommandRejectReason.TierLocked:
-                    return "That is not available yet.";
+                    if (param0 <= 1)
+                    {
+                        return "Not available yet.";
+                    }
+
+                    return "Requires " + TierName(param0) + " research.";
                 case CommandRejectReason.UnitNotRaisable:
                     return "You cannot raise that battalion.";
                 case CommandRejectReason.PopCapReached:
@@ -83,6 +88,21 @@ namespace Wasteland.Presentation
                     return "You need a town of your own before you can research that.";
                 default:
                     return "That order could not be carried out.";
+            }
+        }
+
+        public static string TierName(int tier)
+        {
+            switch (tier)
+            {
+                case 1:
+                    return "Tier I";
+                case 2:
+                    return "Tier II";
+                case 3:
+                    return "Tier III";
+                default:
+                    return "Tier " + tier;
             }
         }
     }

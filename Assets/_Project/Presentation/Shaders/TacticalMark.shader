@@ -131,7 +131,21 @@ Shader "Wasteland/Tactical Mark"
                     return abs(abs(p.x) - abs(p.y)) < 1.1 && abs(p.x) < 5.0 ? 1.0 : 0.0;
                 }
 
-                return (abs(p.x) < 1.2 && p.y > -5.0 && p.y < 2.0) || (p.y > 1.2 && abs(p.x) < (5.0 - p.y)) ? 1.0 : 0.0;
+                if (kind < 10.5)
+                {
+                    return (abs(p.x) < 1.2 && p.y > -5.0 && p.y < 2.0) || (p.y > 1.2 && abs(p.x) < (5.0 - p.y)) ? 1.0 : 0.0;
+                }
+
+                if (kind < 11.5)
+                {
+                    float barrel = (abs(p.y) < 0.8 && p.x > -1.0 && p.x < 6.0) ? 1.0 : 0.0;
+                    float trail = (abs(p.y + 1.6) < 0.55 && p.x > -6.0 && p.x < -0.5) ? 1.0 : 0.0;
+                    float wheelA = length(p - float2(-1.5, -2.2)) < 1.45 ? 1.0 : 0.0;
+                    float wheelB = length(p - float2(1.6, -2.2)) < 1.45 ? 1.0 : 0.0;
+                    return max(max(barrel, trail), max(wheelA, wheelB));
+                }
+
+                return 0.0;
             }
 
             half4 Frag(Varyings input) : SV_Target
@@ -231,27 +245,39 @@ Shader "Wasteland/Tactical Mark"
                 float bonePx = _BonePx < 0.5 ? 2.0 : _BonePx;
                 float inkPx = _InkPx < 0.5 ? 1.0 : _InkPx;
                 float band = bonePx + inkPx;
-                float rect = input.shape.w;
-                if (rect > 0.5)
+                if (mode < 3.5)
                 {
-                    float2 halfSize = float2(widthPx, heightPx) * 0.5;
-                    float outside = max(abs(p.x) - halfSize.x, abs(p.y) - halfSize.y);
-                    if (outside < 0.0 || outside > band)
+                    float rect = input.shape.w;
+                    if (rect > 0.5)
+                    {
+                        float2 halfSize = float2(widthPx, heightPx) * 0.5;
+                        float outside = max(abs(p.x) - halfSize.x, abs(p.y) - halfSize.y);
+                        if (outside < 0.0 || outside > band)
+                        {
+                            discard;
+                        }
+
+                        return outside > bonePx ? ink : bone;
+                    }
+
+                    float radius = widthPx * 0.5;
+                    float dist = length(p);
+                    if (dist < radius || dist > radius + band)
                     {
                         discard;
                     }
 
-                    return outside > bonePx ? ink : bone;
+                    return dist > radius + bonePx ? ink : bone;
                 }
 
-                float radius = widthPx * 0.5;
-                float dist = length(p);
-                if (dist < radius || dist > radius + band)
+                float alertRadius = widthPx * 0.5;
+                float alertDist = length(p);
+                if (alertDist < alertRadius || alertDist > alertRadius + 3.5)
                 {
                     discard;
                 }
 
-                return dist > radius + bonePx ? ink : bone;
+                return alertDist > alertRadius + 1.6 ? ink : input.color;
             }
             ENDHLSL
         }

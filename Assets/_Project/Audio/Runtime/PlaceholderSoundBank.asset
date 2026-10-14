@@ -63,3 +63,18 @@ MonoBehaviour:
     _volume: 1
     _cooldownMilliseconds: 0
     _spatial: 0
+  - _cue: 10
+    _clip: {fileID: 8300000, guid: a4c8e1b27d3f4a59b6e0c1d28f47a903, type: 3}
+    _volume: 1
+    _cooldownMilliseconds: 0
+    _spatial: 0
+  - _cue: 11
+    _clip: {fileID: 8300000, guid: b7d2f0a94e6c4b18a5c3e8d17f09b246, type: 3}
+    _volume: 1
+    _cooldownMilliseconds: 0
+    _spatial: 0
+  - _cue: 12
+    _clip: {fileID: 8300000, guid: c1e5a8d36f2b4c70d9a4b7e15c38f062, type: 3}
+    _volume: 1
+    _cooldownMilliseconds: 0
+    _spatial: 0

@@ -28,6 +28,14 @@ namespace Wasteland.Presentation
         public string Label;
     }
 
+    public struct AlertRingMark
+    {
+        public int XCm;
+        public int YCm;
+        public float Pulse;
+        public Rgb Fill;
+    }
+
     /// <summary>
     /// Paper map: hillshade, water, territory wash, roads, then markers.
     /// Strokes stay a constant number of screen pixels as the camera zooms.
@@ -40,6 +48,7 @@ namespace Wasteland.Presentation
         const float TownY = 0.2f;
         const float BattalionY = 0.3f;
         const float SelectionY = 0.4f;
+        const float AlertY = 0.45f;
 
         MapDocument _map;
         Camera _camera;
@@ -53,6 +62,7 @@ namespace Wasteland.Presentation
         Mesh _towns;
         Mesh _units;
         Mesh _selection;
+        Mesh _alerts;
         Mesh _orders;
         Material _selectionMaterial;
         Material _orderMaterial;
@@ -91,6 +101,8 @@ namespace Wasteland.Presentation
             }
 
             AddMesh("Selection", _selection, _selectionMaterial);
+            _alerts = new Mesh { name = "Under attack", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
+            AddMesh("Under attack", _alerts, _selectionMaterial);
             _orders = new Mesh { name = "Orders", indexFormat = UnityEngine.Rendering.IndexFormat.UInt32 };
             _orderMaterial = MakeMaterial("Wasteland/Tactical Stroke", 2300);
             if (_orderMaterial != null)
@@ -198,6 +210,50 @@ namespace Wasteland.Presentation
             townsBatch.Upload(_towns);
             unitsBatch.Upload(_units);
             selection.Upload(_selection);
+        }
+
+        public void SetAlertRings(AlertRingMark[] rings)
+        {
+            if (_alerts == null)
+            {
+                return;
+            }
+
+            MarkBatch batch = new MarkBatch();
+            if (rings != null)
+            {
+                for (int i = 0; i < rings.Length; i++)
+                {
+                    AlertRingMark ring = rings[i];
+                    float pulse = ring.Pulse;
+                    if (pulse < 0.7f)
+                    {
+                        pulse = 0.7f;
+                    }
+                    else if (pulse > 1f)
+                    {
+                        pulse = 1f;
+                    }
+
+                    float radius = 16f * pulse;
+                    Rgb fill = AlertRingStyle.Fill(ring.Fill);
+                    batch.Quad(
+                        Flat(ring.XCm, ring.YCm, AlertY),
+                        radius + 4f,
+                        radius + 4f,
+                        radius * 2f,
+                        radius * 2f,
+                        4f,
+                        0f,
+                        0f,
+                        0f,
+                        0f,
+                        ToColor(fill),
+                        ToColor(AlertRingStyle.Outline));
+                }
+            }
+
+            batch.Upload(_alerts);
         }
 
         public void SetRejectReason(string reason)

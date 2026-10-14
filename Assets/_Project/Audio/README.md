@@ -1,6 +1,6 @@
 # Presentation audio
 
-Hooks for the ten MVP placeholder clips in `Placeholder/`. Spec: MVP placeholder presentation spec v1.2, §11, plus the rejected-command line in §10.
+Hooks for the MVP placeholder clips in `Placeholder/`. Spec: MVP placeholder presentation spec v1.2, §11, plus the rejected-command line in §10. Three later cues (`under_attack`, `research_done`, `order_deny`) are Kenney UI Audio, CC0.
 
 `Wasteland.Audio` does not reference `Wasteland.Sim` or `Wasteland.Presentation`. The presentation clock in `Wasteland.Presentation` does not reference this assembly yet. When that layer starts calling these hooks, add `"Wasteland.Audio"` to its `references` list. Do not reference `Wasteland.Prototypes`.
 
@@ -29,7 +29,9 @@ The manager runs one source per town, with `AudioSource.loop = true` because the
 | Cue | Trigger |
 |---|---|
 | `UiClick` | A HUD control, including Raise Battalion and Build Depot. Full volume. |
-| `UiClick` via `PlayLow` | A command the human seat rejected. One line of rejection text is the HUD's job. There is no separate error sound. AI rejections are silent: do not call `Play`. |
+| `OrderDeny` | A command the human seat rejected. 2D Kenney `click2`, not the accept click. AI rejections are silent: do not call `Play`. |
+| `UnderAttack` | The human seat's town or battalion is attacked. 2D at volume 0.8. Never in a spectator match. Towns wait 600 ticks; the HQ does not. |
+| `ResearchDone` | Sim event 6 (tier reached). Human seat hears their own completion at full volume, once. A spectator hears both seats at 0.6. |
 | `OrderAck` | The human issues a command. Play at issue time, not when the sim executes it at `issuedTick + commandDelayTicks`. Do not play this for an AI order. |
 | `RaiseBattalion` | The battalion spawn event, at the seat HQ. |
 | `DepotBuilt` | The depot's active tick, not the site tick. At the depot. |

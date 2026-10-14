@@ -22,6 +22,7 @@
   <ItemGroup>
     <Compile Include="..\..\Assets\_Project\Presentation\Map\*.cs" />
     <Compile Include="..\..\Assets\_Project\Presentation\Orders\*.cs" />
+    <Compile Include="..\..\Assets\_Project\Presentation\Hud\*.cs" />
     <Compile Include="..\..\Assets\_Project\Audio\Runtime\CombatBedClock.cs" />
     <Compile Include="..\..\Assets\_Project\Audio\Runtime\CombatContestEvents.cs" />
     <Compile Include="..\..\Assets\_Project\Audio\Runtime\CombatBedRolloff.cs" />

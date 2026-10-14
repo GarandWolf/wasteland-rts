@@ -51,6 +51,9 @@ namespace Wasteland.Audio.Tests
             Assert.That((int)SoundCue.WinStinger, Is.EqualTo(7));
             Assert.That((int)SoundCue.LoseStinger, Is.EqualTo(8));
             Assert.That((int)SoundCue.DrawStinger, Is.EqualTo(9));
+            Assert.That((int)SoundCue.UnderAttack, Is.EqualTo(10));
+            Assert.That((int)SoundCue.ResearchDone, Is.EqualTo(11));
+            Assert.That((int)SoundCue.OrderDeny, Is.EqualTo(12));
 
             Assert.That(SoundCues.FileName(SoundCue.UiClick), Is.EqualTo("ui_click.wav"));
             Assert.That(SoundCues.FileName(SoundCue.OrderAck), Is.EqualTo("order_ack.wav"));
@@ -62,6 +65,9 @@ namespace Wasteland.Audio.Tests
             Assert.That(SoundCues.FileName(SoundCue.WinStinger), Is.EqualTo("win_stinger.wav"));
             Assert.That(SoundCues.FileName(SoundCue.LoseStinger), Is.EqualTo("lose_stinger.wav"));
             Assert.That(SoundCues.FileName(SoundCue.DrawStinger), Is.EqualTo("draw_stinger.wav"));
+            Assert.That(SoundCues.FileName(SoundCue.UnderAttack), Is.EqualTo("under_attack.wav"));
+            Assert.That(SoundCues.FileName(SoundCue.ResearchDone), Is.EqualTo("research_done.wav"));
+            Assert.That(SoundCues.FileName(SoundCue.OrderDeny), Is.EqualTo("order_deny.wav"));
             Assert.That(SoundCues.FileName((SoundCue)99), Is.Null);
         }
 
