@@ -14,8 +14,8 @@ jobs:
         with:
           lfs: true
 
-      - name: Pull golden WRMB via Git LFS
-        run: git lfs pull --include="data/golden/*.wrmb" --exclude=""
+      - name: Pull golden WRMB and placeholder audio via Git LFS
+        run: git lfs pull --include="data/golden/*.wrmb,Assets/_Project/Audio/Placeholder/*.wav" --exclude=""
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
@@ -27,6 +27,9 @@ jobs:
 
       - name: Test
         run: dotnet test Wasteland.Sim.sln --configuration Release --nologo
+
+      - name: Verify playable zip packaging
+        run: bash tools/playable/test_verify_playable.sh
 
       - name: Guard AI integer-only and no squads
         run: |

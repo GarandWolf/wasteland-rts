@@ -19,7 +19,7 @@ namespace Wasteland.Presentation
     /// </summary>
     public sealed class GorgeListeningHarness : MonoBehaviour
     {
-        public const ulong MatchSeed = 0xC01055A1UL;
+        public const ulong MatchSeed = PlayableMatch.MatchSeed;
         public const int MaxTicksPerFrame = 64;
 
         // Lengths are not in the .sha256 pins (those files are the hash and the file name).
@@ -162,7 +162,7 @@ namespace Wasteland.Presentation
             _host = AiMatchHost.Start(
                 MatchConfig.Default(MatchSeed).WithKeys(balance.BalanceKey, mapKey),
                 map,
-                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                PlayableMatch.AiFactionIds(),
                 AiConstants.DifficultyNormal,
                 balance);
             if (_loops == null)
@@ -323,7 +323,9 @@ namespace Wasteland.Presentation
             bankProp.objectReferenceValue = bank;
             so.ApplyModifiedPropertiesWithoutUndo();
 #else
-            throw new InvalidOperationException("The combat sound bank is not assigned on the listening object.");
+            // Player builds have no AssetDatabase. SoundPlayer ignores a null bank,
+            // so the match still runs when the bank was not assigned in the scene.
+            return;
 #endif
         }
 
