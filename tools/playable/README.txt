@@ -17,3 +17,4 @@ Controls
 
 Win condition
 Capture the enemy headquarters.
+Lose your own headquarters and you lose.
