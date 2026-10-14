@@ -1,6 +1,6 @@
 # Attribution
 
-Credits for the Oct 17–19 Windows playable build. The map section is marked for Map Pipeline review.
+Credits for the Oct 17–19 Windows playable build.
 
 ## Kenney
 
@@ -10,11 +10,15 @@ The UI clicks and the three HUD cues (`ui_click.wav`, `under_attack.wav`, `resea
 
 ## OpenStreetMap
 
-**Map Pipeline review.**
-
 Map data © OpenStreetMap contributors, available under the Open Database License (ODbL): https://www.openstreetmap.org/copyright
 
-The Columbia Gorge map is built from this per-region OpenStreetMap extract, which is the ODbL source offer for the clip:
+The ODbL source offer for the Columbia Gorge clip is `gorge-clip.osm.pbf`, attached to the playable GitHub release. The tag in this link is a placeholder (`playable-2026-10`). The real release tag must match the file name pattern `playable-*`.
+
+https://github.com/GarandWolf/wasteland-rts/releases/download/playable-2026-10/gorge-clip.osm.pbf
+
+17,153,637 bytes. SHA-256 `3eebb2957d33270446cbb2f46ea4a87631086da7c6418f7700693b7dc8b87176`.
+
+The Columbia Gorge map is built from these per-region OpenStreetMap extracts:
 
 https://download.geofabrik.de/north-america/us/oregon-260927.osm.pbf
 
