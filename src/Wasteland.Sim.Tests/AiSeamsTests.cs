@@ -651,7 +651,7 @@ namespace Wasteland.Sim.Tests
             byte[] schema8 = { 8, 0, 0, 0 };
             InvalidDataException ex = Assert.Throws<InvalidDataException>(() => host.Ai.Load(schema8));
             Assert.Equal(
-                "AI state schema version 8 is unsupported; expected 12.",
+                "AI state schema version 8 is unsupported; expected 13.",
                 ex.Message);
             Assert.Equal(sentinel + 1, host.Ai.Owned.FactionAt(0).Manpower);
             host.Shutdown();
@@ -666,7 +666,7 @@ namespace Wasteland.Sim.Tests
             byte[] schema9 = { 9, 0, 0, 0 };
             InvalidDataException ex = Assert.Throws<InvalidDataException>(() => host.Ai.Load(schema9));
             Assert.Equal(
-                "AI state schema version 9 is unsupported; expected 12.",
+                "AI state schema version 9 is unsupported; expected 13.",
                 ex.Message);
             Assert.Equal(sentinel + 1, host.Ai.Owned.FactionAt(0).Manpower);
             host.Shutdown();
@@ -681,7 +681,7 @@ namespace Wasteland.Sim.Tests
             byte[] schema10 = { 10, 0, 0, 0 };
             InvalidDataException ex = Assert.Throws<InvalidDataException>(() => host.Ai.Load(schema10));
             Assert.Equal(
-                "AI state schema version 10 is unsupported; expected 12.",
+                "AI state schema version 10 is unsupported; expected 13.",
                 ex.Message);
             Assert.Equal(sentinel + 1, host.Ai.Owned.FactionAt(0).Manpower);
             host.Shutdown();
@@ -696,7 +696,7 @@ namespace Wasteland.Sim.Tests
             byte[] schema11 = { 11, 0, 0, 0 };
             InvalidDataException ex = Assert.Throws<InvalidDataException>(() => host.Ai.Load(schema11));
             Assert.Equal(
-                "AI state schema version 11 is unsupported; expected 12.",
+                "AI state schema version 11 is unsupported; expected 13.",
                 ex.Message);
             Assert.Equal(sentinel + 1, host.Ai.Owned.FactionAt(0).Manpower);
             host.Shutdown();

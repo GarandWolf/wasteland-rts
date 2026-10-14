@@ -1765,7 +1765,7 @@ namespace Wasteland.Sim.Tests
                 }
 
                 reader.ReadBoolean();
-                for (int i = 0; i < 21; i++)
+                for (int i = 0; i < 22; i++)
                 {
                     reader.ReadInt32();
                 }
@@ -1838,7 +1838,7 @@ namespace Wasteland.Sim.Tests
             int pendingCount = reader.ReadInt32();
             reader.ReadInt32();
             reader.ReadInt32();
-            for (int i = 0; i < 10; i++)
+            for (int i = 0; i < 11; i++)
             {
                 reader.ReadInt32();
             }

@@ -386,7 +386,158 @@ namespace Wasteland.Sim.Tests
             harness.Towns[30] = Enemy(2, 4);
             harness.SetBattalions(Idle(5, 1));
             harness.Tick();
-            Assert.Empty(harness.Sink.Log);
+            Assert.Single(harness.Sink.Log);
+            Assert.Equal(AiIssuedKind.RaiseBattalion, harness.Sink.Log[0].Kind);
+            Assert.True(harness.Catalog.TryGetRole(harness.Sink.Log[0].UnitId, out string role));
+            Assert.Equal(AiConstants.RoleLineInfantry, role);
+            harness.Tick(1);
+            Assert.Equal(2, harness.Sink.Log.Count);
+            Assert.Equal(AiIssuedKind.RaiseBattalion, harness.Sink.Log[1].Kind);
+        }
+
+        [Fact]
+        public void BelowRatio_IdleEngineerDoesNotBlockCombatRaise()
+        {
+            Harness harness = Harness.Line();
+            harness.Towns[10] = Own(1);
+            harness.Towns[30] = Enemy(2, 4);
+            harness.SetBattalions(Engineer(7, 1));
+            harness.Tick();
+            Assert.Single(harness.Sink.Log);
+            Assert.Equal(AiIssuedKind.RaiseBattalion, harness.Sink.Log[0].Kind);
+            Assert.True(harness.Catalog.TryGetRole(harness.Sink.Log[0].UnitId, out string role));
+            Assert.Equal(AiConstants.RoleLineInfantry, role);
+        }
+
+        [Fact]
+        public void UnaffordableDepot_OutOfSupplyTarget_MarchesToSupplyEdge()
+        {
+            Harness harness = Harness.Line();
+            harness.SupplyReachCm = 1500;
+            harness.Buildings = BalanceLoad.Tables().BuildingCatalog;
+            harness.SeatView.Materials = 70;
+            harness.SeatView.Manpower = 300;
+            harness.Towns[10] = Own(1);
+            harness.Towns[30] = Enemy(2, 1);
+            harness.SetBattalions(Idle(5, 1), Engineer(7, 1));
+            harness.Tick();
+            bool movedToEdge = false;
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                AiIssuedCommand cmd = harness.Sink.Log[i];
+                Assert.NotEqual(AiIssuedKind.BuildDepot, cmd.Kind);
+                Assert.NotEqual(AiIssuedKind.ClaimTown, cmd.Kind);
+                if (cmd.Kind == AiIssuedKind.Move && cmd.Arg0 == 5 && cmd.Arg1 == 1000 && cmd.Arg2 == 0)
+                {
+                    movedToEdge = true;
+                }
+            }
+
+            Assert.True(movedToEdge, "idle capturer should march to the in-supply road node");
+        }
+
+        [Fact]
+        public void UnaffordableDepot_DoesNotLeaveTheHqForAnOffRouteTown()
+        {
+            Harness harness = Harness.Flank();
+            harness.SupplyReachCm = 500;
+            harness.Buildings = BalanceLoad.Tables().BuildingCatalog;
+            harness.SeatView.Materials = 70;
+            harness.SeatView.Manpower = 300;
+            harness.Towns[10] = Own(1);
+            harness.Towns[20] = Enemy(2, 1);
+            harness.Towns[30] = Enemy(2, 1);
+            harness.SetBattalions(Idle(5, 1), Idle(6, 1));
+            harness.Tick();
+            Assert.Equal(20, harness.Faction.AttackTargetTownId);
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                AiIssuedCommand cmd = harness.Sink.Log[i];
+                Assert.NotEqual(AiIssuedKind.BuildDepot, cmd.Kind);
+                if (cmd.Kind == AiIssuedKind.ClaimTown)
+                {
+                    Assert.NotEqual(30, cmd.Arg1);
+                }
+            }
+        }
+
+        [Fact]
+        public void UnaffordableDepot_StepsToInSupplyTownOnTheHqRoad()
+        {
+            Harness harness = Harness.Route();
+            harness.SupplyReachCm = 1500;
+            harness.Buildings = BalanceLoad.Tables().BuildingCatalog;
+            harness.SeatView.Materials = 70;
+            harness.SeatView.Manpower = 300;
+            harness.Towns[10] = Own(1);
+            harness.Towns[20] = Enemy(2, 1);
+            harness.Towns[30] = Enemy(2, 1);
+            harness.SetBattalions(Idle(5, 1), Idle(6, 1));
+            harness.Tick();
+            Assert.Equal(20, harness.Faction.AttackTargetTownId);
+            bool claimedStep = false;
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                AiIssuedCommand cmd = harness.Sink.Log[i];
+                Assert.NotEqual(AiIssuedKind.BuildDepot, cmd.Kind);
+                if (cmd.Kind == AiIssuedKind.ClaimTown && cmd.Arg1 == 20)
+                {
+                    claimedStep = true;
+                }
+            }
+
+            Assert.True(claimedStep);
+            harness.SeatView.Materials = 500;
+            harness.SeatView.Fuel = 400;
+            harness.Tick(1);
+            Assert.Equal(30, harness.Faction.AttackTargetTownId);
+        }
+
+        [Fact]
+        public void AffordableDepot_StillExtendsTowardOutOfSupplyHq()
+        {
+            Harness harness = Harness.Flank();
+            harness.SupplyReachCm = 500;
+            harness.Buildings = BalanceLoad.Tables().BuildingCatalog;
+            harness.SeatView.Materials = 500;
+            harness.SeatView.Fuel = 400;
+            harness.SeatView.Manpower = 300;
+            harness.Towns[10] = Own(1);
+            harness.Towns[20] = Enemy(2, 1);
+            harness.Towns[30] = Enemy(2, 1);
+            harness.SetBattalions(Idle(5, 1), Engineer(7, 1));
+            int picked = harness.Planner.PickAttackTarget(
+                harness.Faction,
+                harness.TownRows,
+                harness.TownRows.Length,
+                harness.Roads,
+                1,
+                harness.Network,
+                harness.Network.Length,
+                harness.SupplyReachCm,
+                0UL,
+                0,
+                false);
+            Assert.Equal(20, picked);
+            Assert.True(AiAttackDefend.CanBuildDepot(harness.Seat, harness.Buildings));
+            Assert.True(AiAttackDefend.CanAffordDepot(harness.SeatView, harness.Buildings));
+            harness.Tick();
+            Assert.Equal(20, harness.Faction.AttackTargetTownId);
+            bool built = false;
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                if (harness.Sink.Log[i].Kind == AiIssuedKind.BuildDepot)
+                {
+                    built = true;
+                }
+
+                if (harness.Sink.Log[i].Kind == AiIssuedKind.ClaimTown)
+                {
+                    Assert.NotEqual(30, harness.Sink.Log[i].Arg1);
+                }
+            }
+
+            Assert.True(built);
         }
 
         [Fact]
@@ -512,10 +663,27 @@ namespace Wasteland.Sim.Tests
             harness.Towns[30] = Enemy(2, 1);
             harness.SetBattalions(Idle(5, 1), Idle(6, 1));
             harness.Tick();
-            Assert.Single(harness.Sink.Log);
-            Assert.Equal(AiIssuedKind.RaiseBattalion, harness.Sink.Log[0].Kind);
-            Assert.True(harness.Catalog.TryGetRole(harness.Sink.Log[0].UnitId, out string raiseRole));
-            Assert.Equal(AiConstants.RoleEngineer, raiseRole);
+            int engineerRaises = 0;
+            int capturerOrders = 0;
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                AiIssuedCommand cmd = harness.Sink.Log[i];
+                if (cmd.Kind == AiIssuedKind.RaiseBattalion)
+                {
+                    Assert.True(harness.Catalog.TryGetRole(cmd.UnitId, out string raiseRole));
+                    Assert.Equal(AiConstants.RoleEngineer, raiseRole);
+                    engineerRaises++;
+                }
+
+                if ((cmd.Kind == AiIssuedKind.Move || cmd.Kind == AiIssuedKind.ClaimTown)
+                    && (cmd.Arg0 == 5 || cmd.Arg0 == 6))
+                {
+                    capturerOrders++;
+                }
+            }
+
+            Assert.Equal(1, engineerRaises);
+            Assert.True(capturerOrders >= 2, "both capturers should march once the strength ratio passes");
         }
 
         [Fact]
@@ -577,14 +745,15 @@ namespace Wasteland.Sim.Tests
             harness.SetBattalions(Idle(5, 1), Idle(6, 1));
             harness.Sink.NextReject = AiCommandReject.Rejected;
             harness.Tick(0);
-            Assert.Single(harness.Sink.Log);
+            Assert.True(harness.Sink.Log.Count >= 1);
             Assert.Equal((int)AiCommandReject.Rejected, harness.Faction.LastRejectCode);
             int until = harness.Faction.RejectBackoffUntilTick;
             Assert.Equal(AiAttackDefend.RejectBackoffStartTicks, until);
+            int count = harness.Sink.Log.Count;
             harness.Tick(1);
-            Assert.Single(harness.Sink.Log);
+            Assert.Equal(count, harness.Sink.Log.Count);
             harness.Tick(until);
-            Assert.True(harness.Sink.Log.Count > 1);
+            Assert.True(harness.Sink.Log.Count > count);
         }
 
         [Fact]
@@ -616,7 +785,10 @@ namespace Wasteland.Sim.Tests
             harness.Towns[30] = Enemy(2, 1);
             harness.SetBattalions(Idle(5, 1), Idle(6, 1));
             harness.Tick();
-            Assert.Empty(harness.Sink.Log);
+            for (int i = 0; i < harness.Sink.Log.Count; i++)
+            {
+                Assert.NotEqual(AiIssuedKind.RaiseBattalion, harness.Sink.Log[i].Kind);
+            }
         }
 
         [Fact]
@@ -903,7 +1075,7 @@ namespace Wasteland.Sim.Tests
             public readonly RoadGraph Roads;
             public readonly AiAttackTownInfo[] TownRows;
             public readonly Dictionary<int, AiTownReadback> Towns = new Dictionary<int, AiTownReadback>();
-            public readonly int[] Network = { 1 };
+            public int[] Network = { 1 };
             public readonly FixtureAiSeatView SeatView = new FixtureAiSeatView();
             public readonly IAiUnitCatalog Catalog;
             public IAiBuildingCatalog Buildings;
@@ -1023,6 +1195,52 @@ namespace Wasteland.Sim.Tests
                     50000);
             }
 
+            public static Harness Flank()
+            {
+                RoadGraph roads = Wrmb.ReadRoadGraph(
+                    new RoadGraphBuilder()
+                        .AddNode(1, 0, 0)
+                        .AddNode(2, 1000, 0)
+                        .AddNode(3, 6000, 0)
+                        .AddNode(4, 6000, 200)
+                        .AddEdge(1, 1, 2, 1000, RoadTier.Paved, RoadSurface.Asphalt)
+                        .AddEdge(2, 2, 3, 5000, RoadTier.Paved, RoadSurface.Asphalt)
+                        .AddEdge(3, 3, 4, 200, RoadTier.Paved, RoadSurface.Asphalt)
+                        .ToBlob());
+                Harness harness = new Harness(
+                    roads,
+                    new[]
+                    {
+                        new AiAttackTownInfo(10, 1, 1, 0, 0, true, 1UL),
+                        new AiAttackTownInfo(20, 2, 2, 1000, 0, true, 2UL),
+                        new AiAttackTownInfo(30, 3, 3, 6000, 0, false, 3UL)
+                    },
+                    50000);
+                harness.Network = new[] { 4 };
+                return harness;
+            }
+
+            public static Harness Route()
+            {
+                RoadGraph roads = Wrmb.ReadRoadGraph(
+                    new RoadGraphBuilder()
+                        .AddNode(1, 0, 0)
+                        .AddNode(2, 1000, 0)
+                        .AddNode(3, 4000, 0)
+                        .AddEdge(1, 1, 2, 1000, RoadTier.Paved, RoadSurface.Asphalt)
+                        .AddEdge(2, 2, 3, 3000, RoadTier.Paved, RoadSurface.Asphalt)
+                        .ToBlob());
+                return new Harness(
+                    roads,
+                    new[]
+                    {
+                        new AiAttackTownInfo(10, 1, 1, 0, 0, true, 1UL),
+                        new AiAttackTownInfo(20, 2, 2, 1000, 0, false, 2UL),
+                        new AiAttackTownInfo(30, 3, 3, 4000, 0, true, 3UL)
+                    },
+                    50000);
+            }
+
             public void SetBattalions(params AiBattalionPin[] pins)
             {
                 _battalions = pins;
@@ -1038,7 +1256,7 @@ namespace Wasteland.Sim.Tests
                 Faction.WorkUnitsThisTick = 0;
                 Sink.Tick = tick;
                 int[] network = Network;
-                int networkCount = 1;
+                int networkCount = network.Length;
                 if (Sink.TryGet(Faction.FactionId, 2, out AiDepotReadback depot) && depot.IsActive(tick))
                 {
                     network = new[] { 1, 2 };

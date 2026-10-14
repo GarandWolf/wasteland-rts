@@ -195,7 +195,6 @@ namespace Wasteland.Sim.Tests
             harness.SetBattalions(
                 AiMvpAttackTests.PinWithRole(5, 0, 0, 1, AiConstants.RoleLineInfantry),
                 engineer);
-            int raises = 0;
             for (int tick = 0; tick < 8; tick++)
             {
                 int from = harness.Sink.Log.Count;
@@ -209,11 +208,8 @@ namespace Wasteland.Sim.Tests
 
                     Assert.True(harness.Catalog.TryGetRole(harness.Sink.Log[i].UnitId, out string role));
                     Assert.NotEqual(AiConstants.RoleEngineer, role);
-                    raises++;
                 }
             }
-
-            Assert.Equal(0, raises);
         }
 
         [Fact]
