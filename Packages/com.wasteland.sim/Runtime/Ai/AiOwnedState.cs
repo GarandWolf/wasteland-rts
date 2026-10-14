@@ -155,6 +155,7 @@ namespace Wasteland.Sim.Ai
         public int PendingDropped;
         public int AttackTargetTownId;
         public int DefendTownId;
+        public int HqCommit;
         public int LastIssuedCommandId;
         public int LastIssuedSequence;
         public int LastRejectCode;
@@ -1264,6 +1265,7 @@ namespace Wasteland.Sim.Ai
                 hash.AddInt(faction.PendingDropped);
                 hash.AddInt(faction.AttackTargetTownId);
                 hash.AddInt(faction.DefendTownId);
+                hash.AddInt(faction.HqCommit);
                 hash.AddInt(faction.LastIssuedCommandId);
                 hash.AddInt(faction.LastIssuedSequence);
                 hash.AddInt(faction.LastRejectCode);
@@ -1397,6 +1399,7 @@ namespace Wasteland.Sim.Ai
                 writer.Write(faction.DepotCapSkips);
                 writer.Write(faction.AttackTargetTownId);
                 writer.Write(faction.DefendTownId);
+                writer.Write(faction.HqCommit);
                 writer.Write(faction.LastIssuedCommandId);
                 writer.Write(faction.LastIssuedSequence);
                 writer.Write(faction.LastRejectCode);
@@ -1685,6 +1688,11 @@ namespace Wasteland.Sim.Ai
             loaded.DepotCapSkips = reader.ReadInt32();
             loaded.AttackTargetTownId = reader.ReadInt32();
             loaded.DefendTownId = reader.ReadInt32();
+            loaded.HqCommit = reader.ReadInt32();
+            if (loaded.HqCommit != 0 && loaded.HqCommit != 1)
+            {
+                throw new InvalidDataException("AI HqCommit must be 0 or 1.");
+            }
             loaded.LastIssuedCommandId = reader.ReadInt32();
             loaded.LastIssuedSequence = reader.ReadInt32();
             loaded.LastRejectCode = reader.ReadInt32();
@@ -1838,6 +1846,7 @@ namespace Wasteland.Sim.Ai
             faction.DepotCapSkips = loaded.DepotCapSkips;
             faction.AttackTargetTownId = loaded.AttackTargetTownId;
             faction.DefendTownId = loaded.DefendTownId;
+            faction.HqCommit = loaded.HqCommit;
             faction.LastIssuedCommandId = loaded.LastIssuedCommandId;
             faction.LastIssuedSequence = loaded.LastIssuedSequence;
             faction.LastRejectCode = loaded.LastRejectCode;
@@ -1947,6 +1956,7 @@ namespace Wasteland.Sim.Ai
             public int DepotCapSkips;
             public int AttackTargetTownId;
             public int DefendTownId;
+            public int HqCommit;
             public int LastIssuedCommandId;
             public int LastIssuedSequence;
             public int LastRejectCode;

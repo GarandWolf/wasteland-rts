@@ -422,6 +422,7 @@ namespace Wasteland.Sim.Ai
         public void Load(byte[] blob)
         {
             _owned.Load(blob, _matchSeed, _balanceKey, _mapKey);
+            _attackDefend.ClearPlanningCaches();
             _homesSeeded = true;
             ForwardingAiCommandSink? forwarding = _aiCommands as ForwardingAiCommandSink;
             if (forwarding != null)

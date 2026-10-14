@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Commands;
 using Wasteland.Sim.Events;
+using Wasteland.Sim.Scenario;
 using Wasteland.Sim.World;
 using Xunit;
 
@@ -401,7 +402,8 @@ namespace Wasteland.Sim.Tests
         [Fact]
         public void SaveLoadOnEvent15Tick_MatchesHash()
         {
-            Assert.Equal(12, AiConstants.StateSchemaVersion);
+            Assert.Equal(13, AiConstants.StateSchemaVersion);
+            Assert.Equal(SimWorld.WorldStateSchema, WorldSchemaOf(new SimWorld(new MatchConfig(1UL, 0)).Save()));
             AiMatchHost original = Start(MatchSeed, AiConstants.DifficultyNormal, AiBalanceTablesTests.LoadBalance());
             int cursor = 0;
             int destroyTick = -1;
@@ -490,6 +492,362 @@ namespace Wasteland.Sim.Tests
                 new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
                 difficultyId,
                 balance);
+        }
+
+        /// <summary>
+        /// AI-vs-AI Gorge with seat income. <see cref="SimWorld.HashState"/> at tick 20000,
+        /// after Compact has put a contest unit inside Goldendale.
+        /// </summary>
+        public const ulong ExpectedAiVsAiGorgeIncomeWorldKey = 0x3EB6A2979749053DUL;
+
+        public const int AiVsAiGorgeIncomePinTick = 20000;
+
+        [Fact]
+        public void AiVsAiGorgeIncome_SaveAfterHqCommit_MatchesStraightWorldHash()
+        {
+            AiBalanceTables balance = BalanceLoad.Tables();
+            AiMatchHost straight = Start(MatchSeed, AiConstants.DifficultyNormal, balance);
+            int saveTick = -1;
+            while (straight.Tick < AiVsAiGorgeIncomePinTick && saveTick < 0)
+            {
+                straight.Run(1);
+                if (straight.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionA).HqCommit != 0
+                    || straight.Ai.Owned.GetFaction(AiConstants.DefaultAiFactionB).HqCommit != 0)
+                {
+                    saveTick = straight.Tick;
+                }
+            }
+
+            Assert.True(saveTick > 0, "HqCommit was never set before tick " + AiVsAiGorgeIncomePinTick + ".");
+            byte[] blob = straight.Ai.Save();
+            SimCommand[] log = CopyLog(straight.CommandLog);
+            straight.Run(AiVsAiGorgeIncomePinTick - straight.Tick);
+            ulong atEnd = straight.World.HashState();
+
+            AiMatchHost restored = AiMatchHost.ReplayTo(
+                MatchConfig.Default(MatchSeed),
+                AiSeamsTests.LoadGorgeV1Bytes(),
+                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
+                AiConstants.DifficultyNormal,
+                balance,
+                log,
+                blob,
+                saveTick);
+            restored.Run(AiVsAiGorgeIncomePinTick - restored.Tick);
+            Assert.Equal(atEnd, restored.World.HashState());
+            Assert.Equal(ExpectedAiVsAiGorgeIncomeWorldKey, atEnd);
+            restored.Shutdown();
+            straight.Shutdown();
+        }
+
+        [Fact]
+        public void AiVsAiGorgeIncome_WorldHash_AtTick20000()
+        {
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, BalanceLoad.Tables());
+            host.Run(AiVsAiGorgeIncomePinTick);
+            Assert.Equal(AiVsAiGorgeIncomePinTick, host.Tick);
+            Assert.Equal(ExpectedAiVsAiGorgeIncomeWorldKey, host.World.HashState());
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void CompactTaskForce_EntersGoldendaleZone()
+        {
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, BalanceLoad.Tables());
+            BalanceCatalog catalog = BalanceCatalog.LoadFromDirectory(BalanceLoad.DirectoryPath());
+            int goldendale = host.Ai.Map.GoldendaleTownId;
+            int entered = -1;
+            while (host.Tick < 25020 && entered < 0)
+            {
+                host.Run(1);
+                if (host.World.TryGetTown(goldendale, out TownView town)
+                    && CombatSeatInZone(host, AiConstants.DefaultAiFactionB, catalog, town))
+                {
+                    entered = host.Tick;
+                }
+            }
+
+            Assert.Equal(14598, entered);
+            host.Shutdown();
+        }
+
+        [Fact]
+        public void AfterDalles_BothSeatsRaiseThenContestGoldendaleOrHoodRiver()
+        {
+            const int contestBeforeTick = 25020;
+            const int followUpWindowTicks = 2400;
+            AiMatchHost host = Start(MatchSeed, AiConstants.DifficultyNormal, BalanceLoad.Tables());
+            BalanceCatalog catalog = BalanceCatalog.LoadFromDirectory(BalanceLoad.DirectoryPath());
+            int dalles = host.Ai.Map.TheDallesTownId;
+            int goldendale = host.Ai.Map.GoldendaleTownId;
+            int hoodRiver = host.Ai.Map.HoodRiverTownId;
+            Assert.Equal(33, goldendale);
+            Assert.Equal(26, hoodRiver);
+
+            int dallesCapture = -1;
+            int followUpTick = -1;
+            int contestTick = -1;
+            int contestTown = 0;
+            bool compactInGoldendale = false;
+            int logCursor = 0;
+            int eventCursor = 0;
+            List<int> openContests = new List<int>();
+            int peakBeds = 0;
+            int peakBedTick = -1;
+            int compactEnterTick = -1;
+            int attackTick = -1;
+            while (host.Tick < contestBeforeTick)
+            {
+                host.Run(1);
+                IReadOnlyList<SimCommand> log = host.CommandLog;
+                for (; logCursor < log.Count; logCursor++)
+                {
+                    SimCommand cmd = log[logCursor];
+                    if (dallesCapture >= 0
+                        && attackTick < 0
+                        && cmd.IssuedTick > dallesCapture
+                        && cmd.Kind == CommandKind.Attack)
+                    {
+                        attackTick = cmd.IssuedTick;
+                    }
+
+                    if (dallesCapture < 0
+                        || cmd.IssuedTick <= dallesCapture
+                        || cmd.IssuedTick > dallesCapture + followUpWindowTicks)
+                    {
+                        continue;
+                    }
+
+                    if (followUpTick < 0
+                        && (cmd.Kind == CommandKind.Attack || cmd.Kind == CommandKind.ClaimTown))
+                    {
+                        followUpTick = cmd.IssuedTick;
+                    }
+                }
+
+                IReadOnlyList<SimEvent> events = host.World.Events;
+                for (; eventCursor < events.Count; eventCursor++)
+                {
+                    SimEvent ev = events[eventCursor];
+                    if (dallesCapture < 0
+                        && ev.Kind == SimEventKind.TownOwnerChanged
+                        && ev.SubjectId == dalles)
+                    {
+                        dallesCapture = ev.Tick;
+                    }
+
+                    if (contestTick < 0
+                        && ev.Kind == SimEventKind.TownContestStarted
+                        && ev.Tick < contestBeforeTick
+                        && (ev.SubjectId == goldendale || ev.SubjectId == hoodRiver))
+                    {
+                        contestTick = ev.Tick;
+                        contestTown = ev.SubjectId;
+                    }
+
+                    if (ev.Kind == SimEventKind.TownContestStarted)
+                    {
+                        if (!openContests.Contains(ev.SubjectId))
+                        {
+                            openContests.Add(ev.SubjectId);
+                        }
+                    }
+                    else if (ev.Kind == SimEventKind.TownContestEnded)
+                    {
+                        openContests.Remove(ev.SubjectId);
+                    }
+                }
+
+                if (openContests.Count > peakBeds)
+                {
+                    peakBeds = openContests.Count;
+                    peakBedTick = host.Tick;
+                }
+
+                if (!compactInGoldendale
+                    && host.World.TryGetTown(goldendale, out TownView goldendaleTown)
+                    && CombatSeatInZone(host, AiConstants.DefaultAiFactionB, catalog, goldendaleTown))
+                {
+                    compactInGoldendale = true;
+                    compactEnterTick = host.Tick;
+                }
+            }
+
+            int remnantRaises = CountRaiseStarts(host, AiConstants.DefaultAiFactionA);
+            int compactRaises = CountRaiseStarts(host, AiConstants.DefaultAiFactionB);
+            bool remnantBlocked = RaiseBlocked(host, catalog, AiConstants.DefaultAiFactionA);
+            bool compactBlocked = RaiseBlocked(host, catalog, AiConstants.DefaultAiFactionB);
+            bool raisedUntilBlocked = remnantRaises > 0
+                && compactRaises > 0
+                && remnantBlocked
+                && compactBlocked;
+            bool followUp = followUpTick >= 0;
+            bool contested = contestTick >= 0;
+            if (raisedUntilBlocked && followUp && contested)
+            {
+                Assert.True(dallesCapture >= 0);
+                Assert.InRange(followUpTick, dallesCapture + 1, dallesCapture + followUpWindowTicks);
+                Assert.True(contestTick < contestBeforeTick);
+                Assert.True(contestTown == goldendale || contestTown == hoodRiver);
+                Assert.True(peakBeds >= 1 && peakBedTick >= 0);
+                Assert.Equal(14598, compactEnterTick);
+                Assert.InRange(attackTick, dallesCapture + 1, dallesCapture + followUpWindowTicks);
+                host.Shutdown();
+                return;
+            }
+
+            Assert.True(dallesCapture >= 0, "The Dalles fight never settled.");
+            Assert.True(remnantRaises > 0, "Remnant never raised.");
+            Assert.True(compactRaises > 0, "Compact never raised.");
+            Assert.True(remnantBlocked, "Remnant stopped raising with pop and resources left. raises="
+                + remnantRaises
+                + " compactRaises=" + compactRaises
+                + " follow=" + followUpTick
+                + " contest=" + contestTick
+                + " capture=" + dallesCapture
+                + " " + SeatDump(host, AiConstants.DefaultAiFactionA)
+                + " " + SeatDump(host, AiConstants.DefaultAiFactionB));
+            Assert.True(compactBlocked, "Compact stopped raising with pop and resources left.");
+            Assert.True(followUp, "No follow-up Attack or ClaimTown within 2400 ticks of the Dalles capture.");
+            Assert.True(contested, "No contest on Goldendale or Hood River before tick 25020.");
+            Assert.True(compactInGoldendale, "Compact task force never entered Goldendale's zone.");
+            host.Shutdown();
+        }
+
+
+        private static bool CombatSeatInZone(
+            AiMatchHost host,
+            int factionId,
+            BalanceCatalog catalog,
+            TownView town)
+        {
+            long radius = town.ZoneRadiusCm;
+            long radiusSq = radius * radius;
+            IReadOnlyList<SimBattalion> battalions = host.World.Battalions;
+            for (int i = 0; i < battalions.Count; i++)
+            {
+                SimBattalion battalion = battalions[i];
+                if (battalion.OwnerId != factionId || battalion.Hp <= 0 || battalion.UnitIndex < 0)
+                {
+                    continue;
+                }
+
+                if (!catalog.UnitCanContestAt(battalion.UnitIndex))
+                {
+                    continue;
+                }
+
+                long dx = (long)battalion.PositionXCm - town.XCm;
+                long dy = (long)battalion.PositionYCm - town.YCm;
+                if ((dx * dx) + (dy * dy) <= radiusSq)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static int WorldSchemaOf(byte[] blob)
+        {
+            return blob[0] | (blob[1] << 8) | (blob[2] << 16) | (blob[3] << 24);
+        }
+
+        private static string SeatDump(AiMatchHost host, int factionId)
+        {
+            host.World.TryGetSeat(factionId, out SeatView seat);
+            AiFactionState ai = host.Ai.Owned.GetFaction(factionId);
+            return "f" + factionId
+                + " man=" + seat.Manpower
+                + " mat=" + seat.Materials
+                + " pop=" + seat.PopUsed + "/" + seat.PopCap
+                + " tier=" + seat.CurrentTier
+                + " target=" + ai.AttackTargetTownId
+                + " defend=" + ai.DefendTownId;
+        }
+
+        private static int CountRaiseStarts(AiMatchHost host, int factionId)
+        {
+            int count = 0;
+            IReadOnlyList<SimEvent> events = host.World.Events;
+            for (int i = 0; i < events.Count; i++)
+            {
+                SimEvent ev = events[i];
+                if (ev.Kind == SimEventKind.BattalionRaiseStarted && ev.AuxId == factionId)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        private static bool RaiseBlocked(AiMatchHost host, BalanceCatalog catalog, int factionId)
+        {
+            Assert.True(host.World.TryGetSeat(factionId, out SeatView seat));
+            if (seat.PopCap > 0 && seat.PopUsed >= seat.PopCap)
+            {
+                return true;
+            }
+
+            string factionKey = factionId == AiConstants.DefaultAiFactionA
+                ? "remnant_command"
+                : "homestead_compact";
+            Assert.True(host.Ai.Seats.TryGetByFaction(factionKey, out AiScenarioSeatView scenarioSeat));
+            string[] ids = scenarioSeat.RaisableUnits;
+            if (ids == null)
+            {
+                return true;
+            }
+
+            bool fuelOn = host.Ai.Seats.FuelEnabled;
+            int fuel = host.World.FuelOf(factionId);
+            for (int i = 0; i < ids.Length; i++)
+            {
+                if (!catalog.TryGetUnitIndex(ids[i], out int index))
+                {
+                    continue;
+                }
+
+                if (catalog.UnitTierAt(index) > seat.CurrentTier)
+                {
+                    continue;
+                }
+
+                if (!catalog.TryGetUnitRole(ids[i], out string role))
+                {
+                    continue;
+                }
+
+                if (role == AiConstants.RoleEngineer || role == "supply")
+                {
+                    continue;
+                }
+
+                if (seat.PopCap > 0 && seat.PopUsed + catalog.UnitPopAt(index) > seat.PopCap)
+                {
+                    continue;
+                }
+
+                if (seat.Manpower < catalog.UnitManpowerAt(index))
+                {
+                    continue;
+                }
+
+                if (seat.Materials < catalog.UnitMaterielAt(index))
+                {
+                    continue;
+                }
+
+                if (fuelOn && fuel < catalog.UnitFuelAt(index))
+                {
+                    continue;
+                }
+
+                return false;
+            }
+
+            return true;
         }
 
         private static SimCommand[] CopyLog(IReadOnlyList<SimCommand> log)
