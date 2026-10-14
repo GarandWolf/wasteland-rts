@@ -155,10 +155,10 @@ namespace Wasteland.Presentation
                 if (town.Selected)
                 {
                     float outer = diameter + (town.Hq ? 8f : 0f);
-                    float pad = SelectionOutline.PadPx;
+                    float selectionPad = SelectionOutline.PadPx;
                     selection.Quad(
                         Flat(town.XCm, town.YCm, SelectionY),
-                        outer * 0.5f + pad,
+                        outer * 0.5f + selectionPad,
                         outer * 0.5f + pad,
                         outer,
                         outer,
