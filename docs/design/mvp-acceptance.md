@@ -157,7 +157,20 @@ Every other target is still a designer-sim estimate and has not been re-measured
 
 **Pass 2 (`dataVersion` 9).** Wording and advisory flags only; no target tick or tolerance changed. `compact_at_1` now says 1948 is the raise order, not completion. `compact_militia` is advisory (see Open question 2).
 
-**Still stale.** These will be re-based on a real run once ClaimTown/BuildDepot, combat and capture land in the sim: the Remnant armour/mech targets (`remnant_armour_1`–`3`, `remnant_mech_1`–`2`, waiting on Tier II units being raised in the sim), `remnant_forward_depot` 12780, `remnant_hq_arrive` 19680, `remnant_hq_win` 25020, the 50040-tick horizon, and the capture targets (`compact_dalles_capture`, `remnant_dalles_capture_commit`, currently shifted from their arrivals rather than measured).
+**Re-based on main `48facb0` (after #45, #52, #53, 2026-10-14).** Measured on the AI-vs-AI Gorge run, income on, fuel off, upkeep off. These replace the shifted capture estimates above for the zip.
+
+| Event | Target | Measured | Note |
+|---|---|---|---|
+| The Dalles garrison cleared | n/a | **4223** | Reference only |
+| The Dalles captured | n/a | **10682** | Unchanged by #52, #53, #54 |
+| First follow-up attack after the capture | by **13082** (capture + 2400) | **11358** (Remnant) | Must launch within 2400 ticks of the capture |
+| Compact capture unit enters the Goldendale zone | must happen | **14598** | `CompactTaskForce_EntersGoldendaleZone` asserts it |
+| First enemy HQ contested | before **25020** | **9053** (Remnant battalion 3 at Hood River, Compact defends) | Same fight as before #53 |
+| Raising continues | until pop cap or resources run out | Remnant 21, Compact 34 raises | Neither seat stalls on its starting stockpile |
+
+Pins on main: AI-vs-AI Gorge world hash at tick 20000 `0x3EB6A2979749053D`, replay pin `0x9B9FBF4797CFF1D1`, income world hash `0xAF30F2EFD002EFF4`. MVP win condition: HQ capture only (W1 to W3). Zip README win line: "Capture the enemy headquarters."
+
+**Still stale.** The Remnant armour/mech targets (`remnant_armour_1`–`3`, `remnant_mech_1`–`2`), `remnant_forward_depot` 12780, `remnant_hq_arrive` 19680 and `remnant_hq_win` 25020 in `mvp_targets.json` are not re-measured yet. 25020 stays the HQ-contest limit above. These get re-based in the post-zip tuning pass, once upkeep and fuel are decided.
 
 ## 5. Decisions (2026-10-08)
 
