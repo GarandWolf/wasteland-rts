@@ -1,35 +1,30 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Wasteland.Audio;
 using Wasteland.Sim.Ai;
 using Wasteland.Sim.Events;
-using Wasteland.Sim.Movement;
 using Wasteland.Sim.Scenario;
 using Wasteland.Sim.World;
 
 namespace Wasteland.Presentation
 {
     /// <summary>
-    /// Play-mode clock for the Columbia Gorge AI-vs-AI match.
+    /// Play-mode clock for the Columbia Gorge match.
+    /// The human plays Remnant. The AI plays the Compact.
     /// Each speed runs more <see cref="AiMatchHost.Step"/> calls per frame. The sim tick stays 20 Hz.
     /// </summary>
     public sealed class GorgeListeningHarness : MonoBehaviour
     {
-        public const ulong MatchSeed = 0xC01055A1UL;
+        public const ulong MatchSeed = PlayableMatch.MatchSeed;
         public const int MaxTicksPerFrame = 64;
 
-        // Lengths are not in the .sha256 pins (those files are the hash and the file name).
-        // They match the v1-marsh pair in data/golden/README.md. A pin bump must update both.
-        public const int MainMapBytes = 607152;
-        public const int TerrainMapBytes = 19872744;
+        public const int MainMapBytes = PlayableMatch.MainMapBytes;
+        public const int TerrainMapBytes = PlayableMatch.TerrainMapBytes;
 
-        const string ScenarioId = "columbia_gorge_100mi_mvp";
-        const string LfsMessage =
-            "Git LFS map files are pointer stubs. Run `git lfs pull`. The main map is 607,152 bytes and the terrain is 19,872,744 bytes.";
+        const string ScenarioId = PlayableMatch.ScenarioId;
 
         AiMatchHost _host;
         TacticalMatchBridge _bridge;
@@ -149,22 +144,12 @@ namespace Wasteland.Presentation
 
         void Begin()
         {
-            string root = FindRepoRoot();
-            string json = File.ReadAllText(Path.Combine(root, "data", "balance", "scenarios", ScenarioId + ".json"));
-            string mapName = SimScenario.ExpectedWrmbFileName(JsonString(json, "mapFile"));
-            string golden = Path.Combine(root, "data", "golden");
-            byte[] map = ReadMaterialized(Path.Combine(golden, mapName), MainMapBytes);
-            byte[] terrain = ReadMaterialized(Path.Combine(golden, TerrainSibling(mapName)), TerrainMapBytes);
-            string balanceDir = Path.Combine(root, "data", "balance");
-            SimScenario scenario = SimScenario.Load(json, BalanceCatalog.LoadFromDirectory(balanceDir), map, mapName, ScenarioId);
-            AiBalanceTables balance = AiBalanceTables.FromDirectory(balanceDir);
-            ulong mapKey = MapKey.For(WrmbFile.Parse(map), AiConstants.MapKeySectionTags());
-            _host = AiMatchHost.Start(
-                MatchConfig.Default(MatchSeed).WithKeys(balance.BalanceKey, mapKey),
-                map,
-                new[] { AiConstants.DefaultAiFactionA, AiConstants.DefaultAiFactionB },
-                AiConstants.DifficultyNormal,
-                balance);
+            PlayableMatchBoot boot = PlayableMatch.CreateHost(FindRepoRoot());
+            _host = boot.Host;
+            byte[] map = boot.Map;
+            byte[] terrain = boot.Terrain;
+            SimScenario scenario = boot.Scenario;
+            AiBalanceTables balance = boot.Balance;
             if (_loops == null)
             {
                 _loops = GetComponent<CombatLoopManager>();
@@ -323,7 +308,9 @@ namespace Wasteland.Presentation
             bankProp.objectReferenceValue = bank;
             so.ApplyModifiedPropertiesWithoutUndo();
 #else
-            throw new InvalidOperationException("The combat sound bank is not assigned on the listening object.");
+            // Player builds have no AssetDatabase. SoundPlayer ignores a null bank,
+            // so the match still runs when the bank was not assigned in the scene.
+            return;
 #endif
         }
 
@@ -343,42 +330,5 @@ namespace Wasteland.Presentation
             throw new DirectoryNotFoundException("Could not find scenario " + ScenarioId + ".");
         }
 
-        static string JsonString(string json, string field)
-        {
-            string key = "\"" + field + "\"";
-            int at = json.IndexOf(key, StringComparison.Ordinal);
-            int open = json.IndexOf('"', json.IndexOf(':', at + key.Length) + 1);
-            int close = json.IndexOf('"', open + 1);
-            return json.Substring(open + 1, close - open - 1);
-        }
-
-        static string TerrainSibling(string mapFileName)
-        {
-            int dot = mapFileName.IndexOf('.');
-            return mapFileName.Substring(0, dot) + ".terrain" + mapFileName.Substring(dot);
-        }
-
-        static byte[] ReadMaterialized(string path, int expectedBytes)
-        {
-            byte[] bytes = File.Exists(path) ? File.ReadAllBytes(path) : Array.Empty<byte>();
-            if (bytes.Length != expectedBytes || IsLfsPointer(bytes) || !IsWrmb(bytes))
-            {
-                throw new InvalidOperationException(LfsMessage);
-            }
-
-            return bytes;
-        }
-
-        static bool IsWrmb(byte[] bytes)
-        {
-            return bytes.Length >= 4 && bytes[0] == (byte)'W' && bytes[1] == (byte)'R' && bytes[2] == (byte)'M' && bytes[3] == (byte)'B';
-        }
-
-        static bool IsLfsPointer(byte[] bytes)
-        {
-            const string prefix = "version https://git-lfs.github.com/spec/v1";
-            return bytes.Length >= prefix.Length && bytes.Length < 1024
-                && Encoding.ASCII.GetString(bytes, 0, prefix.Length) == prefix;
-        }
     }
 }
