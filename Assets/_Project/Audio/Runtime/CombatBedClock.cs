@@ -47,7 +47,7 @@ namespace Wasteland.Audio
     /// </summary>
     public sealed class CombatBedClock
     {
-        public const int HoldTicks = 40;
+        public const int HoldTicks = 80;
         public const float ReleaseFadeSeconds = 1.5f;
         public const int SharedBedRadiusCm = 300000;
         public const int VoiceCap = 3;

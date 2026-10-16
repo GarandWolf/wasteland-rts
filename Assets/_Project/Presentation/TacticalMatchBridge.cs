@@ -48,6 +48,9 @@ namespace Wasteland.Presentation
         bool _groundSet;
         readonly UnderAttackAlerts _attacks = new UnderAttackAlerts();
         readonly BattalionContactWatch _contact = new BattalionContactWatch();
+        readonly HpLossWatch _hits = new HpLossWatch();
+        readonly Dictionary<int, int> _hitBedIds = new Dictionary<int, int>();
+        readonly HashSet<int> _hitBedsThisTick = new HashSet<int>();
         readonly ResearchTrack _research = new ResearchTrack();
         readonly ResearchCueGate _researchCue = new ResearchCueGate();
         readonly HqOutcomeGate _outcome = new HqOutcomeGate();
@@ -186,6 +189,17 @@ namespace Wasteland.Presentation
                 return;
             }
 
+            if (kind == (int)SimEventKind.BattalionDestroyed)
+            {
+                float deathVolume = DeathCue.Volume(_hasHuman, _humanSeat, ev.AuxId);
+                if (_sounds != null && deathVolume > 0f)
+                {
+                    _sounds.Play(SoundCue.TownLost, deathVolume);
+                }
+
+                return;
+            }
+
             if (kind == (int)SimEventKind.TownContestStarted)
             {
                 NoteTownAttack(ev);
@@ -214,6 +228,7 @@ namespace Wasteland.Presentation
                 return;
             }
 
+            ScanHits();
             _clock.ApplyTick(_tick, _pending.ToArray());
             _pending.Clear();
             Publish();
@@ -351,7 +366,8 @@ namespace Wasteland.Presentation
                     Selected = battalion.Id == _selectedUnit,
                     Owner = MarkerArt.OwnerColor(battalion.OwnerId, FactionKey(world, battalion.OwnerId)),
                     Glyph = glyph,
-                    Label = unitId
+                    Label = unitId,
+                    Flash = _hits.Flash(battalion.Id, world.Tick)
                 };
                 written++;
             }
@@ -891,6 +907,62 @@ namespace Wasteland.Presentation
             {
                 RaiseAlert(alert);
             }
+        }
+
+        /// <summary>
+        /// Once per sim tick. Auto-fire never sets <c>AttackTargetId</c>, so a loss of
+        /// hit points is the contact signal: the marker flashes (both sides), the combat
+        /// bed starts at the hit and holds <see cref="CombatBedClock.HoldTicks"/> after
+        /// the last hit, and a human loss raises the under-attack alert once per area
+        /// per <see cref="UnderAttackAlerts.AreaCooldownTicks"/>.
+        /// </summary>
+        void ScanHits()
+        {
+            if (_world == null)
+            {
+                return;
+            }
+
+            int tick = _world.Tick;
+            _hitBedsThisTick.Clear();
+            _hits.BeginScan();
+            for (int i = 0; i < _world.Battalions.Count; i++)
+            {
+                SimBattalion battalion = _world.Battalions[i];
+                if (battalion.Hp <= 0 || !_hits.Sample(tick, battalion.Id, battalion.Hp))
+                {
+                    continue;
+                }
+
+                int area = CombatArea.Key(
+                    _map == null ? 0 : _map.LandTerritoryAt(battalion.PositionXCm, battalion.PositionYCm),
+                    battalion.PositionXCm,
+                    battalion.PositionYCm);
+                int bedId;
+                if (!_hitBedIds.TryGetValue(area, out bedId))
+                {
+                    // Negative ids keep hit beds apart from town contest beds.
+                    bedId = -1 - _hitBedIds.Count;
+                    _hitBedIds[area] = bedId;
+                }
+
+                if (_hitBedsThisTick.Add(bedId))
+                {
+                    _pending.Add(new BedEvent(CombatContestEvents.Started, bedId, battalion.PositionXCm, battalion.PositionYCm));
+                    _pending.Add(new BedEvent(CombatContestEvents.Ended, bedId, battalion.PositionXCm, battalion.PositionYCm));
+                }
+
+                if (_hasHuman && battalion.OwnerId == _humanSeat)
+                {
+                    UnderAttackAlert alert;
+                    if (_attacks.TryHit(tick, area, battalion.PositionXCm, battalion.PositionYCm, true, FactionRgb(_humanSeat), out alert))
+                    {
+                        RaiseAlert(alert);
+                    }
+                }
+            }
+
+            _hits.EndScan();
         }
 
         void WatchBattles(SimWorld world)

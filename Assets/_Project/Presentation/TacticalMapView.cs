@@ -26,6 +26,9 @@ namespace Wasteland.Presentation
         public Rgb Owner;
         public BattalionGlyph Glyph;
         public string Label;
+
+        /// <summary>0 = normal, 1 = full white. Set while the battalion is taking fire.</summary>
+        public float Flash;
     }
 
     public struct AlertRingMark
@@ -175,6 +178,12 @@ namespace Wasteland.Presentation
             for (int i = 0; i < _unitMarkers.Length; i++)
             {
                 BattalionMarker unit = _unitMarkers[i];
+                Color unitColor = ToColor(unit.Owner);
+                if (unit.Flash > 0f)
+                {
+                    unitColor = Color.Lerp(unitColor, Color.white, Mathf.Clamp01(unit.Flash));
+                }
+
                 unitsBatch.Quad(
                     Flat(unit.XCm, unit.YCm, BattalionY),
                     MarkerArt.BattalionWidthPx * 0.5f,
@@ -186,8 +195,8 @@ namespace Wasteland.Presentation
                     0f,
                     0f,
                     (float)unit.Glyph,
-                    ToColor(unit.Owner),
-                    ToColor(unit.Owner));
+                    unitColor,
+                    unitColor);
                 if (unit.Selected)
                 {
                     float pad = SelectionOutline.PadPx;
