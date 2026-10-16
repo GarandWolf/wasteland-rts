@@ -60,6 +60,9 @@ namespace Wasteland.Presentation
         int _jumpX;
         int _jumpY;
         bool _jumpReady;
+        float _panelHeight = PanelDefaultHeight;
+
+        const float PanelDefaultHeight = 420f;
 
         public bool BedActive
         {
@@ -391,7 +394,15 @@ namespace Wasteland.Presentation
                 return;
             }
 
+            // Dark backing so the default skin's light text reads on the tan ground.
+            // Height is last frame's measured content height (GetLastRect is only valid in Repaint).
+            Color previousColor = GUI.color;
+            GUI.color = new Color(0.12f, 0.12f, 0.11f, 0.9f);
+            GUI.DrawTexture(new Rect(4f, 100f, 436f, _panelHeight + 16f), Texture2D.whiteTexture);
+            GUI.color = previousColor;
+
             GUILayout.BeginArea(new Rect(12f, 108f, 420f, 420f));
+            GUILayout.BeginVertical();
             if (!_orders.HasHuman)
             {
                 GUILayout.Label("No human seat. Player orders are not sent.");
@@ -457,6 +468,16 @@ namespace Wasteland.Presentation
             if (_jumpReady && GUILayout.Button("Under attack"))
             {
                 JumpToAlert();
+            }
+
+            GUILayout.EndVertical();
+            if (Event.current.type == EventType.Repaint)
+            {
+                Rect content = GUILayoutUtility.GetLastRect();
+                if (content.height > 0f)
+                {
+                    _panelHeight = Mathf.Min(content.yMax, PanelDefaultHeight);
+                }
             }
 
             GUILayout.EndArea();
