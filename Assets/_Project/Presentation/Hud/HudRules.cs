@@ -130,6 +130,150 @@ namespace Wasteland.Presentation
     }
 
     /// <summary>
+    /// Area key for hit alerts: the land territory under the point (read from the
+    /// loaded map), or a coarse map-space grid cell where there is none. No ids are
+    /// hard-coded.
+    /// </summary>
+    public static class CombatArea
+    {
+        public const int GridCellCm = 1000000;
+
+        public static int Key(int territoryId, int xCm, int yCm)
+        {
+            if (territoryId > 0)
+            {
+                return territoryId;
+            }
+
+            int cx = FloorDiv(xCm, GridCellCm) & 0x7FFF;
+            int cy = FloorDiv(yCm, GridCellCm) & 0x7FFF;
+            return -1 - ((cy << 15) | cx);
+        }
+
+        static int FloorDiv(int value, int divisor)
+        {
+            int q = value / divisor;
+            if (value % divisor != 0 && value < 0)
+            {
+                q--;
+            }
+
+            return q;
+        }
+    }
+
+    public readonly struct HpHit
+    {
+        public readonly int Id;
+        public readonly int OwnerId;
+        public readonly int XCm;
+        public readonly int YCm;
+
+        public HpHit(int id, int ownerId, int xCm, int yCm)
+        {
+            Id = id;
+            OwnerId = ownerId;
+            XCm = xCm;
+            YCm = yCm;
+        }
+    }
+
+    /// <summary>
+    /// Per-tick hit point watch over every live battalion, both sides. Combat
+    /// fire does not set <c>AttackTargetId</c>, so a loss of hit points is the
+    /// presentation's contact signal. The first sample of a battalion is a baseline.
+    /// A hit flashes the marker toward white for <see cref="FlashTicks"/> ticks,
+    /// and every hit is drawn at least once even at high sim speed.
+    /// </summary>
+    public sealed class HpLossWatch
+    {
+        public const int FlashTicks = 6;
+
+        readonly Dictionary<int, int> _hp = new Dictionary<int, int>();
+        readonly Dictionary<int, int> _hitTick = new Dictionary<int, int>();
+        readonly HashSet<int> _undrawn = new HashSet<int>();
+        readonly HashSet<int> _seen = new HashSet<int>();
+        readonly List<int> _stale = new List<int>();
+
+        public void BeginScan()
+        {
+            _seen.Clear();
+        }
+
+        /// <summary>True when this live battalion lost hit points since its last sample.</summary>
+        public bool Sample(int tick, int id, int hp)
+        {
+            _seen.Add(id);
+            int previous;
+            bool hit = _hp.TryGetValue(id, out previous) && hp < previous;
+            _hp[id] = hp;
+            if (hit)
+            {
+                _hitTick[id] = tick;
+                _undrawn.Add(id);
+            }
+
+            return hit;
+        }
+
+        /// <summary>Forgets battalions that were not sampled since <see cref="BeginScan"/>.</summary>
+        public void EndScan()
+        {
+            _stale.Clear();
+            foreach (KeyValuePair<int, int> pair in _hp)
+            {
+                if (!_seen.Contains(pair.Key))
+                {
+                    _stale.Add(pair.Key);
+                }
+            }
+
+            for (int i = 0; i < _stale.Count; i++)
+            {
+                _hp.Remove(_stale[i]);
+                _hitTick.Remove(_stale[i]);
+                _undrawn.Remove(_stale[i]);
+            }
+        }
+
+        /// <summary>0 = no flash, 1 = full white. Marks the hit as drawn.</summary>
+        public float Flash(int id, int tick)
+        {
+            int hitTick;
+            if (!_hitTick.TryGetValue(id, out hitTick))
+            {
+                return 0f;
+            }
+
+            bool undrawn = _undrawn.Remove(id);
+            int age = tick - hitTick;
+            if (age >= 0 && age < FlashTicks)
+            {
+                return 1f - (age / (float)FlashTicks);
+            }
+
+            return undrawn ? 1f : 0f;
+        }
+    }
+
+    /// <summary>
+    /// Battalion destroyed (sim event 15). Reuses the existing CC0 placeholder
+    /// <see cref="CueFile"/>; no new asset. Plays only for the human's own loss;
+    /// enemy and neutral deaths are silent (the hit flash shows them).
+    /// </summary>
+    public static class DeathCue
+    {
+        public const string CueFile = "town_lost.wav";
+        public const float OwnVolume = 0.7f;
+        public const float OtherVolume = 0f;
+
+        public static float Volume(bool hasHuman, int humanSeat, int ownerId)
+        {
+            return hasHuman && ownerId == humanSeat ? OwnVolume : OtherVolume;
+        }
+    }
+
+    /// <summary>
     /// One alert when the human seat is attacked. Towns wait
     /// <see cref="CooldownTicks"/> between cues. The HQ does not wait.
     /// A spectator match stays silent.
@@ -142,6 +286,27 @@ namespace Wasteland.Presentation
 
         readonly Dictionary<int, int> _towns = new Dictionary<int, int>();
         readonly Dictionary<int, int> _battalions = new Dictionary<int, int>();
+        readonly Dictionary<int, int> _areas = new Dictionary<int, int>();
+
+        /// <summary>One battalion-hit alert per area per 10 seconds (200 ticks at 20 Hz).</summary>
+        public const int AreaCooldownTicks = 200;
+
+        /// <summary>
+        /// A human battalion lost hit points. <paramref name="areaKey"/> comes from
+        /// <see cref="CombatArea.Key"/>. Does not need the attacker's
+        /// <c>AttackTargetId</c>: auto-fire never sets it.
+        /// </summary>
+        public bool TryHit(
+            int tick,
+            int areaKey,
+            int xCm,
+            int yCm,
+            bool humanSeat,
+            Rgb faction,
+            out UnderAttackAlert alert)
+        {
+            return Try(_areas, AreaCooldownTicks, tick, areaKey, false, xCm, yCm, humanSeat, faction, out alert);
+        }
 
         public bool TryTown(
             int tick,
@@ -153,7 +318,7 @@ namespace Wasteland.Presentation
             Rgb faction,
             out UnderAttackAlert alert)
         {
-            return Try(_towns, tick, townId, hq, xCm, yCm, humanSeat, faction, out alert);
+            return Try(_towns, CooldownTicks, tick, townId, hq, xCm, yCm, humanSeat, faction, out alert);
         }
 
         public bool TryBattalion(
@@ -165,11 +330,12 @@ namespace Wasteland.Presentation
             Rgb faction,
             out UnderAttackAlert alert)
         {
-            return Try(_battalions, tick, battalionId, false, xCm, yCm, humanSeat, faction, out alert);
+            return Try(_battalions, CooldownTicks, tick, battalionId, false, xCm, yCm, humanSeat, faction, out alert);
         }
 
         bool Try(
             Dictionary<int, int> last,
+            int cooldownTicks,
             int tick,
             int subjectId,
             bool bypass,
@@ -186,7 +352,7 @@ namespace Wasteland.Presentation
             }
 
             int previous;
-            if (!bypass && last.TryGetValue(subjectId, out previous) && tick - previous < CooldownTicks)
+            if (!bypass && last.TryGetValue(subjectId, out previous) && tick - previous < cooldownTicks)
             {
                 return false;
             }
