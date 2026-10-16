@@ -65,9 +65,9 @@ namespace Wasteland.Presentation.Tests
         [Fact]
         public void DeathCue_ReusesPlaceholder_LouderForOwnLoss()
         {
-            Assert.Equal(1f, DeathCue.Volume(true, 1, 1));
-            Assert.Equal(0.6f, DeathCue.Volume(true, 1, 2));
-            Assert.Equal(0.6f, DeathCue.Volume(false, 1, 1));
+            Assert.Equal(0.7f, DeathCue.Volume(true, 1, 1));
+            Assert.Equal(0f, DeathCue.Volume(true, 1, 2));
+            Assert.Equal(0f, DeathCue.Volume(false, 1, 1));
             Assert.True(File.Exists(Path.Combine(FindRepoRoot(), "Assets", "_Project", "Audio", "Placeholder", DeathCue.CueFile)));
         }
 
@@ -102,7 +102,8 @@ namespace Wasteland.Presentation.Tests
                         if (events[cursor].Kind == SimEventKind.BattalionDestroyed)
                         {
                             deaths++;
-                            Assert.True(DeathCue.Volume(true, human, events[cursor].AuxId) > 0f);
+                            float v = DeathCue.Volume(true, human, events[cursor].AuxId);
+                            Assert.True(events[cursor].AuxId == human ? v > 0f : v == 0f);
                         }
                     }
 

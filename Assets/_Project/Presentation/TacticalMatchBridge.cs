@@ -188,9 +188,10 @@ namespace Wasteland.Presentation
 
             if (kind == (int)SimEventKind.BattalionDestroyed)
             {
-                if (_sounds != null)
+                float deathVolume = DeathCue.Volume(_hasHuman, _humanSeat, ev.AuxId);
+                if (_sounds != null && deathVolume > 0f)
                 {
-                    _sounds.Play(SoundCue.TownLost, DeathCue.Volume(_hasHuman, _humanSeat, ev.AuxId));
+                    _sounds.Play(SoundCue.TownLost, deathVolume);
                 }
 
                 return;

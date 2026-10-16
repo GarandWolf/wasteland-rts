@@ -258,14 +258,14 @@ namespace Wasteland.Presentation
 
     /// <summary>
     /// Battalion destroyed (sim event 15). Reuses the existing CC0 placeholder
-    /// <see cref="CueFile"/>; no new asset. Full volume for the human's own loss,
-    /// quieter for anyone else's.
+    /// <see cref="CueFile"/>; no new asset. Plays only for the human's own loss;
+    /// enemy and neutral deaths are silent (the hit flash shows them).
     /// </summary>
     public static class DeathCue
     {
         public const string CueFile = "town_lost.wav";
-        public const float OwnVolume = 1f;
-        public const float OtherVolume = 0.6f;
+        public const float OwnVolume = 0.7f;
+        public const float OtherVolume = 0f;
 
         public static float Volume(bool hasHuman, int humanSeat, int ownerId)
         {

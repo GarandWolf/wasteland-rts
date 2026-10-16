@@ -41,16 +41,16 @@ namespace Wasteland.Presentation.Tests
         }
 
         [Fact]
-        public void HoldLastsFortyTicks_ThenTheBedLeavesForTheFade()
+        public void HoldLastsHoldTicks_ThenTheBedLeavesForTheFade()
         {
             CombatBedClock clock = new CombatBedClock();
             clock.ApplyTick(11, new[] { Start(3, 0, 0) });
             clock.ApplyTick(11, new[] { End(3, 0, 0) });
             Assert.True(clock.IsAudible(3));
 
-            clock.ApplyTick(50, new BedEvent[0]);
+            clock.ApplyTick(11 + CombatBedClock.HoldTicks - 1, new BedEvent[0]);
             Assert.True(clock.IsAudible(3));
-            clock.ApplyTick(51, new BedEvent[0]);
+            clock.ApplyTick(11 + CombatBedClock.HoldTicks, new BedEvent[0]);
             Assert.False(clock.IsAudible(3));
             Assert.Equal(1.5f, CombatBedClock.FadeSeconds(1f, 0f, 0.2f));
             Assert.Equal(0.2f, CombatBedClock.FadeSeconds(0f, 1f, 0.2f));
